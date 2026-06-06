@@ -1,6 +1,6 @@
 import { runAgent } from '../agent'
 import { createProject, deleteProject, formatUpdatedAt, getCurrentProjectId, getProject, listProjects, saveProject, setCurrentProjectId } from '../projects'
-import { mountProject, readProjectFilesFromWebContainer, runInstall, startDevServer, writeProjectFile } from '../webcontainer'
+import { mountProject, readProjectFilesFromWebContainer, runInstall, startDevServer, writeProjectFile, readProjectFile } from '../webcontainer'
 import type { AppEffect, AppMsg, AppState } from '../store'
 import { starterFiles } from '../templates'
 
@@ -46,6 +46,8 @@ export async function interpretEffect(effect: AppEffect, dispatch: Dispatch, get
           storage.setItem('agent-provider', effect.payload.provider)
           storage.setItem('openrouter-key', effect.payload.apiKey.trim())
           storage.setItem('ollama-url', effect.payload.ollamaUrl.trim())
+          storage.setItem('scoutos-key', effect.payload.scoutosApiKey.trim())
+          storage.setItem('scoutos-url', effect.payload.scoutosBaseUrl.trim())
           storage.setItem('agent-model', effect.payload.model.trim())
           return
         }
@@ -182,7 +184,34 @@ export async function interpretEffect(effect: AppEffect, dispatch: Dispatch, get
           activeRequestId = effect.payload.requestId
           activeTimeout = setTimeout(() => controller.abort(), 300_000)
           try {
-            const result = await runAgent({ provider: effect.payload.provider, apiKey: effect.payload.apiKey, ollamaUrl: effect.payload.ollamaUrl, model: effect.payload.model, userPrompt: effect.payload.userPrompt, files: effect.payload.files, messages: effect.payload.messages, selectedElement: effect.payload.selectedElement, elementComment: effect.payload.elementComment, signal: controller.signal })
+            const wcApi = effect.payload.provider === 'scoutos'
+              ? {
+                  writeProjectFile,
+                  readProjectFile,
+                  runCommand: async (command: string, _timeout?: number) => {
+                    const wc = await import('../webcontainer').then(m => m.bootWebContainer())
+                    const proc = await wc.spawn('jsh', ['-c', command])
+                    let output = ''
+                    proc.output.pipeTo(new WritableStream({ write: chunk => { output += String(chunk) } }))
+                    const exitCode = await proc.exit
+                    return { exitCode, output }
+                  },
+                  listFiles: async (path = '.') => {
+                    const wc = await import('../webcontainer').then(m => m.bootWebContainer())
+                    const entries = await wc.fs.readdir(path, { withFileTypes: true })
+                    return entries.map(e => e.name)
+                  },
+                  installPackage: async (pkg: string) => {
+                    const wc = await import('../webcontainer').then(m => m.bootWebContainer())
+                    const proc = await wc.spawn('npm', ['install', pkg])
+                    let output = ''
+                    proc.output.pipeTo(new WritableStream({ write: chunk => { output += String(chunk) } }))
+                    const exitCode = await proc.exit
+                    return { exitCode, output }
+                  },
+                }
+              : undefined
+            const result = await runAgent({ provider: effect.payload.provider, apiKey: effect.payload.apiKey, ollamaUrl: effect.payload.ollamaUrl, scoutosApiKey: effect.payload.scoutosApiKey, scoutosBaseUrl: effect.payload.scoutosBaseUrl, model: effect.payload.model, userPrompt: effect.payload.userPrompt, files: effect.payload.files, messages: effect.payload.messages, selectedElement: effect.payload.selectedElement, elementComment: effect.payload.elementComment, signal: controller.signal, webcontainerApi: wcApi })
             dispatch({ type: 'agent', msg: { type: 'agent_request_succeeded', requestId: effect.payload.requestId, reply: result.reply, patches: result.patches } })
           } catch (error) {
             const raw = error instanceof DOMException && error.name === 'AbortError' ? 'Request canceled or timed out after 5 minutes.' : errorMessage(error)

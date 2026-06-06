@@ -3,11 +3,13 @@ import build/actors/settings
 pub fn interpret(effect: settings.Effect) -> Nil {
   case effect {
     settings.LoadSettings -> load_settings()
-    settings.PersistSettings(provider, api_key, ollama_url, model) ->
+    settings.PersistSettings(provider, api_key, ollama_url, scoutos_api_key, scoutos_base_url, model) ->
       persist_settings(
         settings.provider_to_string(provider),
         api_key,
         ollama_url,
+        scoutos_api_key,
+        scoutos_base_url,
         model,
       )
     settings.TestOllamaConnection(url) -> test_ollama_connection(url)
@@ -22,6 +24,8 @@ fn persist_settings(
   provider: String,
   api_key: String,
   ollama_url: String,
+  scoutos_api_key: String,
+  scoutos_base_url: String,
   model: String,
 ) -> Nil
 

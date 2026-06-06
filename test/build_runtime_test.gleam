@@ -9,7 +9,14 @@ pub fn main() -> Nil {
 }
 
 pub fn runtime_interprets_settings_effect_test() {
-  assert runtime.interpret(effect.Settings(settings.PersistSettings(settings.OpenRouter, "key", "http://localhost:11434", "model"))) == Nil
+  assert runtime.interpret(effect.Settings(settings.PersistSettings(
+    provider: settings.OpenRouter,
+    api_key: "key",
+    ollama_url: "http://localhost:11434",
+    scoutos_api_key: "",
+    scoutos_base_url: "https://api.scoutos.com",
+    model: "model",
+  ))) == Nil
 }
 
 pub fn runtime_interprets_preview_effect_test() {

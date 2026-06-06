@@ -1,13 +1,15 @@
 import { designGuidancePrompt } from './design-guidance'
 import { buildSelectedElementPrompt, type SelectedPreviewElement } from './preview-inspector'
 import type { ProjectFile } from './templates'
+import { scoutosAtomsRequest, followUpWithToolResults } from './scoutos-client'
+import { executeBuildTool, BUILD_TOOL_SCHEMAS } from './build-tools'
 
 export type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string }
-export type AgentProvider = 'ollama' | 'openrouter'
+export type AgentProvider = 'ollama' | 'openrouter' | 'scoutos'
 export type AgentPatch = { path: string; content: string }
 export type AgentResult = { reply: string; patches: AgentPatch[] }
 
-const SYSTEM_PROMPT = `You are an app-building agent inside a browser-only StackBlitz WebContainer.
+const JSON_SYSTEM_PROMPT = `You are an app-building agent inside a browser-only StackBlitz WebContainer.
 Return ONLY valid JSON with this exact shape: {"reply":"short user-facing summary","patches":[{"path":"src/main.tsx","content":"full file content"}]}.
 Rules:
 - Modify files by returning full replacement contents.
@@ -24,10 +26,64 @@ Design guidance:
 ${designGuidancePrompt()}
 `
 
+const SCOUTOS_SYSTEM_PROMPT = `You are an app-building agent inside a browser-only StackBlitz WebContainer.
+Your ONLY output mechanism is atoms. You MUST NOT embed file contents, JSON patches, or code blocks inside text_delta or final_answer text.
+
+## CRITICAL RULES — FOLLOW EXACTLY
+
+1. You MUST use write_file tool_intent to create or modify files. Emit one tool_intent per file.
+2. You MUST use read_file tool_intent to inspect existing files before modifying them.
+3. You MUST use run_command tool_intent to execute shell commands (e.g. npm install).
+4. You MUST use install_package tool_intent to add npm dependencies.
+5. You MUST use list_files tool_intent to explore the project structure.
+6. You MUST use text_delta for brief user-facing explanations ONLY — never put code, file paths, or JSON inside text_delta.
+7. You MUST emit final_answer when you are done with all file operations. The final_answer must be a short human-readable summary, NOT code, NOT JSON, NOT file contents.
+8. You MUST NOT embed file contents in text_delta or final_answer.
+9. You MUST NOT return JSON patches or markdown code fences as text.
+10. You MUST NOT describe what you would do — actually emit the tool_intent atoms.
+
+## AVAILABLE TOOLS
+
+${BUILD_TOOL_SCHEMAS.map(s => `- ${s.name}: ${s.description}\n  Parameters: ${JSON.stringify(s.parameters.properties)}`).join('\n')}
+
+## EXAMPLE — What a good response looks like
+
+When the user asks "Build a hello world counter app", you emit atoms in this order:
+
+1. text_delta: "Building a Vite + React counter app..."
+2. tool_intent (write_file): path="src/App.tsx", content="import { useState } from 'react'\nexport default function App() {\n  const [count, setCount] = useState(0)\n  return <button onClick={() => setCount(c => c + 1)}>Count: {count}</button>\n}"
+3. tool_intent (write_file): path="src/main.tsx", content="import React from 'react'\nimport ReactDOM from 'react-dom/client'\nimport App from './App'\nReactDOM.createRoot(document.getElementById('root')!).render(<App />)"
+4. text_delta: "Done! The counter app is ready."
+5. final_answer: "I've built a simple React counter app with Vite. Click the button to increment the count."
+
+## DO NOT
+
+- DO NOT put code inside triple backticks in text_delta or final_answer.
+- DO NOT say "Here's the code:" followed by a code block.
+- DO NOT return a JSON object with { reply, patches } in text.
+- DO NOT describe the file contents in prose instead of emitting write_file.
+- DO NOT emit markdown. Only atoms.
+
+## TECHNOLOGY PREFERENCES
+
+- Prefer Vite + React + TypeScript.
+- Use @electric-sql/pglite for local browser databases.
+- Do not use native Node modules, server-only packages, Docker, or external databases.
+- Keep changes small, coherent, and runnable.
+- If changing dependencies, replace package.json too.
+- Preserve src/build-inspector.ts and the './build-inspector' import unless the user explicitly asks to remove Build preview selection.
+- Apply the bundled design guidance unless the user asks for a different brand or visual direction.
+
+Design guidance:
+${designGuidancePrompt()}
+`
+
 type AgentArgs = {
   provider: AgentProvider
   apiKey?: string
   ollamaUrl?: string
+  scoutosApiKey?: string
+  scoutosBaseUrl?: string
   model: string
   userPrompt: string
   files: ProjectFile[]
@@ -35,6 +91,15 @@ type AgentArgs = {
   selectedElement?: SelectedPreviewElement
   elementComment?: string
   signal?: AbortSignal
+  webcontainerApi?: WebContainerApi
+}
+
+export type WebContainerApi = {
+  writeProjectFile: (path: string, content: string) => Promise<void>
+  readProjectFile: (path: string) => Promise<string | undefined>
+  runCommand: (command: string, timeout?: number) => Promise<{ exitCode: number; output: string }>
+  listFiles: (path?: string) => Promise<string[]>
+  installPackage: (pkg: string) => Promise<{ exitCode: number; output: string }>
 }
 
 type ModelMessage = { role: 'system' | 'user' | 'assistant'; content: string }
@@ -83,20 +148,20 @@ function findJsonObject(text: string) {
   throw new Error('Agent response contained an incomplete JSON object')
 }
 
-function messagesWithContext(args: AgentArgs): ModelMessage[] {
+function messagesWithContext(args: AgentArgs, systemPrompt: string): ModelMessage[] {
   const selectedElementContext = args.selectedElement && args.elementComment
     ? `\n\n${buildSelectedElementPrompt({ comment: args.elementComment, element: args.selectedElement })}`
     : ''
   return [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: systemPrompt },
     ...args.messages.slice(-8),
     { role: 'user', content: `Current project files:\n${projectContext(args.files)}\n\nUser request: ${args.userPrompt}${selectedElementContext}` },
   ]
 }
 
-function repairMessages(args: AgentArgs, badContent: string, error: unknown): ModelMessage[] {
+function repairMessages(args: AgentArgs, badContent: string, error: unknown, systemPrompt: string): ModelMessage[] {
   return [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: systemPrompt },
     {
       role: 'user',
       content: `Your previous response could not be parsed as the required JSON object.\n\nParse error:\n${error instanceof Error ? error.message : String(error)}\n\nOriginal user request:\n${args.userPrompt}\n\nCurrent project files:\n${projectContext(args.files)}\n\nInvalid response to repair:\n${badContent}\n\nReturn ONLY valid JSON with exactly {"reply": string, "patches": [{"path": string, "content": string}]}.`,
@@ -105,18 +170,119 @@ function repairMessages(args: AgentArgs, badContent: string, error: unknown): Mo
 }
 
 export async function runAgent(args: AgentArgs): Promise<AgentResult> {
-  const messages = messagesWithContext(args)
+  if (args.provider === 'scoutos') {
+    return runScoutOSAgent(args)
+  }
+
+  const messages = messagesWithContext(args, JSON_SYSTEM_PROMPT)
   const content = await requestModelContent(args, messages)
   try {
     return extractJson(content)
   } catch (error) {
-    const repaired = await requestModelContent(args, repairMessages(args, content, error))
+    const repaired = await requestModelContent(args, repairMessages(args, content, error, JSON_SYSTEM_PROMPT))
     return extractJson(repaired)
   }
 }
 
+// ── ScoutOS Atoms Streaming + Tool Loop ───────────────────────
+
+async function runScoutOSAgent(args: AgentArgs): Promise<AgentResult> {
+  const apiKey = args.scoutosApiKey?.trim()
+  if (!apiKey) throw new Error('ScoutOS API key is required for the ScoutOS provider')
+  const baseUrl = (args.scoutosBaseUrl || 'https://api.scoutos.com').replace(/\/$/, '')
+
+  const wcApi = args.webcontainerApi
+  if (!wcApi) throw new Error('WebContainer API is required for ScoutOS provider')
+
+  const systemPrompt = SCOUTOS_SYSTEM_PROMPT
+  const selectedElementContext = args.selectedElement && args.elementComment
+    ? `\n\n${buildSelectedElementPrompt({ comment: args.elementComment, element: args.selectedElement })}`
+    : ''
+  const instructions = `${systemPrompt}\n\nCurrent project files:\n${projectContext(args.files)}\n\nUser request: ${args.userPrompt}${selectedElementContext}`
+
+  let reply = ''
+  const patches: AgentPatch[] = []
+
+  const contextMessages = args.messages.slice(-8).map(m => ({
+    id: crypto.randomUUID?.() ?? String(Math.random()),
+    role: m.role === 'system' ? 'assistant' : m.role,
+    content: m.content,
+  }))
+
+  // Initial atoms request
+  let result = await scoutosAtomsRequest({
+    baseUrl,
+    apiKey,
+    instructions,
+    context: { messages: contextMessages },
+    model: args.model,
+    tools: BUILD_TOOL_SCHEMAS.map(s => s.name),
+    signal: args.signal,
+  })
+
+  if (result instanceof Error) throw result
+
+  reply = result.finalAnswer ?? result.reply
+
+  // Collect patches from initial write_file intents
+  for (const intent of result.toolIntents) {
+    if (intent.tool_name === 'write_file') {
+      const path = (intent.input_data.path as string) ?? ''
+      const content = (intent.input_data.content as string) ?? ''
+      if (path) patches.push({ path, content })
+    }
+  }
+
+  // Tool loop: execute non-write_file tools and follow up (max 10 iterations)
+  for (let iteration = 0; iteration < 10; iteration++) {
+    const actionableIntents = result.toolIntents.filter(
+      intent => intent.tool_name !== 'write_file'
+    )
+    if (actionableIntents.length === 0) break
+
+    const toolResults: import('./atoms-protocol').ToolResult[] = []
+    for (const intent of actionableIntents) {
+      const toolResult = await executeBuildTool(
+        intent.tool_name as import('./build-tools').BuildToolName,
+        intent.input_data as never,
+        wcApi,
+      )
+      toolResults.push({
+        id: intent.id,
+        tool_name: intent.tool_name,
+        input_data: intent.input_data,
+        result: toolResult.ok ? toolResult.data : { error: toolResult.error },
+      })
+    }
+
+    const followUp = await followUpWithToolResults({
+      baseUrl,
+      apiKey,
+      instructions,
+      context: { messages: contextMessages },
+      toolResults,
+      model: args.model,
+      tools: BUILD_TOOL_SCHEMAS.map(s => s.name),
+      signal: args.signal,
+    })
+
+    if (followUp instanceof Error) throw followUp
+
+    result = {
+      reply: followUp.reply,
+      toolIntents: [], // follow-up doesn't return new tool intents in this protocol
+      finalAnswer: followUp.finalAnswer,
+    }
+
+    reply = followUp.finalAnswer ?? followUp.reply
+  }
+
+  return { reply, patches }
+}
+
 async function requestModelContent(args: AgentArgs, messages: ModelMessage[]) {
-  return args.provider === 'ollama' ? requestOllamaContent(args, messages) : requestOpenRouterContent(args, messages)
+  if (args.provider === 'ollama') return requestOllamaContent(args, messages)
+  return requestOpenRouterContent(args, messages)
 }
 
 async function requestOllamaContent(args: AgentArgs, messages: ModelMessage[]) {

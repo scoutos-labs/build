@@ -33,6 +33,8 @@ pub type Effect {
     provider: settings.Provider,
     api_key: String,
     ollama_url: String,
+    scoutos_api_key: String,
+    scoutos_base_url: String,
     model: String,
     user_prompt: String,
     files: List(ProjectFile),

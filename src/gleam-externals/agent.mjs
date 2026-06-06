@@ -30,14 +30,14 @@ function normalizeSelectedElement(option) {
   }
 }
 
-export async function callAgent(requestId, provider, model, userPrompt, apiKey = '', ollamaUrl = '', files, messages, selectedElement, elementComment = '') {
+export async function callAgent(requestId, provider, model, userPrompt, apiKey = '', ollamaUrl = '', scoutosApiKey = '', scoutosBaseUrl = '', files, messages, selectedElement, elementComment = '') {
   const { runAgent } = await agentModule()
   const controller = new AbortController()
   activeController = controller
   activeRequestId = requestId
   activeTimeout = setTimeout(() => controller.abort(), 300_000)
   try {
-    const result = await runAgent({ provider, apiKey, ollamaUrl, model, userPrompt, files: normalizeFiles(files), messages: normalizeMessages(messages), selectedElement: normalizeSelectedElement(selectedElement), elementComment, signal: controller.signal })
+    const result = await runAgent({ provider, apiKey, ollamaUrl, scoutosApiKey, scoutosBaseUrl, model, userPrompt, files: normalizeFiles(files), messages: normalizeMessages(messages), selectedElement: normalizeSelectedElement(selectedElement), elementComment, signal: controller.signal })
     dispatchAgentSucceeded(requestId, result.reply, result.patches)
   } catch (error) {
     const raw = error instanceof DOMException && error.name === 'AbortError' ? 'Request canceled or timed out after 5 minutes.' : message(error)

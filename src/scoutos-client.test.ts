@@ -11,7 +11,7 @@ afterEach(() => {
 
 function buildSseResponse(events: string[], status = 200) {
   const encoder = new TextEncoder()
-  const chunks = events.map((e) => encoder.encode(`${e}\n\n`))
+  const chunks = events.map((e) => encoder.encode(e + "\n\n"))
   return new Response(
     new ReadableStream({
       start(controller) {

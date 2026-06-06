@@ -138,7 +138,7 @@ async function parseAtomsStream(
 
   try {
     await readSseStream(response, (sseEvent) => {
-      if (sseEvent.event !== 'message') return
+      if (sseEvent.event !== 'message' && sseEvent.event !== 'atom') return
       let atom: AtomEvent | undefined
       try {
         atom = JSON.parse(sseEvent.data) as AtomEvent
@@ -168,7 +168,7 @@ async function parseAtomsStream(
   }
 
   return {
-    reply: textParts.join(''),
+    reply: textParts.join('') || finalAnswer || '',
     toolIntents,
     finalAnswer,
   }
@@ -182,7 +182,7 @@ async function parseFollowUpStream(
 
   try {
     await readSseStream(response, (sseEvent) => {
-      if (sseEvent.event !== 'message') return
+      if (sseEvent.event !== 'message' && sseEvent.event !== 'atom') return
       let atom: AtomEvent | undefined
       try {
         atom = JSON.parse(sseEvent.data) as AtomEvent
@@ -205,7 +205,7 @@ async function parseFollowUpStream(
   }
 
   return {
-    reply: textParts.join(''),
+    reply: textParts.join('') || finalAnswer || '',
     finalAnswer,
   }
 }

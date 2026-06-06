@@ -52,7 +52,7 @@ describe('runAgent', () => {
 
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('https://openrouter.ai/api/v1/chat/completions')
-    expect(init.headers).toMatchObject({ authorization: 'Bearer sk-test' })
+    expect(init.headers).toMatchObject({ Authorization: 'Bearer sk-test' })
     expect(JSON.parse(String(init.body))).toMatchObject({ model: 'test/model', response_format: { type: 'json_object' } })
   })
 
@@ -77,7 +77,7 @@ describe('runAgent', () => {
       message: { content: '```json\n{"reply":"ok","patches":[]}\n```' },
     }), { status: 200 })) as typeof fetch
 
-    await expect(runAgent({ provider: 'ollama', model: 'model', userPrompt: 'noop', messages: [], files: [] }))
+    await expect(runAgent({ provider: 'ollama', ollamaUrl: 'http://localhost:11434', model: 'model', userPrompt: 'noop', messages: [], files: [] }))
       .resolves.toEqual({ reply: 'ok', patches: [] })
   })
 
@@ -86,7 +86,7 @@ describe('runAgent', () => {
       message: { content: 'Here is the update:\n{"reply":"ok","patches":[]}\nDone.' },
     }), { status: 200 })) as typeof fetch
 
-    await expect(runAgent({ provider: 'ollama', model: 'model', userPrompt: 'noop', messages: [], files: [] }))
+    await expect(runAgent({ provider: 'ollama', ollamaUrl: 'http://localhost:11434', model: 'model', userPrompt: 'noop', messages: [], files: [] }))
       .resolves.toEqual({ reply: 'ok', patches: [] })
   })
 
@@ -100,7 +100,7 @@ describe('runAgent', () => {
       }), { status: 200 }))
     globalThis.fetch = fetchMock as typeof fetch
 
-    await expect(runAgent({ provider: 'ollama', model: 'model', userPrompt: 'noop', messages: [], files: [] }))
+    await expect(runAgent({ provider: 'ollama', ollamaUrl: 'http://localhost:11434', model: 'model', userPrompt: 'noop', messages: [], files: [] }))
       .resolves.toEqual({ reply: 'repaired', patches: [] })
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('Invalid response to repair')
@@ -114,6 +114,7 @@ describe('runAgent', () => {
 
     await runAgent({
       provider: 'ollama',
+      ollamaUrl: 'http://localhost:11434',
       model: 'model',
       userPrompt: 'Improve selected element',
       messages: [],
@@ -140,12 +141,17 @@ describe('runAgent', () => {
   it('throws useful errors for failed Ollama responses', async () => {
     globalThis.fetch = vi.fn(async () => new Response('model missing', { status: 404 })) as typeof fetch
 
-    await expect(runAgent({ provider: 'ollama', model: 'missing', userPrompt: 'noop', messages: [], files: [] }))
+    await expect(runAgent({ provider: 'ollama', ollamaUrl: 'http://localhost:11434', model: 'missing', userPrompt: 'noop', messages: [], files: [] }))
       .rejects.toThrow('Ollama error 404: model missing')
   })
 
   it('requires an OpenRouter key when using OpenRouter', async () => {
     await expect(runAgent({ provider: 'openrouter', model: 'model', userPrompt: 'noop', messages: [], files: [] }))
       .rejects.toThrow('OpenRouter API key is required')
+  })
+
+  it('requires an Ollama URL when using Ollama', async () => {
+    await expect(runAgent({ provider: 'ollama', model: 'model', userPrompt: 'noop', messages: [], files: [] }))
+      .rejects.toThrow('Ollama URL is required')
   })
 })

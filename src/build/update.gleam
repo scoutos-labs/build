@@ -298,6 +298,7 @@ fn improve_selected_element(
               messages: app.chat.messages,
               selected_element: option.Some(selected),
               element_comment: comment,
+              webcontainer_api: "",
             )
           #(
             model.Model(..app, chat: chat_state, agent: agent_state),
@@ -374,6 +375,7 @@ fn call_agent_with_prompt(
           messages: app.chat.messages,
           selected_element: option.None,
           element_comment: "",
+          webcontainer_api: "",
         )
       #(
         model.Model(..app, chat: chat_state, agent: agent_state),

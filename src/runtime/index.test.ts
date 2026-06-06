@@ -16,13 +16,15 @@ function recorder() {
 describe('effect runtime', () => {
   it('persists settings with trimmed fields', async () => {
     const setItem = vi.fn()
-    const effect: AppEffect = { domain: 'settings', payload: { type: 'persist_settings', provider: 'ollama', apiKey: ' key ', ollamaUrl: ' http://x/ ', model: ' m ' } }
+    const effect: AppEffect = { domain: 'settings', payload: { type: 'persist_settings', provider: 'ollama', apiKey: ' key ', ollamaUrl: ' http://x/ ', scoutosApiKey: ' sk ', scoutosBaseUrl: ' https://api.scoutos.com/ ', model: ' m ' } }
     const r = recorder()
     await interpretEffect(effect, r.dispatch, r.getState, { storage: { setItem } })
     expect(setItem.mock.calls).toEqual([
       ['agent-provider', 'ollama'],
       ['openrouter-key', 'key'],
       ['ollama-url', 'http://x/'],
+      ['scoutos-key', 'sk'],
+      ['scoutos-url', 'https://api.scoutos.com/'],
       ['agent-model', 'm'],
     ])
   })
@@ -56,7 +58,7 @@ describe('effect runtime', () => {
       pending.push({ signal: args.signal!, reject })
     }))
     const r = recorder()
-    const call = (requestId: string): AppEffect => ({ domain: 'agent', payload: { type: 'call_agent', requestId, provider: 'openrouter', apiKey: 'k', ollamaUrl: 'u', model: 'm', userPrompt: 'p', files: [], messages: [] } })
+    const call = (requestId: string): AppEffect => ({ domain: 'agent', payload: { type: 'call_agent', requestId, provider: 'openrouter', apiKey: 'k', ollamaUrl: 'u', scoutosApiKey: '', scoutosBaseUrl: 'https://api.scoutos.com', model: 'm', userPrompt: 'p', files: [], messages: [] } })
 
     const first = interpretEffect(call('a'), r.dispatch, r.getState, { locationOrigin: 'http://app' })
     await vi.waitFor(() => expect(pending).toHaveLength(1))

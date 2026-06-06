@@ -89,7 +89,7 @@ export function appUpdate(state: AppState, msg: AppMsg): [AppState, AppEffect[]]
     case 'submit_prompt': {
       const userPrompt = state.chat.prompt.trim()
       if (!userPrompt || isBusy(state)) return [state, []]
-      if (!state.settings.model.trim() || (state.settings.provider === 'openrouter' && !state.settings.apiKey.trim())) {
+      if (!state.settings.model.trim() || (state.settings.provider === 'openrouter' && !state.settings.apiKey.trim()) || (state.settings.provider === 'scoutos' && !state.settings.scoutosApiKey.trim())) {
         return [{ ...state, settings: { ...state.settings, settingsOpen: true } }, []]
       }
       const id = msg.requestId ?? requestId()
@@ -102,13 +102,13 @@ export function appUpdate(state: AppState, msg: AppMsg): [AppState, AppEffect[]]
         [
           { domain: 'settings', payload: settingsActor.persistEffect(state.settings) },
           ...agentEffects.map(payload => ({ domain: 'agent' as const, payload })),
-          { domain: 'agent', payload: { type: 'call_agent', requestId: id, provider: state.settings.provider, apiKey: state.settings.apiKey.trim(), ollamaUrl: state.settings.ollamaUrl.trim(), model: state.settings.model.trim(), userPrompt, files: projectFiles(state), messages: previousMessages } },
+          { domain: 'agent', payload: { type: 'call_agent', requestId: id, provider: state.settings.provider, apiKey: state.settings.apiKey.trim(), ollamaUrl: state.settings.ollamaUrl.trim(), scoutosApiKey: state.settings.scoutosApiKey.trim(), scoutosBaseUrl: state.settings.scoutosBaseUrl.trim(), model: state.settings.model.trim(), userPrompt, files: projectFiles(state), messages: previousMessages } },
         ],
       ]
     }
     case 'improve_selected_element': {
       if (!state.preview.selectedElement || !state.preview.elementComment.trim() || isBusy(state)) return [state, []]
-      if (!state.settings.model.trim() || (state.settings.provider === 'openrouter' && !state.settings.apiKey.trim())) {
+      if (!state.settings.model.trim() || (state.settings.provider === 'openrouter' && !state.settings.apiKey.trim()) || (state.settings.provider === 'scoutos' && !state.settings.scoutosApiKey.trim())) {
         return [{ ...state, settings: { ...state.settings, settingsOpen: true } }, []]
       }
       const id = msg.requestId ?? requestId()
@@ -123,7 +123,7 @@ export function appUpdate(state: AppState, msg: AppMsg): [AppState, AppEffect[]]
         [
           { domain: 'settings', payload: settingsActor.persistEffect(state.settings) },
           ...agentEffects.map(payload => ({ domain: 'agent' as const, payload })),
-          { domain: 'agent', payload: { type: 'call_agent', requestId: id, provider: state.settings.provider, apiKey: state.settings.apiKey.trim(), ollamaUrl: state.settings.ollamaUrl.trim(), model: state.settings.model.trim(), userPrompt: 'Improve the selected preview element based on the user comment.', files: projectFiles(state), messages: previousMessages, selectedElement, elementComment: comment } },
+          { domain: 'agent', payload: { type: 'call_agent', requestId: id, provider: state.settings.provider, apiKey: state.settings.apiKey.trim(), ollamaUrl: state.settings.ollamaUrl.trim(), scoutosApiKey: state.settings.scoutosApiKey.trim(), scoutosBaseUrl: state.settings.scoutosBaseUrl.trim(), model: state.settings.model.trim(), userPrompt: 'Improve the selected preview element based on the user comment.', files: projectFiles(state), messages: previousMessages, selectedElement, elementComment: comment } },
         ],
       ]
     }

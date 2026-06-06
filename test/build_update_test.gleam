@@ -75,10 +75,12 @@ pub fn improve_selected_element_starts_agent_test() {
   assert effects
     == [
       effect.Settings(settings.PersistSettings(
-        settings.OpenRouter,
-        "sk-test",
-        "http://localhost:11434",
-        "anthropic/claude-3.5-sonnet",
+        provider: settings.OpenRouter,
+        api_key: "sk-test",
+        ollama_url: "http://localhost:11434",
+        scoutos_api_key: "",
+        scoutos_base_url: "https://api.scoutos.com",
+        model: "anthropic/claude-3.5-sonnet",
       )),
       effect.Agent(agent.StartElapsedTimer),
       effect.Agent(agent.CallAgent(
@@ -86,6 +88,8 @@ pub fn improve_selected_element_starts_agent_test() {
         provider: settings.OpenRouter,
         api_key: "sk-test",
         ollama_url: "http://localhost:11434",
+        scoutos_api_key: "",
+        scoutos_base_url: "https://api.scoutos.com",
         model: "anthropic/claude-3.5-sonnet",
         user_prompt: "Improve the selected preview element based on the user comment.",
         files: app.project.files,
@@ -287,10 +291,12 @@ pub fn submit_prompt_appends_user_and_starts_agent_test() {
   assert effects
     == [
       effect.Settings(settings.PersistSettings(
-        settings.OpenRouter,
-        "sk-test",
-        "http://localhost:11434",
-        "anthropic/claude-3.5-sonnet",
+        provider: settings.OpenRouter,
+        api_key: "sk-test",
+        ollama_url: "http://localhost:11434",
+        scoutos_api_key: "",
+        scoutos_base_url: "https://api.scoutos.com",
+        model: "anthropic/claude-3.5-sonnet",
       )),
       effect.Agent(agent.StartElapsedTimer),
       effect.Agent(agent.CallAgent(
@@ -298,6 +304,8 @@ pub fn submit_prompt_appends_user_and_starts_agent_test() {
         provider: settings.OpenRouter,
         api_key: "sk-test",
         ollama_url: "http://localhost:11434",
+        scoutos_api_key: "",
+        scoutos_base_url: "https://api.scoutos.com",
         model: "anthropic/claude-3.5-sonnet",
         user_prompt: "make app",
         files: app.project.files,

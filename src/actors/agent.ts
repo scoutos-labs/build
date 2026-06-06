@@ -1,4 +1,4 @@
-import type { AgentProvider, ChatMessage } from '../agent'
+import type { AgentProvider, ChatMessage, WebContainerApi } from '../agent'
 import type { SelectedPreviewElement } from '../preview-inspector'
 import type { ProjectFile } from '../templates'
 
@@ -23,7 +23,7 @@ export type AgentMsg =
   | { type: 'agent_timeout_reached'; requestId: string }
 
 export type AgentEffect =
-  | { type: 'call_agent'; requestId: string; provider: AgentProvider; apiKey: string; ollamaUrl: string; model: string; userPrompt: string; files: ProjectFile[]; messages: ChatMessage[]; selectedElement?: SelectedPreviewElement; elementComment?: string }
+  | { type: 'call_agent'; requestId: string; provider: AgentProvider; apiKey: string; ollamaUrl: string; scoutosApiKey: string; scoutosBaseUrl: string; model: string; userPrompt: string; files: ProjectFile[]; messages: ChatMessage[]; selectedElement?: SelectedPreviewElement; elementComment?: string; webcontainerApi?: WebContainerApi }
   | { type: 'start_elapsed_timer' }
   | { type: 'stop_elapsed_timer' }
   | { type: 'abort_agent' }

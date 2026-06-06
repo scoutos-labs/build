@@ -101,6 +101,8 @@ export function dispatchSettingsLoaded(settings) {
     settings.provider ?? 'openrouter',
     settings.apiKey ?? settings.api_key ?? '',
     settings.ollamaUrl ?? settings.ollama_url ?? 'http://localhost:11434',
+    settings.scoutosApiKey ?? settings.scoutos_api_key ?? '',
+    settings.scoutosBaseUrl ?? settings.scoutos_base_url ?? 'https://api.scoutos.com',
     settings.model ?? '',
   )))
 }

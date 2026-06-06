@@ -41,6 +41,7 @@ pub type Effect {
     messages: List(chat.Message),
     selected_element: Option(SelectedPreviewElement),
     element_comment: String,
+    webcontainer_api: String,
   )
   StartElapsedTimer
   StopElapsedTimer

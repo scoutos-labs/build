@@ -96,6 +96,7 @@ pub fn improve_selected_element_starts_agent_test() {
         messages: [],
         selected_element: option.Some(selected),
         element_comment: "Make it calmer",
+        webcontainer_api: "",
       )),
       effect.ScrollMessagesToBottom,
     ]
@@ -312,6 +313,7 @@ pub fn submit_prompt_appends_user_and_starts_agent_test() {
         messages: [],
         selected_element: option.None,
         element_comment: "",
+        webcontainer_api: "",
       )),
       effect.ScrollMessagesToBottom,
     ]

@@ -75,7 +75,6 @@ fn provider_field(provider: settings.Provider) {
       [
         html.option([attribute.value("openrouter")], "OpenRouter"),
         html.option([attribute.value("ollama")], "Ollama local/cloud"),
-        html.option([attribute.value("scoutos")], "ScoutOS"),
       ],
     ),
   ])
@@ -121,30 +120,6 @@ fn provider_specific_fields(state: settings.State) {
           }),
         ]),
       ])
-    settings.ScoutOS ->
-      html.div([], [
-        html.label([], [
-          html.text("ScoutOS API key"),
-          html.input([
-            attribute.type_("password"),
-            attribute.value(state.scoutos_api_key),
-            attribute.placeholder("sk-..."),
-            event.on_input(fn(value) {
-              msg.Settings(settings.ScoutOSApiKeyChanged(value))
-            }),
-          ]),
-        ]),
-        html.label([], [
-          html.text("ScoutOS base URL"),
-          html.input([
-            attribute.value(state.scoutos_base_url),
-            attribute.placeholder("https://api.scoutos.com"),
-            event.on_input(fn(value) {
-              msg.Settings(settings.ScoutOSBaseUrlChanged(value))
-            }),
-          ]),
-        ]),
-      ])
   }
 }
 
@@ -156,7 +131,6 @@ fn model_field(state: settings.State) {
       attribute.placeholder(case state.provider {
         settings.Ollama -> "glm-5:cloud"
         settings.OpenRouter -> "anthropic/claude-3.5-sonnet"
-        settings.ScoutOS -> "ScoutOS default"
       }),
       event.on_input(fn(value) { msg.Settings(settings.ModelChanged(value)) }),
     ]),
@@ -168,6 +142,5 @@ fn can_save(state: settings.State) -> Bool {
   && case state.provider {
     settings.OpenRouter -> state.api_key != ""
     settings.Ollama -> True
-    settings.ScoutOS -> state.scoutos_api_key != ""
   }
 }

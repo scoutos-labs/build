@@ -33,15 +33,12 @@ pub type Effect {
     provider: settings.Provider,
     api_key: String,
     ollama_url: String,
-    scoutos_api_key: String,
-    scoutos_base_url: String,
     model: String,
     user_prompt: String,
     files: List(ProjectFile),
     messages: List(chat.Message),
     selected_element: Option(SelectedPreviewElement),
     element_comment: String,
-    webcontainer_api: String,
   )
   StartElapsedTimer
   StopElapsedTimer

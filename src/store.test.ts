@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { appInit, appUpdate, createStore, type AppEffect } from './store'
 import type { SelectedPreviewElement } from './preview-inspector'
 
-const validSettings = { provider: 'openrouter' as const, apiKey: ' key ', ollamaUrl: ' http://ollama/ ', scoutosApiKey: ' sk ', scoutosBaseUrl: ' https://scoutos/ ', model: ' model ', settingsOpen: false, connectionStatus: '' }
+const validSettings = { provider: 'openrouter' as const, apiKey: ' key ', ollamaUrl: ' http://ollama/ ', model: ' model ', settingsOpen: false, connectionStatus: '' }
 
 const element: SelectedPreviewElement = { tagName: 'BUTTON', id: 'save', classes: ['primary'], textContent: 'Save', outerHTML: '<button>Save</button>', boundingRect: { x: 0, y: 0, width: 1, height: 1 }, computedStyles: {} }
 const readyWebcontainer = { ...appInit().webcontainer, bootPhase: { phase: 'ready' as const } }

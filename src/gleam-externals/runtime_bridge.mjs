@@ -89,6 +89,8 @@ export function dispatchPreviewElementSelected(element) {
 
 export function dispatchAgentSucceeded(requestId, reply, patches) { sendMsg(Msg.Msg$Agent(Agent.Msg$AgentRequestSucceeded(requestId, reply, toList((patches ?? []).map(p => Agent.Patch$Patch(p.path, p.content)))))) }
 export function dispatchAgentFailed(requestId, message) { sendMsg(Msg.Msg$Agent(Agent.Msg$AgentRequestFailed(requestId, message))) }
+export function dispatchAgentBudgetExhausted(requestId, resetAt) { sendMsg(Msg.Msg$Agent(Agent.Msg$AgentBudgetExhausted(requestId, String(resetAt ?? '')))) }
+export function dispatchAccountLoaded(plan, budget) { sendMsg(Msg.Msg$Settings(Settings.Msg$AccountLoaded(String(plan ?? ''), String(budget ?? '')))) }
 export function dispatchAgentTick(now) { sendMsg(Msg.Msg$Agent(Agent.Msg$AgentElapsedTick(now))) }
 export function dispatchBuildFromPlan(planSummary) {
   const requestId = `plan-${Date.now()}-${Math.random().toString(36).slice(2)}`

@@ -8,13 +8,15 @@ export const starterFiles: ProjectFile[] = [
     content: JSON.stringify(
       {
         scripts: { dev: 'vite --host 0.0.0.0' },
+        // vite pinned below 8: Vite 8 bundles via rolldown, whose WASM
+        // binding (emnapi) crashes inside WebContainers.
         dependencies: {
-          '@vitejs/plugin-react': 'latest',
+          '@vitejs/plugin-react': '^4.3.4',
           '@electric-sql/pglite': 'latest',
-          vite: 'latest',
+          vite: '^7.3.2',
           typescript: 'latest',
-          react: 'latest',
-          'react-dom': 'latest',
+          react: '^18.3.1',
+          'react-dom': '^18.3.1',
         },
         devDependencies: {},
         type: 'module',
@@ -241,6 +243,15 @@ function emitInspectorStatus(type: string) {
 }
 
 emitInspectorStatus('BUILD_INSPECTOR_READY')
+
+// Surface runtime crashes in the Build terminal; a white preview is
+// undebuggable otherwise.
+window.addEventListener('error', event => {
+  window.parent.postMessage({ type: 'BUILD_PREVIEW_ERROR', message: String(event.message ?? event.error ?? 'Unknown error') }, '*')
+})
+window.addEventListener('unhandledrejection', event => {
+  window.parent.postMessage({ type: 'BUILD_PREVIEW_ERROR', message: 'Unhandled rejection: ' + String(event.reason) }, '*')
+})
 
 function enable() {
   enabled = true

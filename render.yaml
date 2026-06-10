@@ -5,6 +5,17 @@ services:
     envVars:
       - key: GLEAM_VERSION
         value: 1.16.0
+      # Phase 5 rollout switch: off in production until the COEP spike passes
+      # and dogfooding is done; PR previews get the managed flow automatically.
+      # The production flip is: change this value to "true" (and the rollback
+      # is flipping it back — one deploy each way).
+      - key: VITE_MANAGED_AUTH
+        value: "false"
+        previewValue: "true"
+      - key: VITE_CLERK_PUBLISHABLE_KEY
+        sync: false
+    previews:
+      generation: automatic
     buildCommand: |
       set -euo pipefail
       mkdir -p .render/bin
@@ -25,3 +36,45 @@ services:
       - path: /*
         name: Cross-Origin-Embedder-Policy
         value: require-corp
+    routes:
+      # Same-origin proxy to the API service: no CORS, and Clerk's __session
+      # cookie works as a fallback to the Authorization header.
+      # SECURITY: onrender.com subdomains are global. After the first deploy,
+      # verify the API service's actual URL in the Render dashboard and update
+      # these destinations if it differs — a mismatched name would proxy
+      # authenticated traffic to whoever owns that subdomain.
+      - type: rewrite
+        source: /api/*
+        destination: https://hyper-build-api.onrender.com/api/*
+      - type: rewrite
+        source: /webhooks/*
+        destination: https://hyper-build-api.onrender.com/webhooks/*
+
+  - type: web
+    name: hyper-build-api
+    runtime: node
+    # Disks require a paid instance; previews stay off for this service (PR
+    # previews of the frontend point at this production API, which is inert
+    # until VITE_MANAGED_AUTH is on).
+    plan: starter
+    rootDir: server
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    # Embedded PGlite persists to this disk. Disks pin the service to a single
+    # instance and disable zero-downtime deploys — fine at this scale.
+    disk:
+      name: build-api-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_WEBHOOK_SIGNING_SECRET
+        sync: false
+      - key: OPENROUTER_PROVISIONING_KEY
+        sync: false
+      - key: KEY_ENCRYPTION_SECRET
+        generateValue: true
+      - key: PGLITE_DATA_DIR
+        value: /var/data/pglite

@@ -11,8 +11,20 @@ pub fn interpret(effect: settings.Effect) -> Nil {
         model,
       )
     settings.TestOllamaConnection(url) -> test_ollama_connection(url)
+    settings.FetchAccountInfo -> fetch_account_info()
+    settings.PurgeLegacySettings -> purge_legacy_settings()
+    settings.SignOut -> managed_sign_out()
   }
 }
+
+@external(javascript, "../../gleam-externals/managed.mjs", "fetchAccountInfo")
+fn fetch_account_info() -> Nil
+
+@external(javascript, "../../gleam-externals/managed.mjs", "purgeLegacySettings")
+fn purge_legacy_settings() -> Nil
+
+@external(javascript, "../../gleam-externals/managed.mjs", "managedSignOut")
+fn managed_sign_out() -> Nil
 
 @external(javascript, "../../gleam-externals/local_storage.mjs", "loadSettings")
 fn load_settings() -> Nil

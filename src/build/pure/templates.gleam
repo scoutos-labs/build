@@ -135,7 +135,9 @@ fn strip_leading_slashes(path: String) -> String {
 }
 
 fn package_json() -> String {
-  "{\n  \"scripts\": {\n    \"dev\": \"vite --host 0.0.0.0\"\n  },\n  \"dependencies\": {\n    \"@vitejs/plugin-react\": \"latest\",\n    \"@electric-sql/pglite\": \"latest\",\n    \"vite\": \"latest\",\n    \"typescript\": \"latest\",\n    \"react\": \"latest\",\n    \"react-dom\": \"latest\"\n  },\n  \"devDependencies\": {},\n  \"type\": \"module\"\n}"
+  // vite pinned below 8: Vite 8 bundles via rolldown, whose WASM binding
+  // (emnapi) crashes inside WebContainers.
+  "{\n  \"scripts\": {\n    \"dev\": \"vite --host 0.0.0.0\"\n  },\n  \"dependencies\": {\n    \"@vitejs/plugin-react\": \"^4.3.4\",\n    \"@electric-sql/pglite\": \"latest\",\n    \"vite\": \"^7.3.2\",\n    \"typescript\": \"latest\",\n    \"react\": \"^18.3.1\",\n    \"react-dom\": \"^18.3.1\"\n  },\n  \"devDependencies\": {},\n  \"type\": \"module\"\n}"
 }
 
 fn main_tsx() -> String {
@@ -354,6 +356,15 @@ function emitInspectorStatus(type: string) {
 }
 
 emitInspectorStatus('BUILD_INSPECTOR_READY')
+
+// Surface runtime crashes in the Build terminal; a white preview is
+// undebuggable otherwise.
+window.addEventListener('error', event => {
+  window.parent.postMessage({ type: 'BUILD_PREVIEW_ERROR', message: String(event.message ?? event.error ?? 'Unknown error') }, '*')
+})
+window.addEventListener('unhandledrejection', event => {
+  window.parent.postMessage({ type: 'BUILD_PREVIEW_ERROR', message: 'Unhandled rejection: ' + String(event.reason) }, '*')
+})
 
 function enable() {
   enabled = true

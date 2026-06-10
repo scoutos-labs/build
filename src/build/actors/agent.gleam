@@ -15,7 +15,12 @@ pub type Lifecycle {
 }
 
 pub type State {
-  State(lifecycle: Lifecycle, elapsed_seconds: Int)
+  State(
+    lifecycle: Lifecycle,
+    elapsed_seconds: Int,
+    budget_exhausted: Bool,
+    budget_reset_at: String,
+  )
 }
 
 pub type Msg {
@@ -25,6 +30,7 @@ pub type Msg {
   AgentRequestFailed(request_id: String, message: String)
   AgentRequestCanceled
   AgentTimeoutReached(request_id: String)
+  AgentBudgetExhausted(request_id: String, reset_at: String)
 }
 
 pub type Effect {
@@ -47,7 +53,12 @@ pub type Effect {
 }
 
 pub fn init() -> State {
-  State(lifecycle: Idle, elapsed_seconds: 0)
+  State(
+    lifecycle: Idle,
+    elapsed_seconds: 0,
+    budget_exhausted: False,
+    budget_reset_at: "",
+  )
 }
 
 pub fn is_running(state: State) -> Bool {
@@ -60,7 +71,7 @@ pub fn is_running(state: State) -> Bool {
 pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
   case msg {
     AgentRequestStarted(request_id, started_at) -> #(
-      State(lifecycle: Running(request_id, started_at), elapsed_seconds: 0),
+      State(..state, lifecycle: Running(request_id, started_at), elapsed_seconds: 0),
       [StartElapsedTimer],
     )
     AgentElapsedTick(now) ->
@@ -71,7 +82,7 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
     AgentRequestSucceeded(request_id, _, patches) ->
       case state.lifecycle {
         Running(active_id, _) if active_id == request_id -> #(
-          State(lifecycle: Idle, elapsed_seconds: 0),
+          State(..state, lifecycle: Idle, elapsed_seconds: 0),
           [StopElapsedTimer, InstallIfNeeded(patches)],
         )
         _ -> #(state, [])
@@ -79,21 +90,37 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
     AgentRequestFailed(request_id, _) ->
       case state.lifecycle {
         Running(active_id, _) if active_id == request_id -> #(
-          State(lifecycle: Idle, elapsed_seconds: 0),
+          State(..state, lifecycle: Idle, elapsed_seconds: 0),
           [StopElapsedTimer],
         )
         _ -> #(state, [])
       }
     AgentRequestCanceled ->
       case state.lifecycle {
-        Running(_, _) -> #(State(lifecycle: Idle, elapsed_seconds: 0), [StopElapsedTimer, AbortAgent])
+        Running(_, _) -> #(
+          State(..state, lifecycle: Idle, elapsed_seconds: 0),
+          [StopElapsedTimer, AbortAgent],
+        )
         _ -> #(state, [])
       }
     AgentTimeoutReached(request_id) ->
       case state.lifecycle {
         Running(active_id, _) if active_id == request_id -> #(
-          State(lifecycle: TimedOut(request_id), elapsed_seconds: state.elapsed_seconds),
+          State(..state, lifecycle: TimedOut(request_id), elapsed_seconds: state.elapsed_seconds),
           [StopElapsedTimer, AbortAgent],
+        )
+        _ -> #(state, [])
+      }
+    AgentBudgetExhausted(request_id, reset_at) ->
+      case state.lifecycle {
+        Running(active_id, _) if active_id == request_id -> #(
+          State(
+            lifecycle: Idle,
+            elapsed_seconds: 0,
+            budget_exhausted: True,
+            budget_reset_at: reset_at,
+          ),
+          [StopElapsedTimer],
         )
         _ -> #(state, [])
       }

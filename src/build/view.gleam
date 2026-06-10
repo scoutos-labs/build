@@ -39,7 +39,7 @@ pub fn view(app: model.Model) -> Element(msg.Msg) {
         app.project.name_editing,
         busy,
       ),
-      build_settings_modal.view(app.settings),
+      build_settings_modal.view(app.settings, app.managed),
       build_projects_modal.view(app.project, busy),
       build_element_picker.view(
         app.preview.selected_element,
@@ -52,6 +52,8 @@ pub fn view(app: model.Model) -> Element(msg.Msg) {
         app.chat.prompt,
         running,
         busy,
+        app.agent.budget_exhausted,
+        app.agent.budget_reset_at,
       ),
     ]),
     html.main([attribute.class("workspace")], [

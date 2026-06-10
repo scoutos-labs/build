@@ -5,10 +5,11 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
-pub fn view(state: settings.State) -> Element(msg.Msg) {
-  case state.settings_open {
-    False -> html.text("")
-    True ->
+pub fn view(state: settings.State, managed: Bool) -> Element(msg.Msg) {
+  case state.settings_open, managed {
+    False, _ -> html.text("")
+    True, True -> account_panel(state)
+    True, False ->
       html.div(
         [attribute.class("modalBackdrop"), attribute.role("presentation")],
         [
@@ -39,6 +40,68 @@ pub fn view(state: settings.State) -> Element(msg.Msg) {
         ],
       )
   }
+}
+
+/// Managed mode: no providers, keys, or models — just plan, budget, sign out.
+fn account_panel(state: settings.State) -> Element(msg.Msg) {
+  html.div(
+    [attribute.class("modalBackdrop"), attribute.role("presentation")],
+    [
+      html.div(
+        [
+          attribute.class("modal"),
+          attribute.role("dialog"),
+          attribute.aria_modal(True),
+          attribute.aria_labelledby("settings-title"),
+        ],
+        [
+          html.div([attribute.class("modalHeader")], [
+            html.div([], [
+              html.h2([attribute.id("settings-title")], [html.text("Account")]),
+              html.p([], [html.text("Your plan and monthly build budget.")]),
+            ]),
+            html.button(
+              [
+                attribute.type_("button"),
+                attribute.class("ghost iconButton"),
+                attribute.aria_label("Close account panel"),
+                event.on_click(msg.Settings(settings.SettingsClosed)),
+              ],
+              [html.text("×")],
+            ),
+          ]),
+          html.label([], [
+            html.text("Plan"),
+            html.strong([], [
+              html.text(case state.account_plan {
+                "" -> "Loading..."
+                plan -> plan
+              }),
+            ]),
+          ]),
+          html.label([], [
+            html.text("Budget"),
+            html.span([], [
+              html.text(case state.account_budget {
+                "" -> "Loading..."
+                budget -> budget
+              }),
+            ]),
+          ]),
+          html.div([attribute.class("modalActions")], [
+            html.button(
+              [
+                attribute.type_("button"),
+                attribute.class("secondary"),
+                event.on_click(msg.Settings(settings.SignOutRequested)),
+              ],
+              [html.text("Sign out")],
+            ),
+          ]),
+        ],
+      ),
+    ],
+  )
 }
 
 fn header(state: settings.State) {

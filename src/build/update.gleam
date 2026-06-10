@@ -17,10 +17,18 @@ pub fn update(
 ) -> #(model.Model, List(effect.Effect)) {
   case message {
     msg.NoOp -> #(app, [])
-    msg.InitApp -> #(app, [
-      effect.Settings(settings.LoadSettings),
-      effect.Project(project.LoadInitialProject),
-    ])
+    msg.InitApp ->
+      case app.managed {
+        True -> #(app, [
+          effect.Settings(settings.PurgeLegacySettings),
+          effect.Settings(settings.FetchAccountInfo),
+          effect.Project(project.LoadInitialProject),
+        ])
+        False -> #(app, [
+          effect.Settings(settings.LoadSettings),
+          effect.Project(project.LoadInitialProject),
+        ])
+      }
     msg.SaveSettings -> #(
       model.Model(
         ..app,
@@ -240,18 +248,33 @@ fn can_submit_prompt(app: model.Model) -> Bool {
   app.chat.prompt != ""
   && !agent.is_running(app.agent)
   && !webcontainer.is_busy(app.webcontainer)
+  && !app.agent.budget_exhausted
 }
 
 fn can_improve_selected_element(app: model.Model) -> Bool {
   app.preview.element_comment != ""
   && !agent.is_running(app.agent)
   && !webcontainer.is_busy(app.webcontainer)
+  && !app.agent.budget_exhausted
 }
 
+// Managed users never see providers or keys; the server owns both.
 fn settings_missing(app: model.Model) -> Bool {
-  app.settings.model == ""
-  || {
-    app.settings.provider == settings.OpenRouter && app.settings.api_key == ""
+  !app.managed
+  && {
+    app.settings.model == ""
+    || {
+      app.settings.provider == settings.OpenRouter && app.settings.api_key == ""
+    }
+  }
+}
+
+// Persisting provider settings only applies to the bring-your-own-key flow;
+// in managed mode it would re-create the localStorage keys we purge at boot.
+fn legacy_persist_effects(app: model.Model) -> List(effect.Effect) {
+  case app.managed {
+    True -> []
+    False -> [effect.Settings(settings.persist_effect(app.settings))]
   }
 }
 
@@ -297,7 +320,7 @@ fn improve_selected_element(
           #(
             model.Model(..app, chat: chat_state, agent: agent_state),
             list.append(
-              [effect.Settings(settings.persist_effect(app.settings))],
+              legacy_persist_effects(app),
               list.append(
                 list.map(list.append(agent_effects, [call_agent]), effect.Agent),
                 [effect.ScrollMessagesToBottom],
@@ -371,7 +394,7 @@ fn call_agent_with_prompt(
       #(
         model.Model(..app, chat: chat_state, agent: agent_state),
         list.append(
-          [effect.Settings(settings.persist_effect(app.settings))],
+          legacy_persist_effects(app),
           list.append(
             list.map(list.append(agent_effects, [call_agent]), effect.Agent),
             [effect.ScrollMessagesToBottom],

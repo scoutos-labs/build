@@ -221,8 +221,8 @@ pub fn agent_success_applies_patches_and_replies_test() {
     model.Model(
       ..model.init(),
       agent: agent.State(
+        ..agent.init(),
         lifecycle: agent.Running("req", 1000),
-        elapsed_seconds: 0,
       ),
       webcontainer: webcontainer.State(
         ..webcontainer.init(),

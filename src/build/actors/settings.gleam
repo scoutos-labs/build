@@ -11,6 +11,8 @@ pub type State {
     model: String,
     settings_open: Bool,
     connection_status: String,
+    account_plan: String,
+    account_budget: String,
   )
 }
 
@@ -30,6 +32,8 @@ pub type Msg {
     model: String,
   )
   TestOllama
+  AccountLoaded(plan: String, budget: String)
+  SignOutRequested
 }
 
 pub type Effect {
@@ -41,6 +45,9 @@ pub type Effect {
     model: String,
   )
   TestOllamaConnection(url: String)
+  FetchAccountInfo
+  PurgeLegacySettings
+  SignOut
 }
 
 pub fn init() -> State {
@@ -51,6 +58,8 @@ pub fn init() -> State {
     model: "",
     settings_open: True,
     connection_status: "",
+    account_plan: "",
+    account_budget: "",
   )
 }
 
@@ -112,5 +121,10 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
     TestOllama -> #(State(..state, connection_status: "Testing Ollama..."), [
       TestOllamaConnection(state.ollama_url),
     ])
+    AccountLoaded(plan, budget) -> #(
+      State(..state, account_plan: plan, account_budget: budget),
+      [],
+    )
+    SignOutRequested -> #(state, [SignOut])
   }
 }

@@ -13,8 +13,6 @@ pub fn runtime_interprets_settings_effect_test() {
     provider: settings.OpenRouter,
     api_key: "key",
     ollama_url: "http://localhost:11434",
-    scoutos_api_key: "",
-    scoutos_base_url: "https://api.scoutos.com",
     model: "model",
   ))) == Nil
 }

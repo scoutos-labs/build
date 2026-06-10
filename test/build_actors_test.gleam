@@ -30,8 +30,6 @@ pub fn settings_loads_from_storage_test() {
         provider: "ollama",
         api_key: "key",
         ollama_url: "http://ollama",
-        scoutos_api_key: "",
-        scoutos_base_url: "https://api.scoutos.com",
         model: "glm-5:cloud",
       ),
     )

@@ -253,9 +253,6 @@ fn settings_missing(app: model.Model) -> Bool {
   || {
     app.settings.provider == settings.OpenRouter && app.settings.api_key == ""
   }
-  || {
-    app.settings.provider == settings.ScoutOS && app.settings.scoutos_api_key == ""
-  }
 }
 
 fn improve_selected_element(
@@ -290,15 +287,12 @@ fn improve_selected_element(
               provider: app.settings.provider,
               api_key: app.settings.api_key,
               ollama_url: app.settings.ollama_url,
-              scoutos_api_key: app.settings.scoutos_api_key,
-              scoutos_base_url: app.settings.scoutos_base_url,
               model: app.settings.model,
               user_prompt: prompt,
               files: app.project.files,
               messages: app.chat.messages,
               selected_element: option.Some(selected),
               element_comment: comment,
-              webcontainer_api: "",
             )
           #(
             model.Model(..app, chat: chat_state, agent: agent_state),
@@ -367,15 +361,12 @@ fn call_agent_with_prompt(
           provider: app.settings.provider,
           api_key: app.settings.api_key,
           ollama_url: app.settings.ollama_url,
-          scoutos_api_key: app.settings.scoutos_api_key,
-          scoutos_base_url: app.settings.scoutos_base_url,
           model: app.settings.model,
           user_prompt: agent_prompt,
           files: app.project.files,
           messages: app.chat.messages,
           selected_element: option.None,
           element_comment: "",
-          webcontainer_api: "",
         )
       #(
         model.Model(..app, chat: chat_state, agent: agent_state),

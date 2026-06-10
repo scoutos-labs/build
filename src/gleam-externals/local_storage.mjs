@@ -5,20 +5,18 @@ export function loadSettings() {
     provider: globalThis.localStorage?.getItem('agent-provider') ?? 'openrouter',
     apiKey: globalThis.localStorage?.getItem('openrouter-key') ?? '',
     ollamaUrl: globalThis.localStorage?.getItem('ollama-url') ?? 'http://localhost:11434',
-    scoutosApiKey: globalThis.localStorage?.getItem('scoutos-key') ?? '',
-    scoutosBaseUrl: globalThis.localStorage?.getItem('scoutos-url') ?? 'https://api.scoutos.com',
     model: globalThis.localStorage?.getItem('agent-model') ?? '',
   }
   setTimeout(() => dispatchSettingsLoaded(settings), 0)
 }
 
-export function persistSettings(provider, apiKey, ollamaUrl, scoutosApiKey, scoutosBaseUrl, model) {
+export function persistSettings(provider, apiKey, ollamaUrl, model) {
   globalThis.localStorage?.setItem('agent-provider', provider)
   globalThis.localStorage?.setItem('openrouter-key', String(apiKey).trim())
   globalThis.localStorage?.setItem('ollama-url', String(ollamaUrl).trim())
-  globalThis.localStorage?.setItem('scoutos-key', String(scoutosApiKey).trim())
-  globalThis.localStorage?.setItem('scoutos-url', String(scoutosBaseUrl).trim())
   globalThis.localStorage?.setItem('agent-model', String(model).trim())
+  globalThis.localStorage?.removeItem('scoutos-key')
+  globalThis.localStorage?.removeItem('scoutos-url')
 }
 
 export async function testOllamaConnection(url) {

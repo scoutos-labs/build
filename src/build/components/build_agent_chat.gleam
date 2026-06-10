@@ -1,8 +1,10 @@
 import build/actors/chat
 import build/msg
+import build/runtime/ids
 import gleam/dynamic/decode
 import gleam/int
 import gleam/list
+import gleam/string
 import lustre/attribute
 import lustre/element.{type Element, fragment}
 import lustre/element/html
@@ -14,6 +16,8 @@ pub fn view(
   prompt: String,
   running: Bool,
   busy: Bool,
+  budget_exhausted: Bool,
+  budget_reset_at: String,
 ) -> Element(msg.Msg) {
   fragment([
     html.div([attribute.class("chatTools")], [
@@ -57,11 +61,18 @@ pub fn view(
         ])
       False -> html.text("")
     },
+    case budget_exhausted {
+      True ->
+        html.div([attribute.class("budgetExhausted")], [
+          html.text(budget_exhausted_message(budget_reset_at)),
+        ])
+      False -> html.text("")
+    },
     html.div([attribute.class("actions")], [
       button(
         [
-          attribute.disabled(busy),
-          event.on_click(msg.SubmitPrompt("gleam-request", 0)),
+          attribute.disabled(busy || budget_exhausted),
+          event.on("click", submit_click_decoder()),
         ],
         case busy {
           True -> "Working..."
@@ -98,12 +109,31 @@ pub fn view(
   ])
 }
 
-fn submit_shortcut_decoder() {
+pub fn budget_exhausted_message(reset_at: String) -> String {
+  case string.slice(reset_at, 0, 10) {
+    "" -> "Monthly build budget used up. Upgrade to keep building."
+    date ->
+      "Monthly build budget used up. Upgrade or wait until " <> date <> "."
+  }
+}
+
+/// Built inside a decoder so the id and timestamp are generated when the
+/// event fires, not when the view renders.
+fn submit_prompt_msg() -> msg.Msg {
+  msg.SubmitPrompt(ids.new_request_id(), ids.now_ms())
+}
+
+pub fn submit_click_decoder() -> decode.Decoder(msg.Msg) {
+  use _ <- decode.then(decode.success(Nil))
+  decode.success(submit_prompt_msg())
+}
+
+pub fn submit_shortcut_decoder() -> decode.Decoder(msg.Msg) {
   use key <- decode.field("key", decode.string)
   use ctrl <- decode.field("ctrlKey", decode.bool)
   use meta <- decode.field("metaKey", decode.bool)
   case key == "Enter" && { ctrl || meta } {
-    True -> decode.success(msg.SubmitPrompt("gleam-request", 0))
+    True -> decode.success(submit_prompt_msg())
     False -> decode.success(msg.NoOp)
   }
 }

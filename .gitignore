@@ -5,3 +5,4 @@ artifacts
 *.tsbuildinfo
 .env
 .DS_Store
+.env*.local

@@ -1,0 +1,78 @@
+import type { AgentResult } from './agent'
+import type { SelectedPreviewElement } from './preview-inspector'
+import type { ProjectFile } from './templates'
+
+export type ManagedAgentPayload = {
+  userPrompt: string
+  files: ProjectFile[]
+  messages: { role: 'user' | 'assistant'; content: string }[]
+  selectedElement?: SelectedPreviewElement
+  elementComment?: string
+}
+
+export class BudgetExhaustedError extends Error {
+  readonly code = 'budget_exhausted'
+  constructor(readonly resetAt: string = '') {
+    super('Monthly build budget used up.')
+  }
+}
+
+export class PaymentFailedError extends Error {
+  readonly code = 'payment_failed'
+  constructor() {
+    super('Your account is disabled — check your payment method.')
+  }
+}
+
+/**
+ * Calls the server-side agent proxy. A fresh token is fetched per request
+ * (Clerk session tokens expire after ~60s); the server picks the model and
+ * holds the OpenRouter key.
+ */
+export async function callManagedAgent(
+  payload: ManagedAgentPayload,
+  options: {
+    getToken: () => Promise<string | null>
+    signal?: AbortSignal
+    fetchImpl?: typeof fetch
+  },
+): Promise<AgentResult> {
+  const fetchImpl = options.fetchImpl ?? fetch
+  const token = await options.getToken()
+  const response = await fetchImpl('/api/agent', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+    signal: options.signal,
+  })
+
+  if (response.status === 402) {
+    const error = await errorDetails(response)
+    if (error.code === 'payment_failed') throw new PaymentFailedError()
+    throw new BudgetExhaustedError(error.resetAt ?? '')
+  }
+  if (response.status === 401) throw new Error('Session expired — sign in again.')
+  if (response.status === 429) throw new Error('Too many requests — wait a minute and retry.')
+  if (!response.ok) {
+    const error = await errorDetails(response)
+    throw new Error(`Agent request failed (${response.status}${error.code ? `: ${error.code}` : ''})`)
+  }
+
+  const result = (await response.json()) as AgentResult
+  if (typeof result?.reply !== 'string' || !Array.isArray(result?.patches)) {
+    throw new Error('Agent response did not match expected shape')
+  }
+  return result
+}
+
+async function errorDetails(response: Response): Promise<{ code: string; resetAt?: string }> {
+  try {
+    const body = (await response.json()) as { error?: { code?: string; resetAt?: string } }
+    return { code: body.error?.code ?? '', resetAt: body.error?.resetAt }
+  } catch {
+    return { code: '' }
+  }
+}

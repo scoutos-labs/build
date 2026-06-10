@@ -1,5 +1,5 @@
 import { runNpmInstall } from './webcontainer.mjs'
-import { dispatchAgentFailed, dispatchAgentSucceeded, dispatchAgentTick, dispatchWebContainerLog } from './runtime_bridge.mjs'
+import { dispatchAgentBudgetExhausted, dispatchAgentFailed, dispatchAgentSucceeded, dispatchAgentTick, dispatchWebContainerLog } from './runtime_bridge.mjs'
 
 let elapsedTimer = null
 let activeController = null
@@ -30,19 +30,35 @@ function normalizeSelectedElement(option) {
   }
 }
 
+// Set by registerManagedAgentAuth() in src/managed-auth.ts after the sign-in
+// gate. When present, agent calls go to /api/agent with a fresh Clerk token
+// per request instead of calling providers directly from the browser.
+function managedAuth() {
+  return globalThis.__buildManagedAuth ?? null
+}
+
 export async function callAgent(requestId, provider, model, userPrompt, apiKey = '', ollamaUrl = '', files, messages, selectedElement, elementComment = '') {
-  const { runAgent } = await agentModule()
   const controller = new AbortController()
   activeController = controller
   activeRequestId = requestId
   activeTimeout = setTimeout(() => controller.abort(), 300_000)
   try {
-    const result = await runAgent({ provider, apiKey, ollamaUrl, model, userPrompt, files: normalizeFiles(files), messages: normalizeMessages(messages), selectedElement: normalizeSelectedElement(selectedElement), elementComment, signal: controller.signal })
+    const managed = managedAuth()
+    const result = managed
+      ? await (await import('../managed-agent-client')).callManagedAgent(
+          { userPrompt, files: normalizeFiles(files), messages: normalizeMessages(messages), selectedElement: normalizeSelectedElement(selectedElement), elementComment },
+          { getToken: managed.getToken, signal: controller.signal },
+        )
+      : await (await agentModule()).runAgent({ provider, apiKey, ollamaUrl, model, userPrompt, files: normalizeFiles(files), messages: normalizeMessages(messages), selectedElement: normalizeSelectedElement(selectedElement), elementComment, signal: controller.signal })
     dispatchAgentSucceeded(requestId, result.reply, result.patches)
   } catch (error) {
-    const raw = error instanceof DOMException && error.name === 'AbortError' ? 'Request canceled or timed out after 5 minutes.' : message(error)
-    dispatchAgentFailed(requestId, raw)
-    dispatchWebContainerLog(raw)
+    if (error?.code === 'budget_exhausted') {
+      dispatchAgentBudgetExhausted(requestId, error.resetAt ?? '')
+    } else {
+      const raw = error instanceof DOMException && error.name === 'AbortError' ? 'Request canceled or timed out after 5 minutes.' : message(error)
+      dispatchAgentFailed(requestId, raw)
+      dispatchWebContainerLog(raw)
+    }
   } finally {
     if (activeRequestId === requestId) {
       if (activeTimeout) clearTimeout(activeTimeout)

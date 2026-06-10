@@ -91,7 +91,10 @@ export async function ensureSignedIn(): Promise<void> {
     document.body.appendChild(overlay)
     // COOP: same-origin (required for WebContainers) severs window.opener, so
     // popup OAuth can never report back — force the full-page redirect flow.
-    clerk.mountSignIn(mount, { oauthFlow: 'redirect' })
+    // withSignUp keeps sign-up inside this embedded component instead of
+    // bouncing to the Account Portal (a separate origin outside our COEP
+    // setup and a detour out of the app).
+    clerk.mountSignIn(mount, { oauthFlow: 'redirect', withSignUp: true })
 
     await new Promise<void>(resolve => {
       const unsubscribe = clerk.addListener(({ user, session }) => {

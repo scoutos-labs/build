@@ -110,12 +110,12 @@ Also: commit the pending `PGLITE_DATA_DIR` boot guard in `server/src/index.ts` w
 - Docs: README section + this PRD updated with outcomes.
 - **Gating:** publish requires managed auth (server-stored keys). Production has `VITE_MANAGED_AUTH=false`; PR previews have it on. Ship publish behind managed auth — it activates in production when Phase 5 of the managed-auth migration flips the flag. Confirm no publish UI leaks into non-managed mode.
 
-**Outcome (2026-06-12):** README section added; PRD updated with per-phase outcomes. Gating verified: publish UI renders only in managed mode (headless check), and the key/status flows only run on the managed `InitApp` path.
+**Outcome (2026-06-12):** README section added; PRD updated with per-phase outcomes. Gating verified: publish UI renders only in managed mode (headless check), and the key/status flows only run on the managed `InitApp` path. **Merged (PR #24, 7b8ce30) and deployed**: both Render services built green; `build.hyper.io` serves the new bundle and `/api/*` proxies to the updated API (new endpoints 401 correctly unauthenticated). Note: production already runs with managed auth ON (production Clerk key locked to build.hyper.io — the `VITE_MANAGED_AUTH: "false"` in render.yaml is stale relative to the dashboard env), so **publish is live for signed-in users now**, not waiting on a future flag flip.
 
 **Success criteria:**
-- [ ] End-to-end on a PR preview: sign in → save key → build an app with the agent → publish → live URL works → edit → republish → same URL updated. *(needs the PR preview + a sk_live key)*
+- [ ] End-to-end on production/PR preview: sign in → save key → build an app with the agent → publish → live URL works → edit → republish → same URL updated. *(needs a signed-in session + a sk_live key)*
 - [x] Non-managed mode shows no publish affordances (asserted headless).
-- [ ] PR merged with all 100+ existing tests plus new coverage green. *(PR open; 155 client + 99 server tests green locally)*
+- [x] PR merged with all existing tests plus new coverage green (126 client + 99 server tests; deployed to production).
 
 ## Risks
 

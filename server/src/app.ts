@@ -209,6 +209,45 @@ export function createApp(deps: AppDeps) {
     }
   })
 
+  // ScoutOS publish keys are user-supplied and write-only: stored encrypted,
+  // surfaced to clients only as a presence flag, decrypted only inside the
+  // publish handler.
+  const SCOUTOS_KEY_RE = /^sk_(live|test)_[A-Za-z0-9_-]{8,256}$/
+
+  app.put('/api/credentials/scoutos', async c => {
+    const auth = await authenticate(c)
+    if (!auth) return c.json(errorBody('unauthorized', 'Missing or invalid session token'), 401)
+
+    let body: { key?: unknown }
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json(errorBody('bad_request', 'Body must be JSON'), 400)
+    }
+    if (typeof body.key !== 'string' || !SCOUTOS_KEY_RE.test(body.key.trim())) {
+      return c.json(errorBody('bad_request', 'Key must look like sk_live_... or sk_test_...'), 400)
+    }
+
+    await deps.db.upsertCredential(auth.userId, 'scoutos', deps.keyCrypto.encrypt(body.key.trim()))
+    return c.json({ scoutos: true })
+  })
+
+  app.get('/api/credentials', async c => {
+    const auth = await authenticate(c)
+    if (!auth) return c.json(errorBody('unauthorized', 'Missing or invalid session token'), 401)
+
+    const stored = await deps.db.getCredential(auth.userId, 'scoutos')
+    return c.json({ scoutos: stored !== null })
+  })
+
+  app.delete('/api/credentials/scoutos', async c => {
+    const auth = await authenticate(c)
+    if (!auth) return c.json(errorBody('unauthorized', 'Missing or invalid session token'), 401)
+
+    await deps.db.deleteCredential(auth.userId, 'scoutos')
+    return c.json({ scoutos: false })
+  })
+
   app.get('/api/me', async c => {
     const auth = await authenticate(c)
     if (!auth) return c.json(errorBody('unauthorized', 'Missing or invalid session token'), 401)

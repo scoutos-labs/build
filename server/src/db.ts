@@ -28,10 +28,16 @@ export type Db = {
   setDisabled(clerkUserId: string, disabled: boolean): Promise<void>
   deleteUser(clerkUserId: string): Promise<void>
   updateTier(clerkUserId: string, tier: string, model: string): Promise<void>
+  /** User-supplied provider keys (e.g. ScoutOS), encrypted at rest. Write-only:
+   * stored ciphertext is decrypted only inside the publish handler. */
+  upsertCredential(clerkUserId: string, provider: string, keyEnc: Buffer): Promise<void>
+  getCredential(clerkUserId: string, provider: string): Promise<Buffer | null>
+  deleteCredential(clerkUserId: string, provider: string): Promise<void>
 }
 
-export const MIGRATION_SQL = `
-create table if not exists users (
+// One statement per entry: PGlite's query() rejects multi-statement strings.
+export const MIGRATION_STATEMENTS = [
+  `create table if not exists users (
   clerk_user_id text primary key,
   or_key_hash   text not null,
   or_key_enc    bytea not null,
@@ -39,11 +45,21 @@ create table if not exists users (
   model         text not null,
   disabled      boolean not null default false,
   created_at    timestamptz not null default now()
-);
-`
+)`,
+  `create table if not exists user_credentials (
+  clerk_user_id text not null,
+  provider      text not null,
+  key_enc       bytea not null,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  primary key (clerk_user_id, provider)
+)`,
+]
 
 export async function migrate(queryable: Queryable): Promise<void> {
-  await queryable.query(MIGRATION_SQL)
+  for (const statement of MIGRATION_STATEMENTS) {
+    await queryable.query(statement)
+  }
 }
 
 type RawUserRow = Omit<UserRow, 'or_key_enc'> & { or_key_enc: Uint8Array }
@@ -101,6 +117,32 @@ export function createDb(queryable: Queryable): Db {
         tier,
         model,
       ])
+    },
+
+    async upsertCredential(clerkUserId, provider, keyEnc) {
+      await queryable.query(
+        `insert into user_credentials (clerk_user_id, provider, key_enc)
+         values ($1, $2, $3)
+         on conflict (clerk_user_id, provider)
+         do update set key_enc = excluded.key_enc, updated_at = now()`,
+        [clerkUserId, provider, keyEnc],
+      )
+    },
+
+    async getCredential(clerkUserId, provider) {
+      const result = await queryable.query<{ key_enc: Uint8Array }>(
+        'select key_enc from user_credentials where clerk_user_id = $1 and provider = $2',
+        [clerkUserId, provider],
+      )
+      const raw = result.rows[0]
+      return raw ? Buffer.from(raw.key_enc) : null
+    },
+
+    async deleteCredential(clerkUserId, provider) {
+      await queryable.query(
+        'delete from user_credentials where clerk_user_id = $1 and provider = $2',
+        [clerkUserId, provider],
+      )
     },
   }
 }

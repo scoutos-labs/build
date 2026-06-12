@@ -22,6 +22,7 @@ function makeUserRow(overrides: Partial<UserRow> = {}): UserRow {
 
 function createFakeDb(initial: UserRow[] = []) {
   const rows = new Map(initial.map(row => [row.clerk_user_id, row]))
+  const credentials = new Map<string, Buffer>()
   const db: Db = {
     async getUser(id) {
       return rows.get(id) ?? null
@@ -50,8 +51,17 @@ function createFakeDb(initial: UserRow[] = []) {
       const row = rows.get(id)
       if (row) rows.set(id, { ...row, tier, model })
     },
+    async upsertCredential(id, provider, keyEnc) {
+      credentials.set(`${id}:${provider}`, keyEnc)
+    },
+    async getCredential(id, provider) {
+      return credentials.get(`${id}:${provider}`) ?? null
+    },
+    async deleteCredential(id, provider) {
+      credentials.delete(`${id}:${provider}`)
+    },
   }
-  return { db, rows }
+  return { db, rows, credentials }
 }
 
 function createFakeOpenRouter(chatResult: ChatResult = { kind: 'ok', content: '{"reply":"done","patches":[]}' }) {

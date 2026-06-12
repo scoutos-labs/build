@@ -12,7 +12,8 @@ Return ONLY valid JSON with this exact shape: {"reply":"short user-facing summar
 Rules:
 - Modify files by returning full replacement contents.
 - Prefer Vite + React + TypeScript.
-- Use @electric-sql/pglite for local browser databases.
+- For persistence, use the db client in src/db.ts; it calls the hyper-zepto data port that vite.config.ts serves at /api/db. Never import hyper-zepto in browser code.
+- Preserve vite.config.ts (it hosts the database API) unless the user explicitly asks to change the backend.
 - Do not use native Node modules, server-only packages, Docker, or external databases.
 - Keep changes small, coherent, and runnable.
 - If changing dependencies, replace package.json too.
@@ -39,8 +40,80 @@ type AgentArgs = {
 
 type ModelMessage = { role: 'system' | 'user' | 'assistant'; content: string }
 
-function projectContext(files: ProjectFile[]) {
-  return files.map(file => `--- ${file.path}\n${file.content}`).join('\n\n')
+/**
+ * Context selection (mirror of server/src/prompt.ts, which is the source of
+ * truth): under the budget the whole project ships; over it, files the
+ * request plausibly touches stay full and the rest shrink to stubs.
+ */
+const FILE_CONTEXT_CHAR_BUDGET = 160_000
+const STUB_LINES = 20
+const STUB_MAX_CHARS = 1000
+const ALWAYS_FULL = new Set(['package.json', 'vite.config.ts', 'index.html', 'src/db.ts'])
+const SMALL_FILE_CHARS = 1500
+const RECENT_MESSAGES = 6
+
+type ContextFile = ProjectFile & { stub: boolean }
+
+function basename(path: string) {
+  return path.split('/').at(-1) ?? path
+}
+
+function selectContextFiles(args: {
+  files: ProjectFile[]
+  userPrompt: string
+  messages: ChatMessage[]
+  selectedElement?: SelectedPreviewElement
+  elementComment?: string
+}): ContextFile[] {
+  const total = args.files.reduce((sum, file) => sum + file.content.length, 0)
+  if (total <= FILE_CONTEXT_CHAR_BUDGET) return args.files.map(file => ({ ...file, stub: false }))
+
+  const mentionText = [
+    args.userPrompt,
+    ...args.messages.slice(-RECENT_MESSAGES).map(message => message.content),
+    args.elementComment ?? '',
+  ].join('\n')
+  const elementMarkers = [args.selectedElement?.id, ...(args.selectedElement?.classes ?? [])].filter(
+    (marker): marker is string => !!marker,
+  )
+
+  const priority = (file: ProjectFile): number => {
+    if (ALWAYS_FULL.has(file.path)) return 0
+    if (mentionText.includes(file.path) || mentionText.includes(basename(file.path))) return 1
+    if (elementMarkers.some(marker => file.content.includes(marker))) return 2
+    if (file.content.length <= SMALL_FILE_CHARS) return 3
+    return 4
+  }
+
+  const ranked = args.files
+    .map((file, index) => ({ file, index, priority: priority(file) }))
+    .sort((a, b) => a.priority - b.priority || a.index - b.index)
+  let spent = 0
+  const stubbed = new Set<string>()
+  for (const entry of ranked) {
+    if (spent + entry.file.content.length > FILE_CONTEXT_CHAR_BUDGET) {
+      stubbed.add(entry.file.path)
+    } else {
+      spent += entry.file.content.length
+    }
+  }
+  return args.files.map(file => ({ ...file, stub: stubbed.has(file.path) }))
+}
+
+const STUB_NOTE = `
+
+Files marked [stub: ...] show only their first lines to fit the context budget. Never write a patch for a stubbed file based on its stub. If the change needs one, return {"reply":"<say which files you need, by exact path>","patches":[]} — files named in the conversation are sent in full on the next message.`
+
+function projectContext(files: ContextFile[]) {
+  return files
+    .map(file => {
+      if (!file.stub) return `--- ${file.path}\n${file.content}`
+      const lines = file.content.split('\n')
+      const shown = Math.min(STUB_LINES, lines.length)
+      const head = lines.slice(0, shown).join('\n').slice(0, STUB_MAX_CHARS)
+      return `--- ${file.path} [stub: first ${shown} of ${lines.length} lines]\n${head}`
+    })
+    .join('\n\n')
 }
 
 function extractJson(text: string): AgentResult {
@@ -79,7 +152,9 @@ export async function call_agent(args: AgentArgs): Promise<AgentResult> {
   const messages: ModelMessage[] = []
   messages.push({ role: 'system', content: JSON_SYSTEM_PROMPT })
   if (args.files.length > 0) {
-    messages.push({ role: 'system', content: `Current project files:\n\n${projectContext(args.files)}` })
+    const contextFiles = selectContextFiles(args)
+    const note = contextFiles.some(file => file.stub) ? STUB_NOTE : ''
+    messages.push({ role: 'system', content: `Current project files:\n\n${projectContext(contextFiles)}${note}` })
   }
   if (args.selectedElement && args.elementComment) {
     messages.push({ role: 'system', content: buildSelectedElementPrompt({ element: args.selectedElement, comment: args.elementComment }) })

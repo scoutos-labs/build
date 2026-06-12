@@ -7,11 +7,16 @@ import { buildModelMessages, extractJson, type AgentRequestBody } from './prompt
 import type { RateLimiter } from './rate-limit.js'
 import { normalizeTier, tierConfig } from './tiers.js'
 
-export const MAX_BODY_BYTES = 256 * 1024
+/**
+ * Caps raw request parsing only. Model spend is bounded separately: context
+ * selection in prompt.ts stubs low-relevance files to keep the assembled
+ * prompt under MAX_PROMPT_CHARS, so large projects are accepted here.
+ */
+export const MAX_BODY_BYTES = 2 * 1024 * 1024
 /**
  * Rough token ceiling for the assembled prompt (~4 chars/token ≈ 50k tokens).
- * Deliberately below MAX_BODY_BYTES so it can actually fire: it bounds model
- * spend per request, while the byte cap bounds parsing work.
+ * Backstop only — context selection keeps the files block under budget, so
+ * this fires mainly on pathological chat histories.
  */
 export const MAX_PROMPT_CHARS = 200_000
 
@@ -116,11 +121,11 @@ export function createApp(deps: AppDeps) {
 
     const declaredLength = Number(c.req.header('content-length') ?? '0')
     if (declaredLength > MAX_BODY_BYTES) {
-      return c.json(errorBody('payload_too_large', 'Request body exceeds 256KB'), 413)
+      return c.json(errorBody('payload_too_large', 'Request body exceeds 2MB'), 413)
     }
     const rawBody = await c.req.text()
     if (rawBody.length > MAX_BODY_BYTES) {
-      return c.json(errorBody('payload_too_large', 'Request body exceeds 256KB'), 413)
+      return c.json(errorBody('payload_too_large', 'Request body exceeds 2MB'), 413)
     }
 
     let parsed: unknown

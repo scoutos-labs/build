@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp, MAX_PROMPT_CHARS, type AppDeps } from './app.js'
-import type { Db, UserRow } from './db.js'
+import type { Db, DeploymentRow, UserRow } from './db.js'
 import { createKeyCrypto } from './key-crypto.js'
 import type { ChatResult, OpenRouterClient } from './openrouter.js'
 import { createRateLimiter } from './rate-limit.js'
+import type { ScoutLiveClient } from './scoutlive.js'
 
 const keyCrypto = createKeyCrypto('test-secret')
 
@@ -22,6 +23,8 @@ function makeUserRow(overrides: Partial<UserRow> = {}): UserRow {
 
 function createFakeDb(initial: UserRow[] = []) {
   const rows = new Map(initial.map(row => [row.clerk_user_id, row]))
+  const credentials = new Map<string, Buffer>()
+  const deployments = new Map<string, DeploymentRow>()
   const db: Db = {
     async getUser(id) {
       return rows.get(id) ?? null
@@ -50,8 +53,50 @@ function createFakeDb(initial: UserRow[] = []) {
       const row = rows.get(id)
       if (row) rows.set(id, { ...row, tier, model })
     },
+    async upsertCredential(id, provider, keyEnc) {
+      credentials.set(`${id}:${provider}`, keyEnc)
+    },
+    async getCredential(id, provider) {
+      return credentials.get(`${id}:${provider}`) ?? null
+    },
+    async deleteCredential(id, provider) {
+      credentials.delete(`${id}:${provider}`)
+    },
+    async getDeployment(id, projectId) {
+      return deployments.get(`${id}:${projectId}`) ?? null
+    },
+    async getDeploymentByBuild(id, buildId) {
+      for (const row of deployments.values()) {
+        if (row.clerk_user_id === id && row.last_build_id === buildId) return row
+      }
+      return null
+    },
+    async upsertDeployment({ clerkUserId, projectId, subdomain, lastBuildId }) {
+      const key = `${clerkUserId}:${projectId}`
+      const existing = deployments.get(key)
+      deployments.set(key, {
+        clerk_user_id: clerkUserId,
+        project_id: projectId,
+        subdomain,
+        publish_code_enc: existing?.publish_code_enc ?? null,
+        last_build_id: lastBuildId,
+        last_url: existing?.last_url ?? null,
+        created_at: existing?.created_at ?? new Date('2026-01-01'),
+        updated_at: new Date('2026-01-01'),
+      })
+    },
+    async recordDeployOutcome({ clerkUserId, projectId, publishCodeEnc, lastUrl }) {
+      const key = `${clerkUserId}:${projectId}`
+      const existing = deployments.get(key)
+      if (!existing) return
+      deployments.set(key, {
+        ...existing,
+        publish_code_enc: publishCodeEnc ?? existing.publish_code_enc,
+        last_url: lastUrl ?? existing.last_url,
+      })
+    },
   }
-  return { db, rows }
+  return { db, rows, credentials, deployments }
 }
 
 function createFakeOpenRouter(chatResult: ChatResult = { kind: 'ok', content: '{"reply":"done","patches":[]}' }) {
@@ -65,10 +110,21 @@ function createFakeOpenRouter(chatResult: ChatResult = { kind: 'ok', content: '{
   return client
 }
 
+function createFakeScoutLive(): ScoutLiveClient {
+  return {
+    deploy: vi.fn(async () => ({ kind: 'accepted' as const, buildId: 'bld_1' })),
+    getBuildStatus: vi.fn(async () => ({
+      kind: 'ok' as const,
+      build: { status: 'queued' },
+    })),
+  }
+}
+
 function createDeps(overrides: Partial<AppDeps> = {}): AppDeps {
   return {
     db: createFakeDb([makeUserRow()]).db,
     openrouter: createFakeOpenRouter(),
+    scoutlive: createFakeScoutLive(),
     keyCrypto,
     rateLimiter: createRateLimiter(10, 60_000),
     verifyToken: vi.fn(async token => {

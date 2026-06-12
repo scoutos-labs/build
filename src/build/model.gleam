@@ -2,6 +2,7 @@ import build/actors/agent
 import build/actors/chat
 import build/actors/preview
 import build/actors/project
+import build/actors/publish
 import build/actors/settings
 import build/actors/webcontainer
 import build/runtime/managed
@@ -15,6 +16,7 @@ pub type Model {
     agent: agent.State,
     preview: preview.State,
     webcontainer: webcontainer.State,
+    publish: publish.State,
   )
 }
 
@@ -34,5 +36,6 @@ pub fn init() -> Model {
     agent: agent.init(),
     preview: preview.init(),
     webcontainer: webcontainer.init(),
+    publish: publish.init(),
   )
 }

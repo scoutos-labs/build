@@ -1,11 +1,21 @@
-import build/msg
 import build/actors/project
+import build/actors/publish
+import build/msg
+import gleam/option.{type Option, None, Some}
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
-pub fn view(project_name: String, save_status: String, name_editing: Bool, busy: Bool) -> Element(msg.Msg) {
+pub fn view(
+  project_name: String,
+  save_status: String,
+  name_editing: Bool,
+  busy: Bool,
+  managed: Bool,
+  project_id: Option(String),
+  publish_busy: Bool,
+) -> Element(msg.Msg) {
   html.section(
     [attribute.class("projectControls"), attribute.aria_label("Project controls")],
     [
@@ -22,10 +32,45 @@ pub fn view(project_name: String, save_status: String, name_editing: Bool, busy:
         [
           button([attribute.class("secondary iconButton"), attribute.title("Open projects"), attribute.aria_label("Open projects"), event.on_click(msg.Project(project.ProjectsDialogOpened))], "📁"),
           button([attribute.class("secondary iconButton"), attribute.title("New project"), attribute.aria_label("New project"), attribute.disabled(busy), event.on_click(msg.NewProject)], "＋"),
+          publish_control(managed, project_id, busy, publish_busy),
         ],
       ),
     ],
   )
+}
+
+// Publishing requires managed auth (server-stored keys); non-managed mode
+// must show no publish affordances at all.
+fn publish_control(
+  managed: Bool,
+  project_id: Option(String),
+  busy: Bool,
+  publish_busy: Bool,
+) -> Element(msg.Msg) {
+  case managed, project_id {
+    False, _ -> html.text("")
+    True, None ->
+      button(
+        [
+          attribute.class("secondary iconButton"),
+          attribute.title("Publish (save the project first)"),
+          attribute.aria_label("Publish"),
+          attribute.disabled(True),
+        ],
+        "🚀",
+      )
+    True, Some(id) ->
+      button(
+        [
+          attribute.class("secondary iconButton"),
+          attribute.title("Publish to scoutos.live"),
+          attribute.aria_label("Publish to scoutos.live"),
+          attribute.disabled(busy || publish_busy),
+          event.on_click(msg.Publish(publish.PublishClicked(id))),
+        ],
+        "🚀",
+      )
+  }
 }
 
 fn project_name_control(project_name: String, name_editing: Bool) -> Element(msg.Msg) {

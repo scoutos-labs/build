@@ -12,8 +12,8 @@ Return ONLY valid JSON with this exact shape: {"reply":"short user-facing summar
 Rules:
 - Modify files by returning full replacement contents.
 - Prefer Vite + React + TypeScript.
-- For persistence, use the db client in src/db.ts; it calls the hyper-zepto data port that vite.config.ts serves at /api/db. Never import hyper-zepto in browser code.
-- Preserve vite.config.ts (it hosts the database API) unless the user explicitly asks to change the backend.
+- For persistence, use the db client in src/db.ts; it calls the hyper-zepto data port that zepto-bridge.js serves at /api/db (mounted by vite.config.ts in dev and server.js in production). Never import hyper-zepto in browser code.
+- Preserve vite.config.ts, zepto-bridge.js, and server.js (they host the database API and the production server) unless the user explicitly asks to change the backend.
 - Do not use native Node modules, server-only packages, Docker, or external databases.
 - Keep changes small, coherent, and runnable.
 - If changing dependencies, replace package.json too.
@@ -48,7 +48,7 @@ type ModelMessage = { role: 'system' | 'user' | 'assistant'; content: string }
 const FILE_CONTEXT_CHAR_BUDGET = 160_000
 const STUB_LINES = 20
 const STUB_MAX_CHARS = 1000
-const ALWAYS_FULL = new Set(['package.json', 'vite.config.ts', 'index.html', 'src/db.ts'])
+const ALWAYS_FULL = new Set(['package.json', 'vite.config.ts', 'zepto-bridge.js', 'server.js', 'index.html', 'src/db.ts'])
 const SMALL_FILE_CHARS = 1500
 const RECENT_MESSAGES = 6
 

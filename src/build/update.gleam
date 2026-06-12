@@ -2,6 +2,7 @@ import build/actors/agent
 import build/actors/chat
 import build/actors/preview
 import build/actors/project
+import build/actors/publish
 import build/actors/settings
 import build/actors/webcontainer
 import build/effect
@@ -22,6 +23,7 @@ pub fn update(
         True -> #(app, [
           effect.Settings(settings.PurgeLegacySettings),
           effect.Settings(settings.FetchAccountInfo),
+          effect.Publish(publish.FetchKeyStatus),
           effect.Project(project.LoadInitialProject),
         ])
         False -> #(app, [
@@ -149,7 +151,31 @@ pub fn update(
         list.map(effects, effect.WebContainer),
       )
     }
+    msg.Publish(publish_msg) -> update_publish(app, publish_msg)
   }
+}
+
+/// The publish actor decides *whether* to publish; this layer supplies the
+/// project file map it can't see. Whenever a publish message lands the state
+/// in Publishing, kick off the actual request.
+fn update_publish(
+  app: model.Model,
+  publish_msg: publish.Msg,
+) -> #(model.Model, List(effect.Effect)) {
+  let #(state, effects) = publish.update(app.publish, publish_msg)
+  let mapped = list.map(effects, effect.Publish)
+  let start = case app.publish.status, state.status {
+    publish.Publishing(_, _), _ -> []
+    _, publish.Publishing(project_id, subdomain) -> [
+      effect.Publish(publish.StartPublish(
+        project_id,
+        subdomain,
+        app.project.files,
+      )),
+    ]
+    _, _ -> []
+  }
+  #(model.Model(..app, publish: state), list.append(mapped, start))
 }
 
 fn update_agent(

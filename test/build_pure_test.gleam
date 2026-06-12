@@ -17,18 +17,43 @@ pub fn starter_files_include_runnable_project_test() {
   assert list.contains(paths, "package.json")
   assert list.contains(paths, "index.html")
   assert list.contains(paths, "vite.config.ts")
+  assert list.contains(paths, "zepto-bridge.js")
+  assert list.contains(paths, "server.js")
   assert list.contains(paths, "src/main.tsx")
   assert list.contains(paths, "src/db.ts")
   assert list.contains(paths, "src/build-inspector.ts")
   assert list.contains(paths, "src/style.css")
   assert file_content(files, "package.json") |> string.contains("hyper-zepto")
+  assert file_content(files, "package.json") |> string.contains("node server.js")
   assert file_content(files, "vite.config.ts")
-    |> string.contains("createPorts({ mode: 'local'")
+    |> string.contains("from './zepto-bridge.js'")
   assert file_content(files, "src/db.ts") |> string.contains("/api/db")
   assert file_content(files, "src/main.tsx") |> string.contains("./build-inspector")
   assert file_content(files, "src/main.tsx") |> string.contains("BUILD_APP_FROM_PLAN")
   assert file_content(files, "src/main.tsx") |> string.contains("Welcome to Build")
   assert file_content(files, "src/build-inspector.ts") |> string.contains("BUILD_ELEMENT_SELECTED")
+}
+
+pub fn starter_files_include_production_server_test() {
+  let files = templates.starter_files()
+
+  // server.js exists and mounts the shared bridge that vite.config.ts uses.
+  assert file_content(files, "server.js")
+    |> string.contains("from './zepto-bridge.js'")
+  assert file_content(files, "server.js") |> string.contains("/api/db")
+  assert file_content(files, "server.js") |> string.contains("process.env.PORT")
+
+  // Scout Live env mapping: strip the /_ports suffix from SCOUT_PORTS_URL
+  // because hyper-zepto's remote adapters append it themselves.
+  assert file_content(files, "zepto-bridge.js")
+    |> string.contains("SCOUT_PORTS_URL")
+  assert file_content(files, "zepto-bridge.js")
+    |> string.contains("SCOUTOS_PORTS_URL")
+  assert file_content(files, "zepto-bridge.js") |> string.contains("'/_ports'")
+  assert file_content(files, "zepto-bridge.js")
+    |> string.contains("createPorts({ mode: 'remote', baseUrl })")
+  assert file_content(files, "zepto-bridge.js")
+    |> string.contains("createPorts({ mode: 'local', dir: '.zepto' })")
 }
 
 pub fn files_to_tree_converts_flat_files_test() {

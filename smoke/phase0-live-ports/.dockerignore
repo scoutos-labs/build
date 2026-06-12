@@ -1,0 +1,4 @@
+node_modules
+.zepto
+deploy.sh
+README.md

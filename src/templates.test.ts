@@ -2,16 +2,19 @@ import { describe, expect, it } from 'vitest'
 import { filesToTree, starterFiles, upsertFile } from './templates'
 
 describe('project templates', () => {
-  it('includes a runnable React/PGlite starter project', () => {
+  it('includes a runnable React/hyper-zepto starter project', () => {
     expect(starterFiles.map(file => file.path)).toEqual(expect.arrayContaining([
       'package.json',
       'index.html',
+      'vite.config.ts',
       'src/main.tsx',
       'src/db.ts',
       'src/build-inspector.ts',
       'src/style.css',
     ]))
-    expect(starterFiles.find(file => file.path === 'src/db.ts')?.content).toContain('@electric-sql/pglite')
+    expect(starterFiles.find(file => file.path === 'package.json')?.content).toContain('hyper-zepto')
+    expect(starterFiles.find(file => file.path === 'vite.config.ts')?.content).toContain("createPorts({ mode: 'local'")
+    expect(starterFiles.find(file => file.path === 'src/db.ts')?.content).toContain('/api/db')
     expect(starterFiles.find(file => file.path === 'src/main.tsx')?.content).toContain("./build-inspector")
     expect(starterFiles.find(file => file.path === 'src/main.tsx')?.content).toContain('BUILD_APP_FROM_PLAN')
     expect(starterFiles.find(file => file.path === 'src/main.tsx')?.content).toContain('Welcome to Build')

@@ -8,9 +8,9 @@ export type TierConfig = {
 }
 
 export const TIERS: Record<Tier, TierConfig> = {
-  // claude-3.5-haiku proved too weak for "full files as strict JSON" output
-  // (emits unescaped newlines/backticks); haiku-4.5 is reliable at ~same cost.
-  free: { limitUsd: 1, model: 'anthropic/claude-haiku-4.5' },
+  // openrouter/auto routes per-request, so weaker models may emit loose JSON;
+  // the repair retry in app.ts covers that case.
+  free: { limitUsd: 5, model: 'openrouter/auto' },
   pro: { limitUsd: 10, model: 'anthropic/claude-sonnet-4.6' },
 }
 

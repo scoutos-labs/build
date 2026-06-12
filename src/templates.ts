@@ -12,7 +12,7 @@ export const starterFiles: ProjectFile[] = [
         // binding (emnapi) crashes inside WebContainers.
         dependencies: {
           '@vitejs/plugin-react': '^4.3.4',
-          '@electric-sql/pglite': 'latest',
+          'hyper-zepto': '^0.1.0',
           vite: '^7.3.2',
           typescript: 'latest',
           react: '^18.3.1',
@@ -110,7 +110,7 @@ function buildPlanSummary(answers: Answers) {
     coreFeatures: compact(answers.features, 'A polished dashboard, clear navigation, create/edit flows, and helpful empty states'),
     dataToStore: compact(answers.data, 'Local app records with sensible fields and sample data'),
     visualDirection: compact(answers.style, 'Modern, friendly, responsive, and production-quality'),
-    extrasAndConstraints: compact(answers.integrations, 'Keep it runnable in the browser with React, TypeScript, Vite, and PGlite when persistence is useful'),
+    extrasAndConstraints: compact(answers.integrations, 'Keep it runnable in the browser with React, TypeScript, Vite, and the hyper-zepto db helpers in src/db.ts when persistence is useful'),
   }
 
   const summary = \`Build an app for: \${plan.appIdea}\n\nTarget users: \${plan.targetUsers}\n\nMain goal: \${plan.primaryGoal}\n\nMust-have features: \${plan.coreFeatures}\n\nData model / persistence: \${plan.dataToStore}\n\nVisual direction: \${plan.visualDirection}\n\nExtras / constraints: \${plan.extrasAndConstraints}\`
@@ -198,10 +198,80 @@ createRoot(document.getElementById('root')!).render(<App />)
 `,
   },
   {
-    path: 'src/db.ts',
-    content: `import { PGlite } from '@electric-sql/pglite'
+    path: 'vite.config.ts',
+    content: `import { defineConfig, type Plugin } from 'vite'
+import { createPorts } from 'hyper-zepto'
 
-export const db = new PGlite('idb://preview-app')
+// hyper-zepto uses Node fs, so it runs inside the dev server; the browser
+// reaches it through this /api/db bridge (see src/db.ts).
+function zeptoApi(): Plugin {
+  const ports = createPorts({ mode: 'local', dir: '.zepto' })
+
+  async function run(collection: string, action: string, body: Record<string, any>) {
+    switch (action) {
+      case 'create': return ports.data.create(collection, body.doc)
+      case 'get': return ports.data.get(collection, body.id)
+      case 'find': return ports.data.find(collection, body.query ?? {})
+      case 'update': return ports.data.update(collection, body.id, body.ops)
+      case 'delete': return ports.data.delete(collection, body.id)
+      case 'count': return ports.data.count(collection, body.filter ?? {})
+      default: throw Object.assign(new Error(\`unknown db action: \${action}\`), { status: 404 })
+    }
+  }
+
+  return {
+    name: 'zepto-api',
+    configureServer(server) {
+      server.middlewares.use('/api/db', (req, res) => {
+        const path = (req.url ?? '').split('?')[0]
+        const [collection, action] = path.split('/').filter(Boolean)
+        let raw = ''
+        req.on('data', chunk => { raw += chunk })
+        req.on('end', async () => {
+          try {
+            const result = await run(collection, action, raw ? JSON.parse(raw) : {})
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(result ?? null))
+          } catch (error: any) {
+            res.statusCode = typeof error?.status === 'number' ? error.status : 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ error: String(error?.message ?? error), code: error?.code }))
+          }
+        })
+      })
+    },
+  }
+}
+
+export default defineConfig({ plugins: [zeptoApi()] })
+`,
+  },
+  {
+    path: 'src/db.ts',
+    content: `// Browser client for the hyper-zepto data port served by vite.config.ts.
+// Mongo-style documents: await db.create('todos', { title: 'hi' }), then
+// await db.find('todos', { filter: { done: false }, sort: { title: 1 } }).
+type Json = Record<string, unknown>
+
+async function call(collection: string, action: string, body: Json) {
+  const response = await fetch(\`/api/db/\${collection}/\${action}\`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const data = await response.json()
+  if (!response.ok) throw new Error(data?.error ?? \`db \${action} failed (\${response.status})\`)
+  return data
+}
+
+export const db = {
+  create: (collection: string, doc: Json) => call(collection, 'create', { doc }),
+  get: (collection: string, id: string) => call(collection, 'get', { id }),
+  find: (collection: string, query: Json = {}) => call(collection, 'find', { query }),
+  update: (collection: string, id: string, ops: Json) => call(collection, 'update', { id, ops }),
+  remove: (collection: string, id: string) => call(collection, 'delete', { id }),
+  count: (collection: string, filter: Json = {}) => call(collection, 'count', { filter }),
+}
 `,
   },
   {

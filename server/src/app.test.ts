@@ -163,7 +163,7 @@ describe('POST /api/agent lazy provisioning', () => {
     const app = createApp(createDeps({ db, openrouter }))
     const res = await agentRequest(app)
     expect(res.status).toBe(200)
-    expect(openrouter.createKey).toHaveBeenCalledWith({ name: 'build-user-user_1', limitUsd: 1 })
+    expect(openrouter.createKey).toHaveBeenCalledWith({ name: 'build-user-user_1', limitUsd: 5 })
     const row = rows.get('user_1')
     expect(row).toBeDefined()
     expect(row?.or_key_enc.toString('latin1')).not.toContain('sk-or-')
@@ -213,10 +213,10 @@ describe('POST /api/agent abuse controls', () => {
     expect(res.status).toBe(429)
   })
 
-  it('returns 413 for a body over 256KB', async () => {
+  it('returns 413 for a body over 2MB', async () => {
     const app = createApp(createDeps())
     const big = JSON.stringify({
-      userPrompt: 'x'.repeat(300 * 1024),
+      userPrompt: 'x'.repeat(2 * 1024 * 1024 + 1024),
       files: [],
       messages: [],
     })
@@ -226,18 +226,36 @@ describe('POST /api/agent abuse controls', () => {
     expect(body.error.code).toBe('payload_too_large')
   })
 
-  it('returns 413 prompt_too_large when the assembled prompt exceeds the token ceiling', async () => {
+  it('stubs low-relevance files instead of rejecting an over-budget project', async () => {
     const openrouter = createFakeOpenRouter()
     const app = createApp(createDeps({ openrouter }))
-    // ~220k chars of file content: under the 256KB body cap, over the
-    // 200k-char prompt ceiling.
-    const files = Array.from({ length: 5 }, (_, i) => ({
-      path: `src/f${i}.ts`,
-      content: 'y'.repeat(44 * 1024),
-    }))
-    const body = JSON.stringify({ userPrompt: 'small', files, messages: [] })
-    expect(body.length).toBeLessThan(256 * 1024)
-    expect(body.length).toBeGreaterThan(MAX_PROMPT_CHARS)
+    // ~300k chars of file content: well over the prompt ceiling pre-selection.
+    const files = [
+      { path: 'src/main.tsx', content: 'm'.repeat(40 * 1024) },
+      ...Array.from({ length: 5 }, (_, i) => ({
+        path: `src/big${i}.ts`,
+        content: 'y'.repeat(52 * 1024),
+      })),
+    ]
+    const body = JSON.stringify({ userPrompt: 'update the header in main.tsx', files, messages: [] })
+    const res = await agentRequest(app, { body })
+    expect(res.status).toBe(200)
+    const sent = vi.mocked(openrouter.chatCompletion).mock.calls[0]![0]
+    const filesMessage = sent.messages[1]!.content
+    expect(filesMessage).toContain('--- src/main.tsx\n')
+    expect(filesMessage).toContain('[stub: first')
+    const promptChars = sent.messages.reduce((total, m) => total + m.content.length, 0)
+    expect(promptChars).toBeLessThan(MAX_PROMPT_CHARS)
+  })
+
+  it('returns 413 prompt_too_large when chat history alone exceeds the ceiling', async () => {
+    const openrouter = createFakeOpenRouter()
+    const app = createApp(createDeps({ openrouter }))
+    const body = JSON.stringify({
+      userPrompt: 'small',
+      files: [],
+      messages: [{ role: 'user', content: 'z'.repeat(MAX_PROMPT_CHARS + 1024) }],
+    })
     const res = await agentRequest(app, { body })
     expect(res.status).toBe(413)
     const errorPayload = await res.json()
@@ -306,7 +324,7 @@ describe('POST /webhooks/clerk', () => {
     const app = createApp(createDeps({ db, openrouter }))
     const res = await webhookRequest(app, { type: 'user.created', data: { id: 'user_9' } })
     expect(res.status).toBe(200)
-    expect(openrouter.createKey).toHaveBeenCalledWith({ name: 'build-user-user_9', limitUsd: 1 })
+    expect(openrouter.createKey).toHaveBeenCalledWith({ name: 'build-user-user_9', limitUsd: 5 })
     const row = rows.get('user_9')
     expect(row?.tier).toBe('free')
     expect(row?.or_key_enc.toString('latin1')).not.toContain('sk-or-')

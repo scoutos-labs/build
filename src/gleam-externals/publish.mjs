@@ -84,8 +84,21 @@ export async function fetchDeployment(projectId) {
   dispatchPublishDeploymentLoaded(projectId, false, '')
 }
 
+// Backfill publish infrastructure (server.js, zepto-bridge.js, build/start
+// scripts) for projects created before the production template existed.
+async function preparedFiles(files) {
+  try {
+    const { preparePublishFiles } = await import('../publish-files')
+    return preparePublishFiles(files)
+  } catch {
+    return files
+  }
+}
+
 export async function startPublish(projectId, subdomain, filesArg) {
-  const files = gleamListToArray(filesArg).map(file => ({ path: file.path, content: file.content }))
+  const files = await preparedFiles(
+    gleamListToArray(filesArg).map(file => ({ path: file.path, content: file.content })),
+  )
   try {
     const response = await fetch('/api/publish', {
       method: 'POST',

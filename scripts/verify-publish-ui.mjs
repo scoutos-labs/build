@@ -33,9 +33,11 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true })
     }
     return route.fulfill({ json: { subdomain: 'verify-app', url: 'https://verify-app.scoutos.live' } })
   })
+  let lastPublishBody = null
   await page.route('**/api/publish', route => {
     publishCalls += 1
     const body = route.request().postDataJSON()
+    lastPublishBody = body
     if (!body?.projectId || !Array.isArray(body?.files) || body.files.length === 0) {
       return route.fulfill({ status: 400, json: { error: { code: 'bad_request', message: 'bad body' } } })
     }
@@ -58,8 +60,9 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true })
     bridge.dispatchProjectCreated({
       id: 'proj_verify',
       name: 'Verify Project',
+      // Legacy shape: dev-only scripts, no server.js / zepto-bridge.js.
       files: [
-        { path: 'package.json', content: '{"scripts":{"build":"vite build"}}' },
+        { path: 'package.json', content: '{"scripts":{"dev":"vite"},"dependencies":{"react":"^18.3.1"}}' },
         { path: 'src/main.tsx', content: 'console.log(1)' },
       ],
       selectedPath: 'src/main.tsx',
@@ -86,6 +89,17 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true })
   await page.waitForSelector('.publishDeployed a.publishedUrl', { timeout: 15000 })
   const url = await page.textContent('.publishDeployed a.publishedUrl')
   check('happy path reaches the deployed URL', url === 'https://verify-app.scoutos.live', url)
+
+  // Legacy-project backfill: the dispatched project has no server.js and a
+  // dev-only package.json, but the publish payload must be deployable.
+  const sentPaths = (lastPublishBody?.files ?? []).map(f => f.path)
+  const sentPkg = JSON.parse(lastPublishBody.files.find(f => f.path === 'package.json')?.content ?? '{}')
+  check(
+    'publish payload backfills server.js, bridge, and build script',
+    sentPaths.includes('server.js') && sentPaths.includes('zepto-bridge.js')
+      && sentPkg.scripts?.build === 'vite build' && sentPkg.scripts?.start === 'node server.js',
+    sentPaths.join(', '),
+  )
 
   // Republish: stored deployment skips the subdomain prompt.
   await page.click('[aria-label="Close publish dialog"]')

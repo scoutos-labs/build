@@ -7,6 +7,7 @@ import { createDb, migrate } from './db.js'
 import { createKeyCrypto } from './key-crypto.js'
 import { createOpenRouterClient } from './openrouter.js'
 import { createRateLimiter } from './rate-limit.js'
+import { createScoutLiveClient } from './scoutlive.js'
 import { normalizeTier } from './tiers.js'
 
 function requireEnv(name: string): string {
@@ -69,6 +70,7 @@ function verifyWebhook(
 const app = createApp({
   db: createDb(pglite),
   openrouter: createOpenRouterClient({ provisioningKey }),
+  scoutlive: createScoutLiveClient(),
   keyCrypto: createKeyCrypto(keyEncryptionSecret),
   rateLimiter: createRateLimiter(10, 60_000),
   verifyToken,

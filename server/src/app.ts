@@ -3,8 +3,10 @@ import { getCookie } from 'hono/cookie'
 import type { Db, UserRow } from './db.js'
 import type { KeyCrypto } from './key-crypto.js'
 import type { OpenRouterClient } from './openrouter.js'
-import { buildModelMessages, extractJson, type AgentRequestBody } from './prompt.js'
+import { buildModelMessages, extractJson, type AgentRequestBody, type ProjectFile } from './prompt.js'
+import { checkSubdomain, packageProject } from './publish.js'
 import type { RateLimiter } from './rate-limit.js'
+import type { ScoutLiveClient } from './scoutlive.js'
 import { normalizeTier, tierConfig } from './tiers.js'
 
 /**
@@ -30,6 +32,7 @@ export type ClerkWebhookEvent = {
 export type AppDeps = {
   db: Db
   openrouter: OpenRouterClient
+  scoutlive: ScoutLiveClient
   keyCrypto: KeyCrypto
   rateLimiter: RateLimiter
   /** Verify a Clerk session JWT; throw on anything invalid. */
@@ -246,6 +249,153 @@ export function createApp(deps: AppDeps) {
 
     await deps.db.deleteCredential(auth.userId, 'scoutos')
     return c.json({ scoutos: false })
+  })
+
+  type PublishBody = { projectId: string; subdomain: string; files: ProjectFile[] }
+  function isValidPublishBody(body: unknown): body is PublishBody {
+    if (!body || typeof body !== 'object') return false
+    const candidate = body as Partial<PublishBody>
+    return (
+      typeof candidate.projectId === 'string' &&
+      candidate.projectId.length > 0 &&
+      typeof candidate.subdomain === 'string' &&
+      Array.isArray(candidate.files) &&
+      candidate.files.length > 0 &&
+      candidate.files.every(f => typeof f?.path === 'string' && typeof f?.content === 'string')
+    )
+  }
+
+  app.post('/api/publish', async c => {
+    const auth = await authenticate(c)
+    if (!auth) return c.json(errorBody('unauthorized', 'Missing or invalid session token'), 401)
+
+    if (!deps.rateLimiter.check(auth.userId)) {
+      return c.json(errorBody('rate_limited', 'Too many requests; try again in a minute'), 429)
+    }
+
+    const declaredLength = Number(c.req.header('content-length') ?? '0')
+    if (declaredLength > MAX_BODY_BYTES) {
+      return c.json(errorBody('payload_too_large', 'Project exceeds the 2MB publish limit — remove large assets'), 413)
+    }
+    const rawBody = await c.req.text()
+    if (rawBody.length > MAX_BODY_BYTES) {
+      return c.json(errorBody('payload_too_large', 'Project exceeds the 2MB publish limit — remove large assets'), 413)
+    }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(rawBody)
+    } catch {
+      return c.json(errorBody('bad_request', 'Body must be JSON'), 400)
+    }
+    if (!isValidPublishBody(parsed)) {
+      return c.json(errorBody('bad_request', 'Body must include projectId, subdomain, files'), 400)
+    }
+
+    // Republish targets the recorded subdomain so the URL stays stable; the
+    // body subdomain only names a first deploy.
+    const existing = await deps.db.getDeployment(auth.userId, parsed.projectId)
+    const check = checkSubdomain(existing?.subdomain ?? parsed.subdomain)
+    if (!check.ok) {
+      return c.json(
+        check.reason === 'reserved'
+          ? errorBody('reserved_subdomain', 'That subdomain is reserved by the platform')
+          : errorBody('invalid_subdomain', 'Subdomain must be 1-63 chars, lowercase letters, digits, and inner hyphens'),
+        400,
+      )
+    }
+
+    const keyEnc = await deps.db.getCredential(auth.userId, 'scoutos')
+    if (!keyEnc) {
+      return c.json(errorBody('no_scoutos_key', 'Add your ScoutOS API key in settings before publishing'), 400)
+    }
+
+    let tarGz: Buffer
+    try {
+      tarGz = packageProject(parsed.files)
+    } catch (error) {
+      deps.log?.(`packaging failed for ${auth.userId}/${parsed.projectId}: ${String(error)}`)
+      return c.json(errorBody('bad_request', 'Project could not be packaged'), 400)
+    }
+
+    const result = await deps.scoutlive.deploy({
+      apiKey: deps.keyCrypto.decrypt(keyEnc),
+      subdomain: check.subdomain,
+      tarGz,
+      code: existing?.publish_code_enc ? deps.keyCrypto.decrypt(existing.publish_code_enc) : undefined,
+    })
+
+    switch (result.kind) {
+      case 'accepted':
+        await deps.db.upsertDeployment({
+          clerkUserId: auth.userId,
+          projectId: parsed.projectId,
+          subdomain: check.subdomain,
+          lastBuildId: result.buildId,
+        })
+        return c.json({ buildId: result.buildId, subdomain: check.subdomain })
+      case 'subdomain_taken':
+        return c.json(errorBody('subdomain_taken', 'That subdomain is taken — pick another name'), 409)
+      case 'invalid_code':
+        deps.log?.(`publish code rejected for ${auth.userId}/${parsed.projectId} (${check.subdomain})`)
+        return c.json(errorBody('publish_code_rejected', 'The platform rejected the stored publish code for this app'), 409)
+      case 'rate_limited': {
+        if (result.retryAfterSeconds !== null) {
+          c.header('Retry-After', String(result.retryAfterSeconds))
+        }
+        return c.json(errorBody('scoutlive_rate_limited', 'Scout Live deploy limit reached; try again later'), 429)
+      }
+      case 'error':
+        deps.log?.(`scoutlive deploy failed for ${auth.userId}/${parsed.projectId}: ${result.status} ${result.message}`)
+        return c.json(errorBody('upstream_error', 'Deploy request to Scout Live failed'), 502)
+    }
+  })
+
+  app.get('/api/publish/:buildId', async c => {
+    const auth = await authenticate(c)
+    if (!auth) return c.json(errorBody('unauthorized', 'Missing or invalid session token'), 401)
+
+    const buildId = c.req.param('buildId')
+    // Scoped to the caller's own deployments — unknown build ids 404 rather
+    // than proxying arbitrary lookups to the platform.
+    const deployment = await deps.db.getDeploymentByBuild(auth.userId, buildId)
+    if (!deployment) return c.json(errorBody('not_found', 'No such build'), 404)
+
+    const keyEnc = await deps.db.getCredential(auth.userId, 'scoutos')
+    if (!keyEnc) {
+      return c.json(errorBody('no_scoutos_key', 'Add your ScoutOS API key in settings before publishing'), 400)
+    }
+
+    const result = await deps.scoutlive.getBuildStatus({
+      apiKey: deps.keyCrypto.decrypt(keyEnc),
+      buildId,
+    })
+    if (result.kind === 'not_found') return c.json(errorBody('not_found', 'No such build'), 404)
+    if (result.kind === 'error') {
+      deps.log?.(`scoutlive status failed for ${auth.userId}/${buildId}: ${result.status} ${result.message}`)
+      return c.json(errorBody('upstream_error', 'Status request to Scout Live failed'), 502)
+    }
+
+    const { build } = result
+    if (build.status === 'deployed') {
+      // The platform shows publishCode once (first deploy only); persisting
+      // it is what makes zero-downtime republish possible.
+      await deps.db.recordDeployOutcome({
+        clerkUserId: auth.userId,
+        projectId: deployment.project_id,
+        publishCodeEnc: build.publishCode ? deps.keyCrypto.encrypt(build.publishCode) : undefined,
+        lastUrl: build.url,
+      })
+    }
+
+    // publishCode never leaves the server.
+    return c.json({
+      buildId,
+      status: build.status,
+      url: build.url ?? null,
+      error: build.error ?? null,
+      logs: build.logs ?? null,
+    })
   })
 
   app.get('/api/me', async c => {

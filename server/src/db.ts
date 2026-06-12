@@ -16,6 +16,17 @@ export type Queryable = {
   query<T>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>
 }
 
+export type DeploymentRow = {
+  clerk_user_id: string
+  project_id: string
+  subdomain: string
+  publish_code_enc: Buffer | null
+  last_build_id: string | null
+  last_url: string | null
+  created_at: Date
+  updated_at: Date
+}
+
 export type Db = {
   getUser(clerkUserId: string): Promise<UserRow | null>
   insertUser(row: {
@@ -33,6 +44,23 @@ export type Db = {
   upsertCredential(clerkUserId: string, provider: string, keyEnc: Buffer): Promise<void>
   getCredential(clerkUserId: string, provider: string): Promise<Buffer | null>
   deleteCredential(clerkUserId: string, provider: string): Promise<void>
+  /** Publish history per (user, project): republish targets the recorded
+   * subdomain, sending the stored publishCode. The code is shown once by the
+   * platform at first deploy, so persisting it is mandatory. */
+  getDeployment(clerkUserId: string, projectId: string): Promise<DeploymentRow | null>
+  getDeploymentByBuild(clerkUserId: string, buildId: string): Promise<DeploymentRow | null>
+  upsertDeployment(row: {
+    clerkUserId: string
+    projectId: string
+    subdomain: string
+    lastBuildId: string
+  }): Promise<void>
+  recordDeployOutcome(args: {
+    clerkUserId: string
+    projectId: string
+    publishCodeEnc?: Buffer
+    lastUrl?: string
+  }): Promise<void>
 }
 
 // One statement per entry: PGlite's query() rejects multi-statement strings.
@@ -54,6 +82,17 @@ export const MIGRATION_STATEMENTS = [
   updated_at    timestamptz not null default now(),
   primary key (clerk_user_id, provider)
 )`,
+  `create table if not exists deployments (
+  clerk_user_id    text not null,
+  project_id       text not null,
+  subdomain        text not null,
+  publish_code_enc bytea,
+  last_build_id    text,
+  last_url         text,
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now(),
+  primary key (clerk_user_id, project_id)
+)`,
 ]
 
 export async function migrate(queryable: Queryable): Promise<void> {
@@ -67,6 +106,17 @@ type RawUserRow = Omit<UserRow, 'or_key_enc'> & { or_key_enc: Uint8Array }
 // bytea comes back as Uint8Array from PGlite; normalize to Buffer for crypto.
 function toUserRow(raw: RawUserRow): UserRow {
   return { ...raw, or_key_enc: Buffer.from(raw.or_key_enc) }
+}
+
+type RawDeploymentRow = Omit<DeploymentRow, 'publish_code_enc'> & {
+  publish_code_enc: Uint8Array | null
+}
+
+function toDeploymentRow(raw: RawDeploymentRow): DeploymentRow {
+  return {
+    ...raw,
+    publish_code_enc: raw.publish_code_enc ? Buffer.from(raw.publish_code_enc) : null,
+  }
 }
 
 export function createDb(queryable: Queryable): Db {
@@ -142,6 +192,47 @@ export function createDb(queryable: Queryable): Db {
       await queryable.query(
         'delete from user_credentials where clerk_user_id = $1 and provider = $2',
         [clerkUserId, provider],
+      )
+    },
+
+    async getDeployment(clerkUserId, projectId) {
+      const result = await queryable.query<RawDeploymentRow>(
+        'select * from deployments where clerk_user_id = $1 and project_id = $2',
+        [clerkUserId, projectId],
+      )
+      const raw = result.rows[0]
+      return raw ? toDeploymentRow(raw) : null
+    },
+
+    async getDeploymentByBuild(clerkUserId, buildId) {
+      const result = await queryable.query<RawDeploymentRow>(
+        'select * from deployments where clerk_user_id = $1 and last_build_id = $2',
+        [clerkUserId, buildId],
+      )
+      const raw = result.rows[0]
+      return raw ? toDeploymentRow(raw) : null
+    },
+
+    async upsertDeployment({ clerkUserId, projectId, subdomain, lastBuildId }) {
+      await queryable.query(
+        `insert into deployments (clerk_user_id, project_id, subdomain, last_build_id)
+         values ($1, $2, $3, $4)
+         on conflict (clerk_user_id, project_id)
+         do update set subdomain = excluded.subdomain,
+                       last_build_id = excluded.last_build_id,
+                       updated_at = now()`,
+        [clerkUserId, projectId, subdomain, lastBuildId],
+      )
+    },
+
+    async recordDeployOutcome({ clerkUserId, projectId, publishCodeEnc, lastUrl }) {
+      await queryable.query(
+        `update deployments
+         set publish_code_enc = coalesce($3, publish_code_enc),
+             last_url = coalesce($4, last_url),
+             updated_at = now()
+         where clerk_user_id = $1 and project_id = $2`,
+        [clerkUserId, projectId, publishCodeEnc ?? null, lastUrl ?? null],
       )
     },
   }

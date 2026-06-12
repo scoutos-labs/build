@@ -30,6 +30,10 @@ async function createCredentialApp(): Promise<{ app: ReturnType<typeof createApp
   const deps: AppDeps = {
     db,
     openrouter: unusedOpenRouter(),
+    scoutlive: {
+      deploy: vi.fn(async () => ({ kind: 'accepted' as const, buildId: 'bld_unused' })),
+      getBuildStatus: vi.fn(async () => ({ kind: 'ok' as const, build: { status: 'queued' } })),
+    },
     keyCrypto,
     rateLimiter: createRateLimiter(10, 60_000),
     verifyToken: vi.fn(async token => {

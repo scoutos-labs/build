@@ -55,6 +55,20 @@ Build stores anonymous projects in browser IndexedDB. Projects auto-save after e
 
 Project storage includes source files, selected file, chat history, and project metadata. It does not currently snapshot the preview app's internal PGlite IndexedDB data.
 
+## Publish to scoutos.live
+
+With managed auth on, signed-in users can publish a project to [Scout Live](https://scoutos.live) and get a stable URL at `{subdomain}.scoutos.live`. Republishing the same project updates the same URL with zero downtime.
+
+How it works (see [`docs/scoutos-live-prd.md`](docs/scoutos-live-prd.md)):
+
+1. Add your ScoutOS API key (`sk_live_...`, scopes `build` + `read`) once in the account panel. It is stored server-side, encrypted with AES-256-GCM, and never returned to the client.
+2. Click the rocket button in the project toolbar. The first publish prompts for a subdomain (validated against the platform naming rules and reserved list before any network call); later publishes reuse it automatically.
+3. The server packages the project file map into a tar.gz (injecting a non-root `Dockerfile` that runs `vite build` and `node server.js`), deploys it through `POST https://scoutos.live/api/build`, and polls status until the app is live.
+
+The starter template runs the same code in both environments: in the WebContainer preview, `zepto-bridge.js` serves `/api/db` with hyper-zepto's local adapters; deployed to Scout Live, `server.js` mounts the same bridge against the platform's managed ports via `SCOUT_PORTS_URL`.
+
+Publishing requires managed auth — non-managed mode shows no publish UI.
+
 ## Model settings
 
 Build opens the model settings modal on first load if no model is configured. OpenRouter is the default provider. Use the gear button beside the app title to change provider, model, API key, or Ollama URL.

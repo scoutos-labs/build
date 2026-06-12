@@ -37,7 +37,7 @@ pub fn view(
       [] -> [
         html.p([attribute.class("empty")], [
           html.text(
-            "Try: “Turn this into a CRM with contacts and notes using PGlite.”",
+            "Try: “Turn this into a CRM with contacts and notes saved to the database.”",
           ),
         ]),
       ]

@@ -25,7 +25,11 @@ const keyEncryptionSecret = requireEnv('KEY_ENCRYPTION_SECRET')
 
 // Embedded Postgres (PGlite). On Render this must point at the persistent
 // disk mount (/var/data) — the service filesystem is wiped on deploy, and a
-// lost users table orphans every provisioned OpenRouter key.
+// lost users table orphans every provisioned OpenRouter key. Refuse to boot
+// onto the ephemeral filesystem there rather than silently losing data.
+if (process.env.RENDER && !process.env.PGLITE_DATA_DIR) {
+  throw new Error('PGLITE_DATA_DIR must point at the persistent disk mount on Render')
+}
 const dataDir = process.env.PGLITE_DATA_DIR ?? '.data'
 const pglite = new PGlite(dataDir)
 await migrate(pglite)

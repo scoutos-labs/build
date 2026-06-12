@@ -68,6 +68,16 @@ button.miniIcon { width: 28px; height: 28px; flex: 0 0 auto; padding: 0; border-
 .modal { width: min(460px, 100%); display: grid; gap: 16px; padding: 20px; border: 1px solid var(--scout-line); border-radius: 22px; background: #fff; color: var(--scout-ink); box-shadow: color(srgb 0 0 0 / .14) 0 30px 100px; }
 .modalHeader { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; }
 .modalActions { display: flex; justify-content: flex-end; gap: 10px; }
+.publishPanel { display: grid; gap: 12px; }
+.publishPanel .status.error { color: #c2421f; }
+.subdomainRow { display: flex; align-items: center; gap: 8px; }
+.subdomainRow input { flex: 1; min-width: 0; }
+.subdomainSuffix { color: #8b8d94; font-size: .85rem; white-space: nowrap; }
+.publishedUrl { color: var(--scout-blue); font-weight: 700; word-break: break-all; }
+.publishLogs { max-height: 220px; overflow: auto; margin: 0; padding: 10px; font-size: .72rem; line-height: 1.4; border: 1px solid var(--scout-line); border-radius: 12px; background: #fafafa; }
+.scoutosKey { display: grid; gap: 7px; }
+.keyEntryRow, .keySavedRow { display: flex; align-items: center; gap: 8px; }
+.keyEntryRow input { flex: 1; min-width: 0; }
 .workspace { min-width: 0; display: grid; grid-template-rows: 1fr 310px; background: #fff; }
 .preview { min-height: 0; display: flex; flex-direction: column; background: #fff; }
 .bar { height: 42px; display: flex; align-items: center; gap: 12px; padding: 0 12px; color: var(--scout-ink); background: #fff; border-bottom: 1px solid var(--scout-line); }

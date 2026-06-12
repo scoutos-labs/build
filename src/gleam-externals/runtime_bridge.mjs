@@ -9,6 +9,7 @@ import * as WebContainer from '../build/actors/webcontainer.mjs'
 import * as Preview from '../build/actors/preview.mjs'
 import * as Agent from '../build/actors/agent.mjs'
 import * as Settings from '../build/actors/settings.mjs'
+import * as Publish from '../build/actors/publish.mjs'
 import * as PreviewInspector from '../build/pure/preview_inspector.mjs'
 
 let runtime = null
@@ -107,3 +108,13 @@ export function dispatchSettingsLoaded(settings) {
   )))
 }
 export function dispatchSettingsStatus(status) { sendMsg(Msg.Msg$Settings(Settings.Msg$ConnectionStatusChanged(status))) }
+
+export function dispatchPublishKeyStatusLoaded(saved) { sendMsg(Msg.Msg$Publish(Publish.Msg$KeyStatusLoaded(Boolean(saved)))) }
+export function dispatchPublishKeySaved() { sendMsg(Msg.Msg$Publish(Publish.Msg$KeySaved())) }
+export function dispatchPublishKeySaveFailed(message) { sendMsg(Msg.Msg$Publish(Publish.Msg$KeySaveFailed(String(message ?? '')))) }
+export function dispatchPublishKeyDeleted() { sendMsg(Msg.Msg$Publish(Publish.Msg$KeyDeleted())) }
+export function dispatchPublishDeploymentLoaded(projectId, found, subdomain) { sendMsg(Msg.Msg$Publish(Publish.Msg$DeploymentLoaded(String(projectId), Boolean(found), String(subdomain ?? '')))) }
+export function dispatchPublishAccepted(buildId, subdomain) { sendMsg(Msg.Msg$Publish(Publish.Msg$PublishAccepted(String(buildId), String(subdomain ?? '')))) }
+export function dispatchPublishRejected(code, message) { sendMsg(Msg.Msg$Publish(Publish.Msg$PublishRejected(String(code ?? ''), String(message ?? '')))) }
+export function dispatchPublishPollDue(buildId) { sendMsg(Msg.Msg$Publish(Publish.Msg$PollDue(String(buildId)))) }
+export function dispatchPublishStatusPolled(buildId, status, url, errorMessage, logs) { sendMsg(Msg.Msg$Publish(Publish.Msg$StatusPolled(String(buildId), String(status ?? ''), String(url ?? ''), String(errorMessage ?? ''), String(logs ?? '')))) }

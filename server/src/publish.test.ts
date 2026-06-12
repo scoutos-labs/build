@@ -312,6 +312,31 @@ describe('POST /api/publish', () => {
   })
 })
 
+describe('GET /api/deployments/:projectId', () => {
+  it('401s unauthenticated, 404s unpublished, and returns the record otherwise', async () => {
+    const { app, db } = await publishApp()
+
+    const anon = await app.request('/api/deployments/proj_1')
+    expect(anon.status).toBe(401)
+
+    const missing = await app.request('/api/deployments/proj_1', {
+      headers: { Authorization: 'Bearer valid-token' },
+    })
+    expect(missing.status).toBe(404)
+
+    await db.upsertDeployment({
+      clerkUserId: 'user_1', projectId: 'proj_1', subdomain: 'my-app', lastBuildId: 'bld_1',
+    })
+    await db.recordDeployOutcome({
+      clerkUserId: 'user_1', projectId: 'proj_1', lastUrl: 'https://my-app.scoutos.live',
+    })
+    const found = await app.request('/api/deployments/proj_1', {
+      headers: { Authorization: 'Bearer valid-token' },
+    })
+    expect(await found.json()).toEqual({ subdomain: 'my-app', url: 'https://my-app.scoutos.live' })
+  })
+})
+
 describe('GET /api/publish/:buildId', () => {
   it('404s for builds that are not the caller’s', async () => {
     const { app, scoutlive } = await publishApp()

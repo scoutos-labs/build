@@ -1,6 +1,7 @@
 import build/actors/agent
 import build/actors/preview
 import build/actors/project
+import build/actors/publish
 import build/actors/settings
 import build/actors/webcontainer
 import build/pure/templates
@@ -11,6 +12,7 @@ pub type Effect {
   Agent(agent.Effect)
   Preview(preview.Effect)
   WebContainer(webcontainer.Effect)
+  Publish(publish.Effect)
   ExportZip(files: List(templates.ProjectFile))
   ConfirmNewProject
   ConfirmRemoveProject(id: String)

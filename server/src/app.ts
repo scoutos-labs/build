@@ -351,6 +351,17 @@ export function createApp(deps: AppDeps) {
     }
   })
 
+  // Lets the client skip the subdomain prompt when a project was already
+  // published (the publish handler reuses the record regardless).
+  app.get('/api/deployments/:projectId', async c => {
+    const auth = await authenticate(c)
+    if (!auth) return c.json(errorBody('unauthorized', 'Missing or invalid session token'), 401)
+
+    const deployment = await deps.db.getDeployment(auth.userId, c.req.param('projectId'))
+    if (!deployment) return c.json(errorBody('not_found', 'Project has not been published'), 404)
+    return c.json({ subdomain: deployment.subdomain, url: deployment.last_url ?? null })
+  })
+
   app.get('/api/publish/:buildId', async c => {
     const auth = await authenticate(c)
     if (!auth) return c.json(errorBody('unauthorized', 'Missing or invalid session token'), 401)

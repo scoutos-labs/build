@@ -7,7 +7,7 @@ export const starterFiles: ProjectFile[] = [
     path: 'package.json',
     content: JSON.stringify(
       {
-        scripts: { dev: 'vite --host 0.0.0.0' },
+        scripts: { dev: 'vite --host 0.0.0.0', build: 'vite build', start: 'node server.js' },
         // vite pinned below 8: Vite 8 bundles via rolldown, whose WASM
         // binding (emnapi) crashes inside WebContainers.
         dependencies: {
@@ -199,15 +199,45 @@ createRoot(document.getElementById('root')!).render(<App />)
   },
   {
     path: 'vite.config.ts',
-    content: `import { defineConfig, type Plugin } from 'vite'
+    content: `import { defineConfig } from 'vite'
+import { resolvePorts, zeptoDbHandler } from './zepto-bridge.js'
+
+// Dev-server mount of the shared /api/db bridge (see zepto-bridge.js and
+// src/db.ts). server.js mounts the same bridge in production.
+export default defineConfig({
+  plugins: [{
+    name: 'zepto-api',
+    configureServer(server) {
+      server.middlewares.use('/api/db', zeptoDbHandler(resolvePorts()))
+    },
+  }],
+})
+`,
+  },
+  {
+    path: 'zepto-bridge.js',
+    content: `// Shared /api/db bridge: hyper-zepto runs in Node, so this code is mounted
+// by the Vite dev server (vite.config.ts) in development and by server.js in
+// production. The browser reaches it through src/db.ts.
 import { createPorts } from 'hyper-zepto'
 
-// hyper-zepto uses Node fs, so it runs inside the dev server; the browser
-// reaches it through this /api/db bridge (see src/db.ts).
-function zeptoApi(): Plugin {
-  const ports = createPorts({ mode: 'local', dir: '.zepto' })
+// On Scout Live the platform injects SCOUT_PORTS_URL pointing at the ports
+// sidecar and ending in /_ports. hyper-zepto's remote adapters append
+// /_ports themselves, so strip the suffix before using it as baseUrl; the
+// sidecar injects auth, so no token is set. Without the env var (the
+// WebContainer preview, plain local dev) fall back to local adapters.
+export function resolvePorts() {
+  let baseUrl = process.env.SCOUTOS_PORTS_URL || process.env.SCOUT_PORTS_URL || ''
+  if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1)
+  if (baseUrl.endsWith('/_ports')) baseUrl = baseUrl.slice(0, -'/_ports'.length)
+  if (baseUrl) return createPorts({ mode: 'remote', baseUrl })
+  return createPorts({ mode: 'local', dir: '.zepto' })
+}
 
-  async function run(collection: string, action: string, body: Record<string, any>) {
+// Connect-style handler; expects req.url to hold the path after the /api/db
+// mount, e.g. /todos/create.
+export function zeptoDbHandler(ports) {
+  async function run(collection, action, body) {
     switch (action) {
       case 'create': return ports.data.create(collection, body.doc)
       case 'get': return ports.data.get(collection, body.id)
@@ -219,31 +249,88 @@ function zeptoApi(): Plugin {
     }
   }
 
-  return {
-    name: 'zepto-api',
-    configureServer(server) {
-      server.middlewares.use('/api/db', (req, res) => {
-        const path = (req.url ?? '').split('?')[0]
-        const [collection, action] = path.split('/').filter(Boolean)
-        let raw = ''
-        req.on('data', chunk => { raw += chunk })
-        req.on('end', async () => {
-          try {
-            const result = await run(collection, action, raw ? JSON.parse(raw) : {})
-            res.setHeader('Content-Type', 'application/json')
-            res.end(JSON.stringify(result ?? null))
-          } catch (error: any) {
-            res.statusCode = typeof error?.status === 'number' ? error.status : 500
-            res.setHeader('Content-Type', 'application/json')
-            res.end(JSON.stringify({ error: String(error?.message ?? error), code: error?.code }))
-          }
-        })
-      })
-    },
+  return (req, res) => {
+    const path = (req.url ?? '').split('?')[0]
+    const [collection, action] = path.split('/').filter(Boolean)
+    let raw = ''
+    req.on('data', chunk => { raw += chunk })
+    req.on('end', async () => {
+      try {
+        const result = await run(collection, action, raw ? JSON.parse(raw) : {})
+        res.setHeader('Content-Type', 'application/json')
+        res.end(JSON.stringify(result ?? null))
+      } catch (error) {
+        res.statusCode = typeof error?.status === 'number' ? error.status : 500
+        res.setHeader('Content-Type', 'application/json')
+        res.end(JSON.stringify({ error: String(error?.message ?? error), code: error?.code }))
+      }
+    })
+  }
+}
+`,
+  },
+  {
+    path: 'server.js',
+    content: `// Production server: serves the built dist/ statically and mounts the same
+// /api/db bridge as the Vite dev server (see zepto-bridge.js). Run with
+// \`npm run build && npm start\`. On Scout Live the bridge talks to the
+// platform's managed ports; locally it falls back to the .zepto directory.
+import { createServer } from 'node:http'
+import { readFile } from 'node:fs/promises'
+import { extname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { resolvePorts, zeptoDbHandler } from './zepto-bridge.js'
+
+const port = Number(process.env.PORT || 3000)
+const distDir = fileURLToPath(new URL('./dist', import.meta.url))
+const ports = resolvePorts()
+const dbHandler = zeptoDbHandler(ports)
+
+const contentTypes = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.txt': 'text/plain; charset=utf-8',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+}
+
+async function serveStatic(res, path) {
+  // SPA routing: anything outside dist/ or missing falls back to index.html.
+  const target = resolve(join(distDir, path === '/' ? 'index.html' : path))
+  const safe = target.startsWith(distDir + '/') ? target : join(distDir, 'index.html')
+  try {
+    const content = await readFile(safe)
+    res.setHeader('Content-Type', contentTypes[extname(safe)] ?? 'application/octet-stream')
+    res.end(content)
+  } catch {
+    try {
+      const index = await readFile(join(distDir, 'index.html'))
+      res.setHeader('Content-Type', contentTypes['.html'])
+      res.end(index)
+    } catch {
+      res.statusCode = 404
+      res.end('Not found')
+    }
   }
 }
 
-export default defineConfig({ plugins: [zeptoApi()] })
+createServer((req, res) => {
+  const path = decodeURIComponent((req.url ?? '/').split('?')[0])
+  if (path === '/api/db' || path.startsWith('/api/db/')) {
+    req.url = path.slice('/api/db'.length) || '/'
+    return dbHandler(req, res)
+  }
+  void serveStatic(res, path)
+}).listen(port, () => console.log(\`app listening on \${port} (db mode=\${ports.mode})\`))
 `,
   },
   {

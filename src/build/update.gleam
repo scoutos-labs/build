@@ -11,6 +11,7 @@ import build/msg
 import build/pure/templates
 import gleam/list
 import gleam/option
+import gleam/string
 
 pub fn update(
   app: model.Model,
@@ -146,10 +147,23 @@ pub fn update(
     msg.WebContainer(webcontainer_msg) -> {
       let #(state, effects) =
         webcontainer.update(app.webcontainer, webcontainer_msg)
-      #(
-        model.Model(..app, webcontainer: state),
-        list.map(effects, effect.WebContainer),
-      )
+      let next = model.Model(..app, webcontainer: state)
+      // A preview/build error lands in the terminal log (main-gleam.ts tags it
+      // "[preview error]"). If the code panel is hidden the user can't see it,
+      // so badge the toggle.
+      let next = case webcontainer_msg {
+        webcontainer.LogAppended(line) ->
+          case string.contains(line, "[preview error]") {
+            True -> {
+              let #(preview_state, _) =
+                preview.update(next.preview, preview.CodePanelErrorSignaled)
+              model.Model(..next, preview: preview_state)
+            }
+            False -> next
+          }
+        _ -> next
+      }
+      #(next, list.map(effects, effect.WebContainer))
     }
     msg.Publish(publish_msg) -> update_publish(app, publish_msg)
   }

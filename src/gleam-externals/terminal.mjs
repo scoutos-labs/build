@@ -30,6 +30,14 @@ class BuildTerminal extends HTMLElement {
     this.renderLogs(this.getAttribute('logs') ?? '')
     this.resize = () => this.fit?.fit()
     window.addEventListener('resize', this.resize)
+    // Re-fit on element resize, not just window resize: when the code panel is
+    // revealed the terminal goes from display:none (0 height) to its real size,
+    // and xterm needs a fit so the shell gets correct cols/rows. Guard on a
+    // non-zero height so fitting while hidden doesn't compute bad dimensions.
+    this.resizeObserver = new ResizeObserver(() => {
+      if (this.offsetHeight > 0) this.fit?.fit()
+    })
+    this.resizeObserver.observe(this)
     this.maybeConnectShell()
   }
 
@@ -37,6 +45,7 @@ class BuildTerminal extends HTMLElement {
     this.disposed = true
     this.dataDisposable?.dispose()
     if (this.resize) window.removeEventListener('resize', this.resize)
+    this.resizeObserver?.disconnect()
     this.terminal?.dispose()
     this.terminal = undefined
     this.fit = undefined

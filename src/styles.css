@@ -79,6 +79,14 @@ button.miniIcon { width: 28px; height: 28px; flex: 0 0 auto; padding: 0; border-
 .keyEntryRow, .keySavedRow { display: flex; align-items: center; gap: 8px; }
 .keyEntryRow input { flex: 1; min-width: 0; }
 .workspace { min-width: 0; display: grid; grid-template-rows: 1fr 310px; background: #fff; }
+/* Hidden code panel: preview takes the full workspace. The .bottom strip stays
+   mounted (display:none, not unmounted) so the xterm instance and its shell
+   survive toggling — the terminal re-fits when revealed. */
+.workspace.codeHidden { grid-template-rows: 1fr; }
+.workspace.codeHidden .bottom { display: none; }
+.codeToggle { display: inline-flex; align-items: center; }
+.codeToggle.active { color: var(--scout-ink); background: #eceef3; }
+.unreadDot { width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: #c2421f; }
 .preview { min-height: 0; display: flex; flex-direction: column; background: #fff; }
 .bar { height: 42px; display: flex; align-items: center; gap: 12px; padding: 0 12px; color: var(--scout-ink); background: #fff; border-bottom: 1px solid var(--scout-line); }
 .bar span { flex: 1; color: #8b8d94; font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

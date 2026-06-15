@@ -62,11 +62,20 @@ pub fn view(app: model.Model) -> Element(msg.Msg) {
         app.agent.budget_reset_at,
       ),
     ]),
-    html.main([attribute.class("workspace")], [
+    html.main(
+      [
+        attribute.class(case app.preview.code_panel_open {
+          True -> "workspace"
+          False -> "workspace codeHidden"
+        }),
+      ],
+      [
       build_preview.view(
         app.preview.preview_url,
         app.preview.selecting_element,
         running,
+        app.preview.code_panel_open,
+        app.preview.code_panel_unread,
       ),
       html.section([attribute.class("bottom")], [
         files_pane(app.project.files, app.project.selected_path),

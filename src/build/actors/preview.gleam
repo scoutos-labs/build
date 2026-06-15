@@ -12,6 +12,12 @@ pub type State {
     selecting_element: Bool,
     selected_element: Option(SelectedPreviewElement),
     element_comment: String,
+    // The files/editor/terminal strip. Hidden by default — the agent drives
+    // most changes, so the preview gets the full workspace until a user opts
+    // into the developer view. `code_panel_unread` flags terminal output
+    // (e.g. a preview error) that arrived while the panel was hidden.
+    code_panel_open: Bool,
+    code_panel_unread: Bool,
   )
 }
 
@@ -21,6 +27,8 @@ pub type Msg {
   ElementSelected(SelectedPreviewElement)
   ElementCommentChanged(comment: String)
   ElementCleared
+  CodePanelToggled
+  CodePanelErrorSignaled
 }
 
 pub type Effect {
@@ -33,6 +41,8 @@ pub fn init() -> State {
     selecting_element: False,
     selected_element: option.None,
     element_comment: "",
+    code_panel_open: False,
+    code_panel_unread: False,
   )
 }
 
@@ -69,6 +79,26 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
     )
     ElementCleared -> #(
       State(..state, selected_element: option.None, element_comment: ""),
+      [],
+    )
+    CodePanelToggled -> {
+      let open = !state.code_panel_open
+      #(
+        State(..state, code_panel_open: open, code_panel_unread: case open {
+          // Opening clears the indicator; closing leaves it as-is.
+          True -> False
+          False -> state.code_panel_unread
+        }),
+        [],
+      )
+    }
+    // Preview/build error arrived: badge the toggle if the panel is hidden so
+    // the user knows to look, but never yank the layout open mid-edit.
+    CodePanelErrorSignaled -> #(
+      State(..state, code_panel_unread: case state.code_panel_open {
+        True -> False
+        False -> True
+      }),
       [],
     )
   }

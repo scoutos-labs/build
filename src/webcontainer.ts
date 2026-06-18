@@ -21,14 +21,6 @@ export async function writeProjectFile(path: string, content: string) {
   await wc.fs.writeFile(path, content)
 }
 
-/** Mount a .env file into the WebContainer so the Node runtime can read it. */
-export async function mountEnvVar(path: string, content: string): Promise<void> {
-  const wc = await bootWebContainer()
-  const parts = path.split('/').filter(Boolean)
-  if (parts.length > 1) await wc.fs.mkdir(parts.slice(0, -1).join('/'), { recursive: true })
-  await wc.fs.writeFile(path, content)
-}
-
 export async function readProjectFile(path: string): Promise<string | undefined> {
   const wc = await bootWebContainer()
   try {

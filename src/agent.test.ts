@@ -68,8 +68,10 @@ describe('runAgent', () => {
       .resolves.toEqual({ reply: 'ok', patches: [] })
 
     expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({ response_format: { type: 'json_object' } })
-    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).not.toHaveProperty('response_format')
+    const [, call0Init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const [, call1Init] = fetchMock.mock.calls[1] as unknown as [string, RequestInit]
+    expect(JSON.parse(String(call0Init.body))).toMatchObject({ response_format: { type: 'json_object' } })
+    expect(JSON.parse(String(call1Init.body))).not.toHaveProperty('response_format')
   })
 
   it('accepts JSON wrapped in a markdown code block', async () => {
@@ -165,7 +167,8 @@ describe('runAgent', () => {
       files: [],
     })
 
-    const body = String(fetchMock.mock.calls[0][1]?.body)
+    const [, init0] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const body = String(init0.body)
     expect(body).toContain('Next.js')
     expect(body).toContain('Tailwind CSS')
     expect(body).toContain('shadcn/ui')
@@ -186,7 +189,8 @@ describe('runAgent', () => {
       files: [{ path: 'src/main.tsx', content: 'const color = "blue"' }],
     })
 
-    const body = String(fetchMock.mock.calls[0][1]?.body)
+    const [, init0] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const body = String(init0.body)
     const messages = JSON.parse(body).messages as { role: string; content: string }[]
     expect(messages[0].role).toBe('system')
     expect(messages[0].content).toContain('Next.js')
@@ -221,7 +225,8 @@ describe('runAgent', () => {
       files: [],
     })
 
-    const body = String(fetchMock.mock.calls[0][1]?.body)
+    const [, init0] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const body = String(init0.body)
     const messages = JSON.parse(body).messages as { role: string; content: string }[]
     // All 12 history messages are sent (no truncation) + 1 system + 1 user prompt = 14
     expect(messages.length).toBe(14) // 1 system + 12 history + 1 user prompt
@@ -264,7 +269,8 @@ describe('runAgent', () => {
       envVars: { EXISTING_KEY: 'existing' },
     })
 
-    const body = String(fetchMock.mock.calls[0][1]?.body)
+    const [, init0] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const body = String(init0.body)
     const messages = JSON.parse(body).messages as { role: string; content: string }[]
     const envMsg = messages.find(m => m.content.includes('EXISTING_KEY'))
     expect(envMsg).toBeDefined()
@@ -309,7 +315,8 @@ describe('runAgent', () => {
       files: [],
     })
 
-    const body = String(fetchMock.mock.calls[0][1]?.body)
+    const [, init0] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const body = String(init0.body)
     const messages = JSON.parse(body).messages as { role: string; content: string }[]
     // Should NOT have an env vars system message
     expect(messages.every(m => !m.content.includes('Current env vars'))).toBe(true)

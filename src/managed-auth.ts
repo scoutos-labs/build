@@ -1,3 +1,4 @@
+// @ts-expect-error — @clerk/clerk-js types aren't published with the package
 import type { Clerk } from '@clerk/clerk-js'
 
 /**
@@ -24,7 +25,9 @@ async function loadClerk(): Promise<Clerk> {
     // from Clerk's CDN at runtime by default, which COEP require-corp blocks.
     // Bundling @clerk/ui and passing it via load() keeps everything local.
     const [{ Clerk }, { ui }] = await Promise.all([
+      // @ts-expect-error — @clerk/* types aren't published with the package
       import('@clerk/clerk-js/no-rhc'),
+      // @ts-expect-error — @clerk/* types aren't published with the package
       import('@clerk/ui/no-rhc'),
     ])
     const clerk = new Clerk(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string)
@@ -97,8 +100,8 @@ export async function ensureSignedIn(): Promise<void> {
     clerk.mountSignIn(mount, { oauthFlow: 'redirect', withSignUp: true })
 
     await new Promise<void>(resolve => {
-      const unsubscribe = clerk.addListener(({ user, session }) => {
-        console.debug('[managed-auth] gate event', { user: user?.id ?? null, session: session?.id ?? null })
+      const unsubscribe = clerk.addListener(({ user, session }: { user?: Record<string, unknown>; session?: Record<string, unknown> }) => {
+        console.debug('[managed-auth] gate event', { user: (user as Record<string, unknown>)?.id ?? null, session: (session as Record<string, unknown>)?.id ?? null })
         if (user) {
           unsubscribe()
           resolve()
@@ -110,7 +113,7 @@ export async function ensureSignedIn(): Promise<void> {
     overlay.remove()
   }
 
-  clerk.addListener(({ user }) => {
+  clerk.addListener(({ user }: { user?: unknown }) => {
     if (!user) window.location.reload()
   })
 }

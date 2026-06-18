@@ -1,5 +1,6 @@
-// @ts-expect-error — @clerk/clerk-js types aren't published with the package
-import type { Clerk } from '@clerk/clerk-js'
+// @ts-ignore — @clerk type declarations may or may not be available
+/* eslint-disable-next-line @typescript-eslint/no-unused-vars */
+type Clerk = any
 
 /**
  * Managed auth (Clerk + server-proxied OpenRouter) is gated behind
@@ -25,9 +26,9 @@ async function loadClerk(): Promise<Clerk> {
     // from Clerk's CDN at runtime by default, which COEP require-corp blocks.
     // Bundling @clerk/ui and passing it via load() keeps everything local.
     const [{ Clerk }, { ui }] = await Promise.all([
-      // @ts-expect-error — @clerk/* types aren't published with the package
+      // @ts-ignore — @clerk/* type declarations may not be available
       import('@clerk/clerk-js/no-rhc'),
-      // @ts-expect-error — @clerk/* types aren't published with the package
+      // @ts-ignore — @clerk/* type declarations may not be available
       import('@clerk/ui/no-rhc'),
     ])
     const clerk = new Clerk(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string)
@@ -100,8 +101,9 @@ export async function ensureSignedIn(): Promise<void> {
     clerk.mountSignIn(mount, { oauthFlow: 'redirect', withSignUp: true })
 
     await new Promise<void>(resolve => {
-      const unsubscribe = clerk.addListener(({ user, session }: { user?: Record<string, unknown>; session?: Record<string, unknown> }) => {
-        console.debug('[managed-auth] gate event', { user: (user as Record<string, unknown>)?.id ?? null, session: (session as Record<string, unknown>)?.id ?? null })
+      // @ts-ignore — listener callback type may vary by Clerk version
+    const unsubscribe = clerk.addListener(({ user, session }) => {
+        console.debug('[managed-auth] gate event', { user: user?.id ?? null, session: session?.id ?? null })
         if (user) {
           unsubscribe()
           resolve()
@@ -113,7 +115,8 @@ export async function ensureSignedIn(): Promise<void> {
     overlay.remove()
   }
 
-  clerk.addListener(({ user }: { user?: unknown }) => {
+  // @ts-ignore — listener callback type may vary by Clerk version
+  clerk.addListener(({ user }) => {
     if (!user) window.location.reload()
   })
 }

@@ -148,4 +148,91 @@ describe('runAgent', () => {
     await expect(runAgent({ provider: 'openrouter', model: 'model', userPrompt: 'noop', messages: [], files: [] }))
       .rejects.toThrow('OpenRouter API key is required')
   })
+
+  it('sends system prompt with Next.js, Tailwind CSS, and shadcn/ui preferences', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      message: { content: JSON.stringify({ reply: 'ok', patches: [] }) },
+    }), { status: 200 }))
+    globalThis.fetch = fetchMock as typeof fetch
+
+    await runAgent({
+      provider: 'ollama',
+      model: 'model',
+      userPrompt: 'build a todo app',
+      messages: [],
+      files: [],
+    })
+
+    const body = String(fetchMock.mock.calls[0][1]?.body)
+    expect(body).toContain('Next.js')
+    expect(body).toContain('Tailwind CSS')
+    expect(body).toContain('shadcn/ui')
+  })
+
+  it('sends project files context alongside user prompt', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ reply: 'ok', patches: [] }) } }],
+    }), { status: 200 }))
+    globalThis.fetch = fetchMock as typeof fetch
+
+    await runAgent({
+      provider: 'openrouter',
+      apiKey: 'sk-test',
+      model: 'test/model',
+      userPrompt: 'change color to red',
+      messages: [{ role: 'user', content: 'Previous: make it blue' }],
+      files: [{ path: 'src/main.tsx', content: 'const color = "blue"' }],
+    })
+
+    const body = String(fetchMock.mock.calls[0][1]?.body)
+    const messages = JSON.parse(body).messages as { role: string; content: string }[]
+    expect(messages[0].role).toBe('system')
+    expect(messages[0].content).toContain('Next.js')
+    expect(messages[0].content).toContain('Tailwind CSS')
+    expect(messages[0].content).toContain('shadcn/ui')
+    expect(messages[messages.length - 1].role).toBe('user')
+    expect(messages[messages.length - 1].content).toContain('src/main.tsx')
+    expect(messages[messages.length - 1].content).toContain('const color = "blue"')
+    expect(messages[messages.length - 1].content).toContain('change color to red')
+  })
+
+  it('limits conversation history to last 8 messages in context', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      message: { content: JSON.stringify({ reply: 'ok', patches: [] }) },
+    }), { status: 200 }))
+    globalThis.fetch = fetchMock as typeof fetch
+
+    const history = Array.from({ length: 12 }, (_, i) => ({
+      role: i % 2 === 0 ? 'user' as const : 'assistant' as const,
+      content: `Message ${i}`,
+    }))
+
+    await runAgent({
+      provider: 'ollama',
+      model: 'model',
+      userPrompt: 'final',
+      messages: history,
+      files: [],
+    })
+
+    const body = String(fetchMock.mock.calls[0][1]?.body)
+    const messages = JSON.parse(body).messages as { role: string; content: string }[]
+    // Should have 1 system message + 8 history + 1 user with files + user prompt = ~10 messages
+    expect(messages.length).toBe(10) // 1 system + 8 history + 1 files+prompt
+    expect(messages[messages.length - 1].content).toContain('final')
+  })
+
+  it('rejects patches with invalid shape', async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({
+      message: { content: JSON.stringify({ reply: 'ok', patches: 'not-an-array' }) },
+    }), { status: 200 })) as typeof fetch
+
+    await expect(runAgent({
+      provider: 'ollama',
+      model: 'model',
+      userPrompt: 'noop',
+      messages: [],
+      files: [],
+    })).rejects.toThrow('Agent response did not match expected JSON shape')
+  })
 })

@@ -108,7 +108,7 @@ function buildPlanSummary(answers: Answers) {
     coreFeatures: compact(answers.features, 'A polished dashboard, clear navigation, create/edit flows, and helpful empty states'),
     dataToStore: compact(answers.data, 'Local app records with sensible fields and sample data'),
     visualDirection: compact(answers.style, 'Modern, friendly, responsive, and production-quality'),
-    extrasAndConstraints: compact(answers.integrations, 'Keep it runnable in the browser with React, TypeScript, Vite, and PGlite when persistence is useful'),
+    extrasAndConstraints: compact(answers.integrations, 'Keep it runnable in the browser with React, TypeScript, Next.js, Tailwind CSS, shadcn/ui, and PGlite when persistence is useful'),
   }
 
   const summary = \`Build an app for: \${plan.appIdea}\n\nTarget users: \${plan.targetUsers}\n\nMain goal: \${plan.primaryGoal}\n\nMust-have features: \${plan.coreFeatures}\n\nData model / persistence: \${plan.dataToStore}\n\nVisual direction: \${plan.visualDirection}\n\nExtras / constraints: \${plan.extrasAndConstraints}\`

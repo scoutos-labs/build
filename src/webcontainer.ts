@@ -71,13 +71,31 @@ export async function runInstall(onLog: (line: string) => void) {
 }
 
 let devProcess: WebContainerProcess | undefined
+let devLogHandler: ((line: string) => void) | undefined
+let devUrlHandler: ((url: string) => void) | undefined
 
 export async function startDevServer(onLog: (line: string) => void, onUrl: (url: string) => void) {
-  const wc = await bootWebContainer()
+  devLogHandler = onLog
+  devUrlHandler = onUrl
   if (devProcess) return
-  wc.on('server-ready', (_port, url) => onUrl(url))
+  await _startDevServerInner()
+}
+
+async function _startDevServerInner() {
+  const wc = await bootWebContainer()
+  wc.on('server-ready', (_port, url) => devUrlHandler?.(url))
   devProcess = await wc.spawn('npm', ['run', 'dev'])
-  pipeOutput(devProcess, onLog)
+  pipeOutput(devProcess, devLogHandler!)
+  // Detect dev server crash and restart — file writes via WebContainer API
+  // don't reliably trigger file watchers, so the dev server exits.
+  devProcess.exit.then(() => {
+    devProcess = undefined
+    // Brief delay before restart to avoid rapid crash loops
+    setTimeout(async () => {
+      devLogHandler?.('[dev] Restarting dev server...')
+      await _startDevServerInner()
+    }, 1000)
+  })
 }
 
 let shellProcess: WebContainerProcess | undefined

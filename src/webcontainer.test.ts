@@ -108,6 +108,14 @@ describe('webcontainer helpers', () => {
   it('starts the dev server and registers server-ready callback once', async () => {
     const { startDevServer } = await import('./webcontainer')
 
+    // Prevent auto-restart: make the process exit never resolve
+    mockSpawn.mockResolvedValue({
+      exit: new Promise<number>(() => undefined),
+      output: { pipeTo: vi.fn() },
+      input: { getWriter: vi.fn(() => ({ write: vi.fn() })) },
+      resize: vi.fn(),
+    })
+
     await startDevServer(vi.fn(), vi.fn())
     await startDevServer(vi.fn(), vi.fn())
 

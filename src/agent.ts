@@ -5,7 +5,7 @@ import type { ProjectFile } from './templates'
 export type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string }
 export type AgentProvider = 'ollama' | 'openrouter'
 export type AgentPatch = { path: string; content: string }
-export type AgentResult = { reply: string; patches: AgentPatch[] }
+export type AgentResult = { reply: string; patches: AgentPatch[]; envVars?: Record<string, string> }
 
 const JSON_SYSTEM_PROMPT = `You are an app-building agent inside a browser-only StackBlitz WebContainer.
 Return ONLY valid JSON with this exact shape: {"reply":"short user-facing summary","patches":[{"path":"src/main.tsx","content":"full file content"}]}.
@@ -20,6 +20,7 @@ Rules:
 - If changing dependencies, replace package.json too.
 - Preserve src/build-inspector.ts and the './build-inspector' import unless the user explicitly asks to remove Build preview selection.
 - Apply the bundled design guidance unless the user asks for a different brand or visual direction.
+- Secrets and API keys are set in the .env file; set them via the envVars field in your response.
 - Never include markdown, prose, progress updates, or code fences outside the JSON object.
 
 Design guidance:
@@ -36,6 +37,7 @@ type AgentArgs = {
   messages: ChatMessage[]
   selectedElement?: SelectedPreviewElement
   elementComment?: string
+  envVars?: Record<string, string>
   signal?: AbortSignal
 }
 
@@ -159,6 +161,12 @@ export async function call_agent(args: AgentArgs): Promise<AgentResult> {
   }
   if (args.selectedElement && args.elementComment) {
     messages.push({ role: 'system', content: buildSelectedElementPrompt({ element: args.selectedElement, comment: args.elementComment }) })
+  }
+  if (args.envVars && Object.keys(args.envVars).length > 0) {
+    const envLines = Object.entries(args.envVars)
+      .filter(([, v]) => v !== '')
+      .map(([k, v]) => `${k}=${v}`)
+    messages.push({ role: 'system', content: `Current env vars:\n${envLines.join('\n')}` })
   }
   for (const msg of args.messages) {
     messages.push({ role: msg.role as 'user' | 'assistant', content: msg.content })

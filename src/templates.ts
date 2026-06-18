@@ -201,6 +201,23 @@ createRoot(document.getElementById('root')!).render(<App />)
     path: 'vite.config.ts',
     content: `import { defineConfig } from 'vite'
 import { resolvePorts, zeptoDbHandler } from './zepto-bridge.js'
+import { readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
+
+// Read .env into process.env so the bridge picks up secrets (API keys, etc.)
+try {
+  const raw = await readFile(resolve('.env'), 'utf-8')
+  for (const line of raw.split('\\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const idx = trimmed.indexOf('=')
+    if (idx === -1) continue
+    const key = trimmed.slice(0, idx).trim()
+    let val = trimmed.slice(idx + 1).trim()
+    if ((val.startsWith('\"') && val.endsWith('\"')) || (val.startsWith("'") && val.endsWith("'"))) val = val.slice(1, -1)
+    process.env[key] = val
+  }
+} catch { /* .env is optional */ }
 
 // Dev-server mount of the shared /api/db bridge (see zepto-bridge.js and
 // src/db.ts). server.js mounts the same bridge in production.
@@ -226,6 +243,7 @@ import { createPorts } from 'hyper-zepto'
 // /_ports themselves, so strip the suffix before using it as baseUrl; the
 // sidecar injects auth, so no token is set. Without the env var (the
 // WebContainer preview, plain local dev) fall back to local adapters.
+// Secrets are loaded from .env into process.env at server startup.
 export function resolvePorts() {
   let baseUrl = process.env.SCOUTOS_PORTS_URL || process.env.SCOUT_PORTS_URL || ''
   if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1)
@@ -280,6 +298,28 @@ import { readFile } from 'node:fs/promises'
 import { extname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { resolvePorts, zeptoDbHandler } from './zepto-bridge.js'
+
+// Read .env file into process.env so the bridge and server pick up secrets
+// (API keys, ports, model IDs, etc.) at runtime.
+const envPath = resolve('.env')
+try {
+  const raw = await readFile(envPath, 'utf-8')
+  for (const line of raw.split('\\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const idx = trimmed.indexOf('=')
+    if (idx === -1) continue
+    const key = trimmed.slice(0, idx).trim()
+    let val = trimmed.slice(idx + 1).trim()
+    // Strip surrounding quotes if present
+    if ((val.startsWith('\"') && val.endsWith('\"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1)
+    }
+    process.env[key] = val
+  }
+} catch {
+  // .env is optional — no error if it doesn't exist
+}
 
 const port = Number(process.env.PORT || 3000)
 const distDir = fileURLToPath(new URL('./dist', import.meta.url))

@@ -33,6 +33,19 @@ describe('project templates', () => {
     expect(mainContent).toContain('shadcn/ui')
   })
 
+  it('server.js reads .env into process.env at startup', () => {
+    const server = starterFiles.find(f => f.path === 'server.js')?.content ?? ''
+    expect(server).toContain('.env')
+    expect(server).toContain("process.env[key]")
+    expect(server).toContain('readFile')
+  })
+
+  it('vite.config.ts reads .env into process.env at startup', () => {
+    const config = starterFiles.find(f => f.path === 'vite.config.ts')?.content ?? ''
+    expect(config).toContain('.env')
+    expect(config).toContain("process.env[key]")
+  })
+
   it('ships a production server with the Scout Live env mapping in the shared bridge', () => {
     const bridge = starterFiles.find(file => file.path === 'zepto-bridge.js')?.content ?? ''
     const server = starterFiles.find(file => file.path === 'server.js')?.content ?? ''

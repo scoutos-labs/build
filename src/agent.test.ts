@@ -247,4 +247,71 @@ describe('runAgent', () => {
     await expect(runAgent({ provider: 'ollama', model: 'model', userPrompt: 'noop', messages: [], files: [] }))
       .rejects.toThrow('Ollama URL is required')
   })
+
+  it('includes env vars in system context when provided', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      message: { content: JSON.stringify({ reply: 'ok', patches: [], envVars: { NEW_KEY: 'val' } }) },
+    }), { status: 200 }))
+    globalThis.fetch = fetchMock as typeof fetch
+
+    await runAgent({
+      provider: 'ollama',
+      ollamaUrl: 'http://localhost:11434',
+      model: 'model',
+      userPrompt: 'set API key',
+      messages: [],
+      files: [],
+      envVars: { EXISTING_KEY: 'existing' },
+    })
+
+    const body = String(fetchMock.mock.calls[0][1]?.body)
+    const messages = JSON.parse(body).messages as { role: string; content: string }[]
+    const envMsg = messages.find(m => m.content.includes('EXISTING_KEY'))
+    expect(envMsg).toBeDefined()
+    expect(envMsg?.content).toContain('EXISTING_KEY=existing')
+  })
+
+  it('returns envVars in the agent result when agent sets them', async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({
+      message: { content: JSON.stringify({
+        reply: 'Set the API key for you.',
+        patches: [],
+        envVars: { OPENROUTER_API_KEY: 'sk-test-123' },
+      }) },
+    }), { status: 200 })) as typeof fetch
+
+    const result = await runAgent({
+      provider: 'ollama',
+      ollamaUrl: 'http://localhost:11434',
+      model: 'model',
+      userPrompt: 'add OpenRouter key',
+      messages: [],
+      files: [],
+    })
+
+    expect(result.reply).toBe('Set the API key for you.')
+    expect(result.envVars).toEqual({ OPENROUTER_API_KEY: 'sk-test-123' })
+    expect(result.patches).toEqual([])
+  })
+
+  it('envVars default to undefined when not provided', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      message: { content: JSON.stringify({ reply: 'ok', patches: [] }) },
+    }), { status: 200 }))
+    globalThis.fetch = fetchMock as typeof fetch
+
+    await runAgent({
+      provider: 'ollama',
+      ollamaUrl: 'http://localhost:11434',
+      model: 'model',
+      userPrompt: 'noop',
+      messages: [],
+      files: [],
+    })
+
+    const body = String(fetchMock.mock.calls[0][1]?.body)
+    const messages = JSON.parse(body).messages as { role: string; content: string }[]
+    // Should NOT have an env vars system message
+    expect(messages.every(m => !m.content.includes('Current env vars'))).toBe(true)
+  })
 })

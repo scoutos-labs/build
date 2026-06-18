@@ -11,7 +11,8 @@ const JSON_SYSTEM_PROMPT = `You are an app-building agent inside a browser-only 
 Return ONLY valid JSON with this exact shape: {"reply":"short user-facing summary","patches":[{"path":"src/main.tsx","content":"full file content"}]}.
 Rules:
 - Modify files by returning full replacement contents.
-- Prefer Vite + React + TypeScript.
+- Prefer Next.js + React + TypeScript.
+- Use Tailwind CSS for styling and shadcn/ui for components.
 - For persistence, use the db client in src/db.ts; it calls the hyper-zepto data port that zepto-bridge.js serves at /api/db (mounted by vite.config.ts in dev and server.js in production). Never import hyper-zepto in browser code.
 - Preserve vite.config.ts, zepto-bridge.js, and server.js (they host the database API and the production server) unless the user explicitly asks to change the backend.
 - Do not use native Node modules, server-only packages, Docker, or external databases.

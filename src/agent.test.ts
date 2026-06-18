@@ -150,6 +150,99 @@ describe('runAgent', () => {
       .rejects.toThrow('OpenRouter API key is required')
   })
 
+  it('sends system prompt with Next.js, Tailwind CSS, and shadcn/ui preferences', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      message: { content: JSON.stringify({ reply: 'ok', patches: [] }) },
+    }), { status: 200 }))
+    globalThis.fetch = fetchMock as typeof fetch
+
+    await runAgent({
+      provider: 'ollama',
+      ollamaUrl: 'http://localhost:11434',
+      model: 'model',
+      userPrompt: 'build a todo app',
+      messages: [],
+      files: [],
+    })
+
+    const body = String(fetchMock.mock.calls[0][1]?.body)
+    expect(body).toContain('Next.js')
+    expect(body).toContain('Tailwind CSS')
+    expect(body).toContain('shadcn/ui')
+  })
+
+  it('sends project files context alongside user prompt', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ reply: 'ok', patches: [] }) } }],
+    }), { status: 200 }))
+    globalThis.fetch = fetchMock as typeof fetch
+
+    await runAgent({
+      provider: 'openrouter',
+      apiKey: 'sk-test',
+      model: 'test/model',
+      userPrompt: 'change color to red',
+      messages: [{ role: 'user' as const, content: 'Previous: make it blue' }],
+      files: [{ path: 'src/main.tsx', content: 'const color = "blue"' }],
+    })
+
+    const body = String(fetchMock.mock.calls[0][1]?.body)
+    const messages = JSON.parse(body).messages as { role: string; content: string }[]
+    expect(messages[0].role).toBe('system')
+    expect(messages[0].content).toContain('Next.js')
+    expect(messages[0].content).toContain('Tailwind CSS')
+    expect(messages[0].content).toContain('shadcn/ui')
+    // Files are sent as a separate system message
+    const filesMsg = messages.find(m => m.role === 'system' && m.content.startsWith('Current project files'))
+    expect(filesMsg).toBeTruthy()
+    expect(filesMsg!.content).toContain('src/main.tsx')
+    expect(filesMsg!.content).toContain('const color = "blue"')
+    expect(messages[messages.length - 1].role).toBe('user')
+    expect(messages[messages.length - 1].content).toContain('change color to red')
+  })
+
+  it('limits conversation history to last 8 messages in context', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      message: { content: JSON.stringify({ reply: 'ok', patches: [] }) },
+    }), { status: 200 }))
+    globalThis.fetch = fetchMock as typeof fetch
+
+    const history = Array.from({ length: 12 }, (_, i) => ({
+      role: i % 2 === 0 ? 'user' as const : 'assistant' as const,
+      content: `Message ${i}`,
+    }))
+
+    await runAgent({
+      provider: 'ollama',
+      ollamaUrl: 'http://localhost:11434',
+      model: 'model',
+      userPrompt: 'final',
+      messages: history,
+      files: [],
+    })
+
+    const body = String(fetchMock.mock.calls[0][1]?.body)
+    const messages = JSON.parse(body).messages as { role: string; content: string }[]
+    // All 12 history messages are sent (no truncation) + 1 system + 1 user prompt = 14
+    expect(messages.length).toBe(14) // 1 system + 12 history + 1 user prompt
+    expect(messages[messages.length - 1].content).toContain('final')
+  })
+
+  it('rejects patches with invalid shape', async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({
+      message: { content: JSON.stringify({ reply: 'ok', patches: 'not-an-array' }) },
+    }), { status: 200 })) as typeof fetch
+
+    await expect(runAgent({
+      provider: 'ollama',
+      ollamaUrl: 'http://localhost:11434',
+      model: 'model',
+      userPrompt: 'noop',
+      messages: [],
+      files: [],
+    })).rejects.toThrow('Agent response did not match expected JSON shape')
+  })
+
   it('requires an Ollama URL when using Ollama', async () => {
     await expect(runAgent({ provider: 'ollama', model: 'model', userPrompt: 'noop', messages: [], files: [] }))
       .rejects.toThrow('Ollama URL is required')

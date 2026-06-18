@@ -24,6 +24,15 @@ describe('project templates', () => {
     expect(starterFiles.find(file => file.path === 'src/build-inspector.ts')?.content).toContain('BUILD_ELEMENT_SELECTED')
   })
 
+  it('defaults to Next.js, Tailwind CSS, shadcn/ui in interview fallback plan', () => {
+    const mainContent = starterFiles.find(f => f.path === 'src/main.tsx')?.content ?? ''
+    // The fallback strings use compact() which falls back to the second arg
+    // when the user leaves the field blank — these are the defaults for the plan summary
+    expect(mainContent).toContain('Next.js')
+    expect(mainContent).toContain('Tailwind CSS')
+    expect(mainContent).toContain('shadcn/ui')
+  })
+
   it('ships a production server with the Scout Live env mapping in the shared bridge', () => {
     const bridge = starterFiles.find(file => file.path === 'zepto-bridge.js')?.content ?? ''
     const server = starterFiles.find(file => file.path === 'server.js')?.content ?? ''

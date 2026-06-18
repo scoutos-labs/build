@@ -7,13 +7,14 @@ export type AgentProvider = 'ollama' | 'openrouter'
 export type AgentPatch = { path: string; content: string }
 export type AgentResult = { reply: string; patches: AgentPatch[] }
 
-const SYSTEM_PROMPT = `You are an app-building agent inside a browser-only StackBlitz WebContainer.
+const JSON_SYSTEM_PROMPT = `You are an app-building agent inside a browser-only StackBlitz WebContainer.
 Return ONLY valid JSON with this exact shape: {"reply":"short user-facing summary","patches":[{"path":"src/main.tsx","content":"full file content"}]}.
 Rules:
 - Modify files by returning full replacement contents.
 - Prefer Next.js + React + TypeScript.
 - Use Tailwind CSS for styling and shadcn/ui for components.
-- Use @electric-sql/pglite for local browser databases.
+- For persistence, use the db client in src/db.ts; it calls the hyper-zepto data port that zepto-bridge.js serves at /api/db (mounted by vite.config.ts in dev and server.js in production). Never import hyper-zepto in browser code.
+- Preserve vite.config.ts, zepto-bridge.js, and server.js (they host the database API and the production server) unless the user explicitly asks to change the backend.
 - Do not use native Node modules, server-only packages, Docker, or external databases.
 - Keep changes small, coherent, and runnable.
 - If changing dependencies, replace package.json too.
@@ -40,8 +41,80 @@ type AgentArgs = {
 
 type ModelMessage = { role: 'system' | 'user' | 'assistant'; content: string }
 
-function projectContext(files: ProjectFile[]) {
-  return files.map(file => `--- ${file.path}\n${file.content}`).join('\n\n')
+/**
+ * Context selection (mirror of server/src/prompt.ts, which is the source of
+ * truth): under the budget the whole project ships; over it, files the
+ * request plausibly touches stay full and the rest shrink to stubs.
+ */
+const FILE_CONTEXT_CHAR_BUDGET = 160_000
+const STUB_LINES = 20
+const STUB_MAX_CHARS = 1000
+const ALWAYS_FULL = new Set(['package.json', 'vite.config.ts', 'zepto-bridge.js', 'server.js', 'index.html', 'src/db.ts'])
+const SMALL_FILE_CHARS = 1500
+const RECENT_MESSAGES = 6
+
+type ContextFile = ProjectFile & { stub: boolean }
+
+function basename(path: string) {
+  return path.split('/').at(-1) ?? path
+}
+
+function selectContextFiles(args: {
+  files: ProjectFile[]
+  userPrompt: string
+  messages: ChatMessage[]
+  selectedElement?: SelectedPreviewElement
+  elementComment?: string
+}): ContextFile[] {
+  const total = args.files.reduce((sum, file) => sum + file.content.length, 0)
+  if (total <= FILE_CONTEXT_CHAR_BUDGET) return args.files.map(file => ({ ...file, stub: false }))
+
+  const mentionText = [
+    args.userPrompt,
+    ...args.messages.slice(-RECENT_MESSAGES).map(message => message.content),
+    args.elementComment ?? '',
+  ].join('\n')
+  const elementMarkers = [args.selectedElement?.id, ...(args.selectedElement?.classes ?? [])].filter(
+    (marker): marker is string => !!marker,
+  )
+
+  const priority = (file: ProjectFile): number => {
+    if (ALWAYS_FULL.has(file.path)) return 0
+    if (mentionText.includes(file.path) || mentionText.includes(basename(file.path))) return 1
+    if (elementMarkers.some(marker => file.content.includes(marker))) return 2
+    if (file.content.length <= SMALL_FILE_CHARS) return 3
+    return 4
+  }
+
+  const ranked = args.files
+    .map((file, index) => ({ file, index, priority: priority(file) }))
+    .sort((a, b) => a.priority - b.priority || a.index - b.index)
+  let spent = 0
+  const stubbed = new Set<string>()
+  for (const entry of ranked) {
+    if (spent + entry.file.content.length > FILE_CONTEXT_CHAR_BUDGET) {
+      stubbed.add(entry.file.path)
+    } else {
+      spent += entry.file.content.length
+    }
+  }
+  return args.files.map(file => ({ ...file, stub: stubbed.has(file.path) }))
+}
+
+const STUB_NOTE = `
+
+Files marked [stub: ...] show only their first lines to fit the context budget. Never write a patch for a stubbed file based on its stub. If the change needs one, return {"reply":"<say which files you need, by exact path>","patches":[]} — files named in the conversation are sent in full on the next message.`
+
+function projectContext(files: ContextFile[]) {
+  return files
+    .map(file => {
+      if (!file.stub) return `--- ${file.path}\n${file.content}`
+      const lines = file.content.split('\n')
+      const shown = Math.min(STUB_LINES, lines.length)
+      const head = lines.slice(0, shown).join('\n').slice(0, STUB_MAX_CHARS)
+      return `--- ${file.path} [stub: first ${shown} of ${lines.length} lines]\n${head}`
+    })
+    .join('\n\n')
 }
 
 function extractJson(text: string): AgentResult {
@@ -63,118 +136,119 @@ function findJsonObject(text: string) {
   if (start === -1) throw new Error(`Agent response was not JSON. It began with: ${unfenced.slice(0, 80)}`)
 
   let depth = 0
-  let inString = false
-  let escaped = false
-  for (let index = start; index < unfenced.length; index += 1) {
-    const char = unfenced[index]
-    if (inString) {
-      if (escaped) escaped = false
-      else if (char === '\\') escaped = true
-      else if (char === '"') inString = false
-      continue
-    }
-    if (char === '"') inString = true
-    else if (char === '{') depth += 1
+
+  for (let i = start; i < unfenced.length; i++) {
+    const char = unfenced[i]
+    if (char === '{') depth++
     else if (char === '}') {
-      depth -= 1
-      if (depth === 0) return unfenced.slice(start, index + 1)
+      depth--
+      if (depth === 0) return unfenced.slice(start, i + 1)
     }
   }
 
-  throw new Error('Agent response contained an incomplete JSON object')
+  throw new Error('Agent response contained an unclosed JSON object.')
 }
 
-function messagesWithContext(args: AgentArgs): ModelMessage[] {
-  const selectedElementContext = args.selectedElement && args.elementComment
-    ? `\n\n${buildSelectedElementPrompt({ comment: args.elementComment, element: args.selectedElement })}`
-    : ''
-  return [
-    { role: 'system', content: SYSTEM_PROMPT },
-    ...args.messages.slice(-8),
-    { role: 'user', content: `Current project files:\n${projectContext(args.files)}\n\nUser request: ${args.userPrompt}${selectedElementContext}` },
-  ]
-}
-
-function repairMessages(args: AgentArgs, badContent: string, error: unknown): ModelMessage[] {
-  return [
-    { role: 'system', content: SYSTEM_PROMPT },
-    {
-      role: 'user',
-      content: `Your previous response could not be parsed as the required JSON object.\n\nParse error:\n${error instanceof Error ? error.message : String(error)}\n\nOriginal user request:\n${args.userPrompt}\n\nCurrent project files:\n${projectContext(args.files)}\n\nInvalid response to repair:\n${badContent}\n\nReturn ONLY valid JSON with exactly {"reply": string, "patches": [{"path": string, "content": string}]}.`,
-    },
-  ]
-}
-
-export async function runAgent(args: AgentArgs): Promise<AgentResult> {
-  const messages = messagesWithContext(args)
-  const content = await requestModelContent(args, messages)
-  try {
-    return extractJson(content)
-  } catch (error) {
-    const repaired = await requestModelContent(args, repairMessages(args, content, error))
-    return extractJson(repaired)
+export async function call_agent(args: AgentArgs): Promise<AgentResult> {
+  const messages: ModelMessage[] = []
+  messages.push({ role: 'system', content: JSON_SYSTEM_PROMPT })
+  if (args.files.length > 0) {
+    const contextFiles = selectContextFiles(args)
+    const note = contextFiles.some(file => file.stub) ? STUB_NOTE : ''
+    messages.push({ role: 'system', content: `Current project files:\n\n${projectContext(contextFiles)}${note}` })
   }
-}
+  if (args.selectedElement && args.elementComment) {
+    messages.push({ role: 'system', content: buildSelectedElementPrompt({ element: args.selectedElement, comment: args.elementComment }) })
+  }
+  for (const msg of args.messages) {
+    messages.push({ role: msg.role as 'user' | 'assistant', content: msg.content })
+  }
+  messages.push({ role: 'user', content: args.userPrompt })
 
-async function requestModelContent(args: AgentArgs, messages: ModelMessage[]) {
-  return args.provider === 'ollama' ? requestOllamaContent(args, messages) : requestOpenRouterContent(args, messages)
-}
-
-async function requestOllamaContent(args: AgentArgs, messages: ModelMessage[]) {
-  const baseUrl = (args.ollamaUrl || 'http://localhost:11434').replace(/\/$/, '')
-  const response = await fetch(`${baseUrl}/api/chat`, {
+  const fetchOptions: RequestInit = {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages, model: args.model }),
+    signal: args.signal,
+  }
+
+  if (args.provider === 'ollama') {
+    if (!args.ollamaUrl) throw new Error('Ollama URL is required for Ollama provider')
+    fetchOptions.body = JSON.stringify({
       model: args.model,
+      messages: messages.map(m => ({ role: m.role, content: m.content })),
       stream: false,
       format: 'json',
-      options: { temperature: 0.2 },
-      messages,
-    }),
-    signal: args.signal,
-  })
-
-  if (!response.ok) throw new Error(`Ollama error ${response.status}: ${await response.text()}`)
-  const data = await response.json()
-  const content = data.message?.content
-  if (!content) throw new Error('Ollama returned no message content')
-  return content
-}
-
-async function requestOpenRouterContent(args: AgentArgs, messages: ModelMessage[]) {
-  if (!args.apiKey?.trim()) throw new Error('OpenRouter API key is required for the OpenRouter provider')
-
-  const request = (body: Record<string, unknown>) => fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${args.apiKey}`,
-      'HTTP-Referer': globalThis.location?.origin ?? 'http://localhost',
-      'X-Title': 'Browser App Builder MVP',
-    },
-    body: JSON.stringify(body),
-    signal: args.signal,
-  })
-  const baseBody = { model: args.model, temperature: 0.2, messages }
-  let response = await request({ ...baseBody, response_format: { type: 'json_object' } })
-  let errorText = ''
-
-  if (!response.ok) {
-    errorText = await response.text()
-    if (shouldRetryOpenRouterWithoutJsonMode(response.status, errorText)) {
-      response = await request(baseBody)
-      errorText = ''
+    })
+    const baseUrl = args.ollamaUrl.replace(/\/$/, '')
+    let response = await fetch(`${baseUrl}/api/chat`, fetchOptions)
+    if (!response.ok) {
+      const text = await response.text().catch(() => '')
+      throw new Error(`Ollama error ${response.status}: ${text || response.statusText}`)
+    }
+    let data = await response.json() as { message?: { content: string } }
+    if (!data.message?.content) throw new Error('Ollama response missing message content')
+    
+    try {
+      return extractJson(data.message.content)
+    } catch (parseError) {
+      // Retry with repair prompt
+      fetchOptions.body = JSON.stringify({
+        model: args.model,
+        messages: [
+          ...messages.map(m => ({ role: m.role, content: m.content })),
+          { role: 'assistant', content: data.message.content },
+          { role: 'user', content: 'Invalid response to repair. Return ONLY valid JSON with shape: {"reply":"summary","patches":[{"path":"file","content":"code"}]}' },
+        ],
+        stream: false,
+        format: 'json',
+      })
+      response = await fetch(`${baseUrl}/api/chat`, fetchOptions)
+      if (!response.ok) {
+        const text = await response.text().catch(() => '')
+        throw new Error(`Ollama error ${response.status}: ${text || response.statusText}`)
+      }
+      data = await response.json() as { message?: { content: string } }
+      if (!data.message?.content) throw new Error('Ollama response missing message content')
+      return extractJson(data.message.content)
     }
   }
 
-  if (!response.ok) throw new Error(`OpenRouter error ${response.status}: ${errorText || await response.text()}`)
-  const data = await response.json()
-  const content = data.choices?.[0]?.message?.content
-  if (!content) throw new Error('OpenRouter returned no message content')
-  return content
+  if (!args.apiKey) throw new Error('OpenRouter API key is required')
+  const openRouterHeaders = {
+    ...fetchOptions.headers,
+    Authorization: `Bearer ${args.apiKey}`,
+  }
+  const openRouterBody1 = JSON.stringify({ messages, model: args.model, response_format: { type: 'json_object' } })
+  let response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    ...fetchOptions,
+    headers: openRouterHeaders,
+    body: openRouterBody1,
+  })
+  
+  // Retry without response_format if provider rejects it
+  if (!response.ok && response.status === 400) {
+    const errorText = await response.text().catch(() => '')
+    if (errorText.includes('response_format')) {
+      const openRouterBody2 = JSON.stringify({ messages, model: args.model })
+      response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        ...fetchOptions,
+        headers: openRouterHeaders,
+        body: openRouterBody2,
+      })
+    }
+  }
+  
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    throw new Error(`OpenRouter error ${response.status}: ${text || response.statusText}`)
+  }
+  const data = await response.json() as { choices: { message: { content: string } }[] }
+  if (!data.choices?.[0]?.message?.content) throw new Error('OpenRouter response missing content')
+  return extractJson(data.choices[0].message.content)
 }
 
-function shouldRetryOpenRouterWithoutJsonMode(status: number, errorText: string) {
-  return (status === 400 || status === 422) && /response[_ ]format|json[_ ]object|json mode/i.test(errorText)
+// Backward compatibility alias
+export async function runAgent(args: AgentArgs): Promise<AgentResult> {
+  return call_agent(args)
 }

@@ -1,6 +1,8 @@
 import build/actors/preview
 import build/msg
 import build/pure/preview_inspector
+import build/runtime/ids
+import gleam/dynamic/decode
 import gleam/option.{type Option, None, Some}
 import lustre/attribute
 import lustre/element.{type Element}
@@ -30,13 +32,20 @@ pub fn view(element: Option(preview_inspector.SelectedPreviewElement), comment: 
             button([
               attribute.class("secondary compact"),
               attribute.disabled(busy || comment == ""),
-              event.on_click(msg.ImproveSelectedElement("gleam-improve", 0)),
+              event.on("click", improve_click_decoder()),
             ], "Improve selected"),
             button([attribute.class("ghost compact"), event.on_click(msg.Preview(preview.ElementCleared))], "Clear"),
           ]),
         ],
       )
   }
+}
+
+/// Built inside a decoder so the id and timestamp are generated when the
+/// event fires, not when the view renders.
+pub fn improve_click_decoder() -> decode.Decoder(msg.Msg) {
+  use _ <- decode.then(decode.success(Nil))
+  decode.success(msg.ImproveSelectedElement(ids.new_request_id(), ids.now_ms()))
 }
 
 fn button(attrs, label: String) {

@@ -38,6 +38,7 @@ input:focus, textarea:focus, select:focus { border-color: transparent; box-shado
 .chat > textarea { height: 84px; resize: none; border-radius: 14px; border: 1px solid transparent; background: linear-gradient(#fff, #fff) padding-box, linear-gradient(110deg, #ff8acb, #73e3d4, #4f7dff) border-box; color: var(--scout-ink); box-shadow: color(srgb 0 0 0 / .06) 0 10px 28px; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .thinking { color: var(--scout-charcoal); background: #fff; border: 1px solid var(--scout-line); border-radius: 12px; padding: 9px 11px; font-size: .84rem; box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
+.budgetExhausted { color: #8a4b00; background: #fff7ed; border: 1px solid #f5c98a; border-radius: 12px; padding: 9px 11px; font-size: .84rem; box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
 .selectedElementPanel { display: grid; gap: 10px; padding: 12px; border: 1px solid color(srgb 0.15 0.39 1 / .25); border-radius: 16px; background: #fff; box-shadow: color(srgb 0.15 0.39 1 / .08) 0 8px 24px; }
 .selectedElementPanel small { color: #8b8d94; text-transform: uppercase; letter-spacing: .08em; font-size: .66rem; font-weight: 750; }
 .selectedElementPanel strong { display: block; margin: 3px 0; color: var(--scout-ink); }
@@ -67,7 +68,25 @@ button.miniIcon { width: 28px; height: 28px; flex: 0 0 auto; padding: 0; border-
 .modal { width: min(460px, 100%); display: grid; gap: 16px; padding: 20px; border: 1px solid var(--scout-line); border-radius: 22px; background: #fff; color: var(--scout-ink); box-shadow: color(srgb 0 0 0 / .14) 0 30px 100px; }
 .modalHeader { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; }
 .modalActions { display: flex; justify-content: flex-end; gap: 10px; }
+.publishPanel { display: grid; gap: 12px; }
+.publishPanel .status.error { color: #c2421f; }
+.subdomainRow { display: flex; align-items: center; gap: 8px; }
+.subdomainRow input { flex: 1; min-width: 0; }
+.subdomainSuffix { color: #8b8d94; font-size: .85rem; white-space: nowrap; }
+.publishedUrl { color: var(--scout-blue); font-weight: 700; word-break: break-all; }
+.publishLogs { max-height: 220px; overflow: auto; margin: 0; padding: 10px; font-size: .72rem; line-height: 1.4; border: 1px solid var(--scout-line); border-radius: 12px; background: #fafafa; }
+.scoutosKey { display: grid; gap: 7px; }
+.keyEntryRow, .keySavedRow { display: flex; align-items: center; gap: 8px; }
+.keyEntryRow input { flex: 1; min-width: 0; }
 .workspace { min-width: 0; display: grid; grid-template-rows: 1fr 310px; background: #fff; }
+/* Hidden code panel: preview takes the full workspace. The .bottom strip stays
+   mounted (display:none, not unmounted) so the xterm instance and its shell
+   survive toggling — the terminal re-fits when revealed. */
+.workspace.codeHidden { grid-template-rows: 1fr; }
+.workspace.codeHidden .bottom { display: none; }
+.codeToggle { display: inline-flex; align-items: center; }
+.codeToggle.active { color: var(--scout-ink); background: #eceef3; }
+.unreadDot { width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: #c2421f; }
 .preview { min-height: 0; display: flex; flex-direction: column; background: #fff; }
 .bar { height: 42px; display: flex; align-items: center; gap: 12px; padding: 0 12px; color: var(--scout-ink); background: #fff; border-bottom: 1px solid var(--scout-line); }
 .bar span { flex: 1; color: #8b8d94; font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

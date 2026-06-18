@@ -1,0 +1,481 @@
+import { Hono } from 'hono'
+import { getCookie } from 'hono/cookie'
+import type { Db, UserRow } from './db.js'
+import type { KeyCrypto } from './key-crypto.js'
+import type { OpenRouterClient } from './openrouter.js'
+import { buildModelMessages, extractJson, type AgentRequestBody, type ProjectFile } from './prompt.js'
+import { checkSubdomain, packageProject } from './publish.js'
+import type { RateLimiter } from './rate-limit.js'
+import type { ScoutLiveClient } from './scoutlive.js'
+import { normalizeTier, tierConfig } from './tiers.js'
+
+/**
+ * Caps raw request parsing only. Model spend is bounded separately: context
+ * selection in prompt.ts stubs low-relevance files to keep the assembled
+ * prompt under MAX_PROMPT_CHARS, so large projects are accepted here.
+ */
+export const MAX_BODY_BYTES = 2 * 1024 * 1024
+/**
+ * Rough token ceiling for the assembled prompt (~4 chars/token ≈ 50k tokens).
+ * Backstop only — context selection keeps the files block under budget, so
+ * this fires mainly on pathological chat histories.
+ */
+export const MAX_PROMPT_CHARS = 200_000
+
+export type AuthResult = { userId: string; tier: string }
+
+export type ClerkWebhookEvent = {
+  type: string
+  data: { id?: string }
+}
+
+export type AppDeps = {
+  db: Db
+  openrouter: OpenRouterClient
+  scoutlive: ScoutLiveClient
+  keyCrypto: KeyCrypto
+  rateLimiter: RateLimiter
+  /** Verify a Clerk session JWT; throw on anything invalid. */
+  verifyToken(token: string): Promise<AuthResult>
+  /** Verify a svix-signed webhook; throw on bad signature. */
+  verifyWebhook(rawBody: string, headers: Record<string, string | undefined>): ClerkWebhookEvent
+  log?: (message: string) => void
+}
+
+function errorBody(code: string, message: string) {
+  return { error: { code, message } }
+}
+
+// OpenRouter `limit_reset: monthly` resets on the first of the calendar month
+// (UTC); surface that so the client can show "wait until {date}".
+function budgetExhaustedBody() {
+  const now = new Date()
+  const resetAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString()
+  return { error: { code: 'budget_exhausted', message: 'Monthly build budget used up', resetAt } }
+}
+
+async function provisionUser(deps: AppDeps, userId: string, tier: string): Promise<UserRow> {
+  const config = tierConfig(tier)
+  const provisioned = await deps.openrouter.createKey({
+    name: `build-user-${userId}`,
+    limitUsd: config.limitUsd,
+  })
+  const row = await deps.db.insertUser({
+    clerkUserId: userId,
+    orKeyHash: provisioned.hash,
+    orKeyEnc: deps.keyCrypto.encrypt(provisioned.key),
+    tier: normalizeTier(tier),
+    model: config.model,
+  })
+  // Lost the insert race (webhook + lazy provision): the stored row wins, so
+  // remove the key we just minted instead of leaking it.
+  if (row.or_key_hash !== provisioned.hash) {
+    await deps.openrouter.deleteKey(provisioned.hash).catch(() => {})
+  }
+  return row
+}
+
+async function loadOrProvisionUser(deps: AppDeps, auth: AuthResult): Promise<UserRow> {
+  const existing = await deps.db.getUser(auth.userId)
+  if (existing) return existing
+  deps.log?.(`lazy-provisioning user ${auth.userId}`)
+  return provisionUser(deps, auth.userId, auth.tier)
+}
+
+function isValidAgentBody(body: unknown): body is AgentRequestBody {
+  if (!body || typeof body !== 'object') return false
+  const candidate = body as Partial<AgentRequestBody>
+  return (
+    typeof candidate.userPrompt === 'string' &&
+    candidate.userPrompt.length > 0 &&
+    Array.isArray(candidate.files) &&
+    candidate.files.every(f => typeof f?.path === 'string' && typeof f?.content === 'string') &&
+    Array.isArray(candidate.messages) &&
+    candidate.messages.every(
+      m => (m?.role === 'user' || m?.role === 'assistant') && typeof m?.content === 'string',
+    )
+  )
+}
+
+export function createApp(deps: AppDeps) {
+  const app = new Hono()
+
+  app.get('/api/health', c => c.json({ ok: true }))
+
+  const authenticate = async (c: { req: { header(name: string): string | undefined } }) => {
+    const header = (c.req.header('Authorization') ?? '').trim()
+    const bearer = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : ''
+    const token = bearer || getCookie(c as never, '__session') || ''
+    if (!token) return null
+    try {
+      return await deps.verifyToken(token)
+    } catch {
+      return null
+    }
+  }
+
+  app.post('/api/agent', async c => {
+    const auth = await authenticate(c)
+    if (!auth) return c.json(errorBody('unauthorized', 'Missing or invalid session token'), 401)
+
+    if (!deps.rateLimiter.check(auth.userId)) {
+      return c.json(errorBody('rate_limited', 'Too many requests; try again in a minute'), 429)
+    }
+
+    const declaredLength = Number(c.req.header('content-length') ?? '0')
+    if (declaredLength > MAX_BODY_BYTES) {
+      return c.json(errorBody('payload_too_large', 'Request body exceeds 2MB'), 413)
+    }
+    const rawBody = await c.req.text()
+    if (rawBody.length > MAX_BODY_BYTES) {
+      return c.json(errorBody('payload_too_large', 'Request body exceeds 2MB'), 413)
+    }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(rawBody)
+    } catch {
+      return c.json(errorBody('bad_request', 'Body must be JSON'), 400)
+    }
+    if (!isValidAgentBody(parsed)) {
+      return c.json(errorBody('bad_request', 'Body must include userPrompt, files, messages'), 400)
+    }
+
+    const modelMessages = buildModelMessages(parsed)
+    const promptChars = modelMessages.reduce((total, m) => total + m.content.length, 0)
+    if (promptChars > MAX_PROMPT_CHARS) {
+      return c.json(errorBody('prompt_too_large', 'Project too large for one request'), 413)
+    }
+
+    let user: UserRow
+    try {
+      user = await loadOrProvisionUser(deps, auth)
+    } catch (error) {
+      deps.log?.(`provisioning failed for ${auth.userId}: ${String(error)}`)
+      return c.json(errorBody('provisioning_failed', 'Could not provision account'), 503)
+    }
+    if (user.disabled) {
+      return c.json(errorBody('payment_failed', 'Account is disabled'), 402)
+    }
+
+    const apiKey = deps.keyCrypto.decrypt(user.or_key_enc)
+    const first = await deps.openrouter.chatCompletion({
+      apiKey,
+      model: user.model,
+      messages: modelMessages,
+    })
+    if (first.kind === 'budget_exhausted') {
+      return c.json(budgetExhaustedBody(), 402)
+    }
+    if (first.kind === 'error') {
+      deps.log?.(`openrouter error for ${auth.userId}: ${first.status} ${first.message}`)
+      return c.json(errorBody('upstream_error', 'Model call failed'), 502)
+    }
+
+    try {
+      return c.json(extractJson(first.content))
+    } catch (parseError) {
+      deps.log?.(
+        `unparseable model output for ${auth.userId} (${String(parseError)}); ` +
+          `len=${first.content.length} head=${JSON.stringify(first.content.slice(0, 200))} ` +
+          `tail=${JSON.stringify(first.content.slice(-120))}`,
+      )
+      // One repair round-trip, mirroring the old client behavior.
+      const repair = await deps.openrouter.chatCompletion({
+        apiKey,
+        model: user.model,
+        messages: [
+          ...modelMessages,
+          { role: 'assistant', content: first.content },
+          {
+            role: 'user',
+            content:
+              'Invalid response to repair. Return ONLY valid JSON with shape: {"reply":"summary","patches":[{"path":"file","content":"code"}]}',
+          },
+        ],
+      })
+      if (repair.kind === 'budget_exhausted') {
+        return c.json(budgetExhaustedBody(), 402)
+      }
+      if (repair.kind === 'error') {
+        return c.json(errorBody('upstream_error', 'Model call failed'), 502)
+      }
+      try {
+        return c.json(extractJson(repair.content))
+      } catch (repairError) {
+        deps.log?.(
+          `repair also unparseable for ${auth.userId} (${String(repairError)}); ` +
+            `len=${repair.content.length} tail=${JSON.stringify(repair.content.slice(-120))}`,
+        )
+        return c.json(errorBody('bad_model_output', 'Model returned unusable output'), 502)
+      }
+    }
+  })
+
+  // ScoutOS publish keys are user-supplied and write-only: stored encrypted,
+  // surfaced to clients only as a presence flag, decrypted only inside the
+  // publish handler.
+  const SCOUTOS_KEY_RE = /^sk_(live|test)_[A-Za-z0-9_-]{8,256}$/
+
+  app.put('/api/credentials/scoutos', async c => {
+    const auth = await authenticate(c)
+    if (!auth) return c.json(errorBody('unauthorized', 'Missing or invalid session token'), 401)
+
+    let body: { key?: unknown }
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json(errorBody('bad_request', 'Body must be JSON'), 400)
+    }
+    if (typeof body.key !== 'string' || !SCOUTOS_KEY_RE.test(body.key.trim())) {
+      return c.json(errorBody('bad_request', 'Key must look like sk_live_... or sk_test_...'), 400)
+    }
+
+    await deps.db.upsertCredential(auth.userId, 'scoutos', deps.keyCrypto.encrypt(body.key.trim()))
+    return c.json({ scoutos: true })
+  })
+
+  app.get('/api/credentials', async c => {
+    const auth = await authenticate(c)
+    if (!auth) return c.json(errorBody('unauthorized', 'Missing or invalid session token'), 401)
+
+    const stored = await deps.db.getCredential(auth.userId, 'scoutos')
+    return c.json({ scoutos: stored !== null })
+  })
+
+  app.delete('/api/credentials/scoutos', async c => {
+    const auth = await authenticate(c)
+    if (!auth) return c.json(errorBody('unauthorized', 'Missing or invalid session token'), 401)
+
+    await deps.db.deleteCredential(auth.userId, 'scoutos')
+    return c.json({ scoutos: false })
+  })
+
+  type PublishBody = { projectId: string; subdomain: string; files: ProjectFile[] }
+  function isValidPublishBody(body: unknown): body is PublishBody {
+    if (!body || typeof body !== 'object') return false
+    const candidate = body as Partial<PublishBody>
+    return (
+      typeof candidate.projectId === 'string' &&
+      candidate.projectId.length > 0 &&
+      typeof candidate.subdomain === 'string' &&
+      Array.isArray(candidate.files) &&
+      candidate.files.length > 0 &&
+      candidate.files.every(f => typeof f?.path === 'string' && typeof f?.content === 'string')
+    )
+  }
+
+  app.post('/api/publish', async c => {
+    const auth = await authenticate(c)
+    if (!auth) return c.json(errorBody('unauthorized', 'Missing or invalid session token'), 401)
+
+    if (!deps.rateLimiter.check(auth.userId)) {
+      return c.json(errorBody('rate_limited', 'Too many requests; try again in a minute'), 429)
+    }
+
+    const declaredLength = Number(c.req.header('content-length') ?? '0')
+    if (declaredLength > MAX_BODY_BYTES) {
+      return c.json(errorBody('payload_too_large', 'Project exceeds the 2MB publish limit — remove large assets'), 413)
+    }
+    const rawBody = await c.req.text()
+    if (rawBody.length > MAX_BODY_BYTES) {
+      return c.json(errorBody('payload_too_large', 'Project exceeds the 2MB publish limit — remove large assets'), 413)
+    }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(rawBody)
+    } catch {
+      return c.json(errorBody('bad_request', 'Body must be JSON'), 400)
+    }
+    if (!isValidPublishBody(parsed)) {
+      return c.json(errorBody('bad_request', 'Body must include projectId, subdomain, files'), 400)
+    }
+
+    // Republish targets the recorded subdomain so the URL stays stable; the
+    // body subdomain only names a first deploy.
+    const existing = await deps.db.getDeployment(auth.userId, parsed.projectId)
+    const check = checkSubdomain(existing?.subdomain ?? parsed.subdomain)
+    if (!check.ok) {
+      return c.json(
+        check.reason === 'reserved'
+          ? errorBody('reserved_subdomain', 'That subdomain is reserved by the platform')
+          : errorBody('invalid_subdomain', 'Subdomain must be 1-63 chars, lowercase letters, digits, and inner hyphens'),
+        400,
+      )
+    }
+
+    const keyEnc = await deps.db.getCredential(auth.userId, 'scoutos')
+    if (!keyEnc) {
+      return c.json(errorBody('no_scoutos_key', 'Add your ScoutOS API key in settings before publishing'), 400)
+    }
+
+    let tarGz: Buffer
+    try {
+      tarGz = packageProject(parsed.files)
+    } catch (error) {
+      deps.log?.(`packaging failed for ${auth.userId}/${parsed.projectId}: ${String(error)}`)
+      return c.json(errorBody('bad_request', 'Project could not be packaged'), 400)
+    }
+
+    const result = await deps.scoutlive.deploy({
+      apiKey: deps.keyCrypto.decrypt(keyEnc),
+      subdomain: check.subdomain,
+      tarGz,
+      code: existing?.publish_code_enc ? deps.keyCrypto.decrypt(existing.publish_code_enc) : undefined,
+    })
+
+    switch (result.kind) {
+      case 'accepted':
+        await deps.db.upsertDeployment({
+          clerkUserId: auth.userId,
+          projectId: parsed.projectId,
+          subdomain: check.subdomain,
+          lastBuildId: result.buildId,
+        })
+        return c.json({ buildId: result.buildId, subdomain: check.subdomain })
+      case 'subdomain_taken':
+        return c.json(errorBody('subdomain_taken', 'That subdomain is taken — pick another name'), 409)
+      case 'invalid_code':
+        deps.log?.(`publish code rejected for ${auth.userId}/${parsed.projectId} (${check.subdomain})`)
+        return c.json(errorBody('publish_code_rejected', 'The platform rejected the stored publish code for this app'), 409)
+      case 'rate_limited': {
+        if (result.retryAfterSeconds !== null) {
+          c.header('Retry-After', String(result.retryAfterSeconds))
+        }
+        return c.json(errorBody('scoutlive_rate_limited', 'Scout Live deploy limit reached; try again later'), 429)
+      }
+      case 'error':
+        deps.log?.(`scoutlive deploy failed for ${auth.userId}/${parsed.projectId}: ${result.status} ${result.message}`)
+        return c.json(errorBody('upstream_error', 'Deploy request to Scout Live failed'), 502)
+    }
+  })
+
+  // Lets the client skip the subdomain prompt when a project was already
+  // published (the publish handler reuses the record regardless).
+  app.get('/api/deployments/:projectId', async c => {
+    const auth = await authenticate(c)
+    if (!auth) return c.json(errorBody('unauthorized', 'Missing or invalid session token'), 401)
+
+    const deployment = await deps.db.getDeployment(auth.userId, c.req.param('projectId'))
+    if (!deployment) return c.json(errorBody('not_found', 'Project has not been published'), 404)
+    return c.json({ subdomain: deployment.subdomain, url: deployment.last_url ?? null })
+  })
+
+  app.get('/api/publish/:buildId', async c => {
+    const auth = await authenticate(c)
+    if (!auth) return c.json(errorBody('unauthorized', 'Missing or invalid session token'), 401)
+
+    const buildId = c.req.param('buildId')
+    // Scoped to the caller's own deployments — unknown build ids 404 rather
+    // than proxying arbitrary lookups to the platform.
+    const deployment = await deps.db.getDeploymentByBuild(auth.userId, buildId)
+    if (!deployment) return c.json(errorBody('not_found', 'No such build'), 404)
+
+    const keyEnc = await deps.db.getCredential(auth.userId, 'scoutos')
+    if (!keyEnc) {
+      return c.json(errorBody('no_scoutos_key', 'Add your ScoutOS API key in settings before publishing'), 400)
+    }
+
+    const result = await deps.scoutlive.getBuildStatus({
+      apiKey: deps.keyCrypto.decrypt(keyEnc),
+      buildId,
+    })
+    if (result.kind === 'not_found') return c.json(errorBody('not_found', 'No such build'), 404)
+    if (result.kind === 'error') {
+      deps.log?.(`scoutlive status failed for ${auth.userId}/${buildId}: ${result.status} ${result.message}`)
+      return c.json(errorBody('upstream_error', 'Status request to Scout Live failed'), 502)
+    }
+
+    const { build } = result
+    if (build.status === 'deployed') {
+      // The platform shows publishCode once (first deploy only); persisting
+      // it is what makes zero-downtime republish possible.
+      await deps.db.recordDeployOutcome({
+        clerkUserId: auth.userId,
+        projectId: deployment.project_id,
+        publishCodeEnc: build.publishCode ? deps.keyCrypto.encrypt(build.publishCode) : undefined,
+        lastUrl: build.url,
+      })
+    }
+
+    // publishCode never leaves the server.
+    return c.json({
+      buildId,
+      status: build.status,
+      url: build.url ?? null,
+      error: build.error ?? null,
+      logs: build.logs ?? null,
+    })
+  })
+
+  app.get('/api/me', async c => {
+    const auth = await authenticate(c)
+    if (!auth) return c.json(errorBody('unauthorized', 'Missing or invalid session token'), 401)
+
+    let user: UserRow
+    try {
+      user = await loadOrProvisionUser(deps, auth)
+    } catch (error) {
+      deps.log?.(`provisioning failed for ${auth.userId}: ${String(error)}`)
+      return c.json(errorBody('provisioning_failed', 'Could not provision account'), 503)
+    }
+
+    const keyInfo = await deps.openrouter.getKey(user.or_key_hash)
+    return c.json({
+      plan: user.tier,
+      model: user.model,
+      disabled: user.disabled,
+      limit: keyInfo.limit,
+      usage: keyInfo.usage,
+      limitRemaining: keyInfo.limitRemaining,
+    })
+  })
+
+  app.post('/webhooks/clerk', async c => {
+    const rawBody = await c.req.text()
+    let event: ClerkWebhookEvent
+    try {
+      event = deps.verifyWebhook(rawBody, {
+        'svix-id': c.req.header('svix-id'),
+        'svix-timestamp': c.req.header('svix-timestamp'),
+        'svix-signature': c.req.header('svix-signature'),
+      })
+    } catch {
+      return c.json(errorBody('invalid_signature', 'Webhook signature verification failed'), 400)
+    }
+
+    const userId = event.data.id
+    if (!userId) return c.json({ received: true })
+
+    if (event.type === 'user.created') {
+      const existing = await deps.db.getUser(userId)
+      if (!existing) {
+        try {
+          await provisionUser(deps, userId, 'free')
+        } catch (error) {
+          deps.log?.(`webhook provisioning failed for ${userId}: ${String(error)}`)
+          // Non-2xx so svix redelivers; lazy provisioning also covers this.
+          return c.json(errorBody('provisioning_failed', 'Provisioning failed'), 500)
+        }
+      }
+    }
+
+    if (event.type === 'user.deleted') {
+      const existing = await deps.db.getUser(userId)
+      if (existing) {
+        await deps.openrouter.updateKey(existing.or_key_hash, { disabled: true }).catch(error => {
+          deps.log?.(`disabling key for ${userId} failed: ${String(error)}`)
+        })
+        await deps.openrouter.deleteKey(existing.or_key_hash).catch(error => {
+          deps.log?.(`deleting key for ${userId} failed: ${String(error)}`)
+        })
+        await deps.db.deleteUser(userId)
+      }
+    }
+
+    return c.json({ received: true })
+  })
+
+  return app
+}

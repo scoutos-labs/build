@@ -2,6 +2,7 @@ import build/actors/agent
 import build/actors/chat
 import build/actors/preview
 import build/actors/project
+import build/actors/publish
 import build/actors/settings
 import build/actors/webcontainer
 import build/effect
@@ -10,6 +11,7 @@ import build/msg
 import build/pure/templates
 import gleam/list
 import gleam/option
+import gleam/string
 
 pub fn update(
   app: model.Model,
@@ -17,10 +19,19 @@ pub fn update(
 ) -> #(model.Model, List(effect.Effect)) {
   case message {
     msg.NoOp -> #(app, [])
-    msg.InitApp -> #(app, [
-      effect.Settings(settings.LoadSettings),
-      effect.Project(project.LoadInitialProject),
-    ])
+    msg.InitApp ->
+      case app.managed {
+        True -> #(app, [
+          effect.Settings(settings.PurgeLegacySettings),
+          effect.Settings(settings.FetchAccountInfo),
+          effect.Publish(publish.FetchKeyStatus),
+          effect.Project(project.LoadInitialProject),
+        ])
+        False -> #(app, [
+          effect.Settings(settings.LoadSettings),
+          effect.Project(project.LoadInitialProject),
+        ])
+      }
     msg.SaveSettings -> #(
       model.Model(
         ..app,
@@ -136,12 +147,49 @@ pub fn update(
     msg.WebContainer(webcontainer_msg) -> {
       let #(state, effects) =
         webcontainer.update(app.webcontainer, webcontainer_msg)
-      #(
-        model.Model(..app, webcontainer: state),
-        list.map(effects, effect.WebContainer),
-      )
+      let next = model.Model(..app, webcontainer: state)
+      // A preview/build error lands in the terminal log (main-gleam.ts tags it
+      // "[preview error]"). If the code panel is hidden the user can't see it,
+      // so badge the toggle.
+      let next = case webcontainer_msg {
+        webcontainer.LogAppended(line) ->
+          case string.contains(line, "[preview error]") {
+            True -> {
+              let #(preview_state, _) =
+                preview.update(next.preview, preview.CodePanelErrorSignaled)
+              model.Model(..next, preview: preview_state)
+            }
+            False -> next
+          }
+        _ -> next
+      }
+      #(next, list.map(effects, effect.WebContainer))
     }
+    msg.Publish(publish_msg) -> update_publish(app, publish_msg)
   }
+}
+
+/// The publish actor decides *whether* to publish; this layer supplies the
+/// project file map it can't see. Whenever a publish message lands the state
+/// in Publishing, kick off the actual request.
+fn update_publish(
+  app: model.Model,
+  publish_msg: publish.Msg,
+) -> #(model.Model, List(effect.Effect)) {
+  let #(state, effects) = publish.update(app.publish, publish_msg)
+  let mapped = list.map(effects, effect.Publish)
+  let start = case app.publish.status, state.status {
+    publish.Publishing(_, _), _ -> []
+    _, publish.Publishing(project_id, subdomain) -> [
+      effect.Publish(publish.StartPublish(
+        project_id,
+        subdomain,
+        app.project.files,
+      )),
+    ]
+    _, _ -> []
+  }
+  #(model.Model(..app, publish: state), list.append(mapped, start))
 }
 
 fn update_agent(
@@ -240,18 +288,33 @@ fn can_submit_prompt(app: model.Model) -> Bool {
   app.chat.prompt != ""
   && !agent.is_running(app.agent)
   && !webcontainer.is_busy(app.webcontainer)
+  && !app.agent.budget_exhausted
 }
 
 fn can_improve_selected_element(app: model.Model) -> Bool {
   app.preview.element_comment != ""
   && !agent.is_running(app.agent)
   && !webcontainer.is_busy(app.webcontainer)
+  && !app.agent.budget_exhausted
 }
 
+// Managed users never see providers or keys; the server owns both.
 fn settings_missing(app: model.Model) -> Bool {
-  app.settings.model == ""
-  || {
-    app.settings.provider == settings.OpenRouter && app.settings.api_key == ""
+  !app.managed
+  && {
+    app.settings.model == ""
+    || {
+      app.settings.provider == settings.OpenRouter && app.settings.api_key == ""
+    }
+  }
+}
+
+// Persisting provider settings only applies to the bring-your-own-key flow;
+// in managed mode it would re-create the localStorage keys we purge at boot.
+fn legacy_persist_effects(app: model.Model) -> List(effect.Effect) {
+  case app.managed {
+    True -> []
+    False -> [effect.Settings(settings.persist_effect(app.settings))]
   }
 }
 
@@ -297,7 +360,7 @@ fn improve_selected_element(
           #(
             model.Model(..app, chat: chat_state, agent: agent_state),
             list.append(
-              [effect.Settings(settings.persist_effect(app.settings))],
+              legacy_persist_effects(app),
               list.append(
                 list.map(list.append(agent_effects, [call_agent]), effect.Agent),
                 [effect.ScrollMessagesToBottom],
@@ -371,7 +434,7 @@ fn call_agent_with_prompt(
       #(
         model.Model(..app, chat: chat_state, agent: agent_state),
         list.append(
-          [effect.Settings(settings.persist_effect(app.settings))],
+          legacy_persist_effects(app),
           list.append(
             list.map(list.append(agent_effects, [call_agent]), effect.Agent),
             [effect.ScrollMessagesToBottom],

@@ -17,6 +17,9 @@ pub fn starter_files() -> List(ProjectFile) {
       "index.html",
       "<div id=\"root\"></div><script type=\"module\" src=\"/src/main.tsx\"></script>\n",
     ),
+    ProjectFile("vite.config.ts", vite_config_ts()),
+    ProjectFile("zepto-bridge.js", zepto_bridge_js()),
+    ProjectFile("server.js", server_js()),
     ProjectFile("src/main.tsx", main_tsx()),
     ProjectFile("src/db.ts", db_ts()),
     ProjectFile("src/build-inspector.ts", build_inspector_ts()),
@@ -135,7 +138,9 @@ fn strip_leading_slashes(path: String) -> String {
 }
 
 fn package_json() -> String {
-  "{\n  \"scripts\": {\n    \"dev\": \"vite --host 0.0.0.0\"\n  },\n  \"dependencies\": {\n    \"@vitejs/plugin-react\": \"latest\",\n    \"@electric-sql/pglite\": \"latest\",\n    \"vite\": \"latest\",\n    \"typescript\": \"latest\",\n    \"react\": \"latest\",\n    \"react-dom\": \"latest\"\n  },\n  \"devDependencies\": {},\n  \"type\": \"module\"\n}"
+  // vite pinned below 8: Vite 8 bundles via rolldown, whose WASM binding
+  // (emnapi) crashes inside WebContainers.
+  "{\n  \"scripts\": {\n    \"dev\": \"vite --host 0.0.0.0\",\n    \"build\": \"vite build\",\n    \"start\": \"node server.js\"\n  },\n  \"dependencies\": {\n    \"@vitejs/plugin-react\": \"^4.3.4\",\n    \"hyper-zepto\": \"^0.1.0\",\n    \"vite\": \"^7.3.2\",\n    \"typescript\": \"latest\",\n    \"react\": \"^18.3.1\",\n    \"react-dom\": \"^18.3.1\"\n  },\n  \"devDependencies\": {},\n  \"type\": \"module\"\n}"
 }
 
 fn main_tsx() -> String {
@@ -221,7 +226,7 @@ function buildPlanSummary(answers: Answers) {
     coreFeatures: compact(answers.features, 'A polished dashboard, clear navigation, create/edit flows, and helpful empty states'),
     dataToStore: compact(answers.data, 'Local app records with sensible fields and sample data'),
     visualDirection: compact(answers.style, 'Modern, friendly, responsive, and production-quality'),
-    extrasAndConstraints: compact(answers.integrations, 'Keep it runnable in the browser with React, TypeScript, Vite, and PGlite when persistence is useful'),
+    extrasAndConstraints: compact(answers.integrations, 'Keep it runnable in the browser with React, TypeScript, Vite, and the hyper-zepto db helpers in src/db.ts when persistence is useful'),
   }
 
   const summary = `Build an app for: ${plan.appIdea}\\n\\nTarget users: ${plan.targetUsers}\\n\\nMain goal: ${plan.primaryGoal}\\n\\nMust-have features: ${plan.coreFeatures}\\n\\nData model / persistence: ${plan.dataToStore}\\n\\nVisual direction: ${plan.visualDirection}\\n\\nExtras / constraints: ${plan.extrasAndConstraints}`
@@ -310,9 +315,166 @@ createRoot(document.getElementById('root')!).render(<App />)
 }
 
 fn db_ts() -> String {
-  "import { PGlite } from '@electric-sql/pglite'
+  "// Browser client for the hyper-zepto data port served by vite.config.ts.
+// Mongo-style documents: await db.create('todos', { title: 'hi' }), then
+// await db.find('todos', { filter: { done: false }, sort: { title: 1 } }).
+type Json = Record<string, unknown>
 
-export const db = new PGlite('idb://preview-app')
+async function call(collection: string, action: string, body: Json) {
+  const response = await fetch(`/api/db/${collection}/${action}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const data = await response.json()
+  if (!response.ok) throw new Error(data?.error ?? `db ${action} failed (${response.status})`)
+  return data
+}
+
+export const db = {
+  create: (collection: string, doc: Json) => call(collection, 'create', { doc }),
+  get: (collection: string, id: string) => call(collection, 'get', { id }),
+  find: (collection: string, query: Json = {}) => call(collection, 'find', { query }),
+  update: (collection: string, id: string, ops: Json) => call(collection, 'update', { id, ops }),
+  remove: (collection: string, id: string) => call(collection, 'delete', { id }),
+  count: (collection: string, filter: Json = {}) => call(collection, 'count', { filter }),
+}
+"
+}
+
+fn vite_config_ts() -> String {
+  "import { defineConfig } from 'vite'
+import { resolvePorts, zeptoDbHandler } from './zepto-bridge.js'
+
+// Dev-server mount of the shared /api/db bridge (see zepto-bridge.js and
+// src/db.ts). server.js mounts the same bridge in production.
+export default defineConfig({
+  plugins: [{
+    name: 'zepto-api',
+    configureServer(server) {
+      server.middlewares.use('/api/db', zeptoDbHandler(resolvePorts()))
+    },
+  }],
+})
+"
+}
+
+fn zepto_bridge_js() -> String {
+  "// Shared /api/db bridge: hyper-zepto runs in Node, so this code is mounted
+// by the Vite dev server (vite.config.ts) in development and by server.js in
+// production. The browser reaches it through src/db.ts.
+import { createPorts } from 'hyper-zepto'
+
+// On Scout Live the platform injects SCOUT_PORTS_URL pointing at the ports
+// sidecar and ending in /_ports. hyper-zepto's remote adapters append
+// /_ports themselves, so strip the suffix before using it as baseUrl; the
+// sidecar injects auth, so no token is set. Without the env var (the
+// WebContainer preview, plain local dev) fall back to local adapters.
+export function resolvePorts() {
+  let baseUrl = process.env.SCOUTOS_PORTS_URL || process.env.SCOUT_PORTS_URL || ''
+  if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1)
+  if (baseUrl.endsWith('/_ports')) baseUrl = baseUrl.slice(0, -'/_ports'.length)
+  if (baseUrl) return createPorts({ mode: 'remote', baseUrl })
+  return createPorts({ mode: 'local', dir: '.zepto' })
+}
+
+// Connect-style handler; expects req.url to hold the path after the /api/db
+// mount, e.g. /todos/create.
+export function zeptoDbHandler(ports) {
+  async function run(collection, action, body) {
+    switch (action) {
+      case 'create': return ports.data.create(collection, body.doc)
+      case 'get': return ports.data.get(collection, body.id)
+      case 'find': return ports.data.find(collection, body.query ?? {})
+      case 'update': return ports.data.update(collection, body.id, body.ops)
+      case 'delete': return ports.data.delete(collection, body.id)
+      case 'count': return ports.data.count(collection, body.filter ?? {})
+      default: throw Object.assign(new Error(`unknown db action: ${action}`), { status: 404 })
+    }
+  }
+
+  return (req, res) => {
+    const path = (req.url ?? '').split('?')[0]
+    const [collection, action] = path.split('/').filter(Boolean)
+    let raw = ''
+    req.on('data', chunk => { raw += chunk })
+    req.on('end', async () => {
+      try {
+        const result = await run(collection, action, raw ? JSON.parse(raw) : {})
+        res.setHeader('Content-Type', 'application/json')
+        res.end(JSON.stringify(result ?? null))
+      } catch (error) {
+        res.statusCode = typeof error?.status === 'number' ? error.status : 500
+        res.setHeader('Content-Type', 'application/json')
+        res.end(JSON.stringify({ error: String(error?.message ?? error), code: error?.code }))
+      }
+    })
+  }
+}
+"
+}
+
+fn server_js() -> String {
+  "// Production server: serves the built dist/ statically and mounts the same
+// /api/db bridge as the Vite dev server (see zepto-bridge.js). Run with
+// `npm run build && npm start`. On Scout Live the bridge talks to the
+// platform's managed ports; locally it falls back to the .zepto directory.
+import { createServer } from 'node:http'
+import { readFile } from 'node:fs/promises'
+import { extname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { resolvePorts, zeptoDbHandler } from './zepto-bridge.js'
+
+const port = Number(process.env.PORT || 3000)
+const distDir = fileURLToPath(new URL('./dist', import.meta.url))
+const ports = resolvePorts()
+const dbHandler = zeptoDbHandler(ports)
+
+const contentTypes = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.txt': 'text/plain; charset=utf-8',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+}
+
+async function serveStatic(res, path) {
+  // SPA routing: anything outside dist/ or missing falls back to index.html.
+  const target = resolve(join(distDir, path === '/' ? 'index.html' : path))
+  const safe = target.startsWith(distDir + '/') ? target : join(distDir, 'index.html')
+  try {
+    const content = await readFile(safe)
+    res.setHeader('Content-Type', contentTypes[extname(safe)] ?? 'application/octet-stream')
+    res.end(content)
+  } catch {
+    try {
+      const index = await readFile(join(distDir, 'index.html'))
+      res.setHeader('Content-Type', contentTypes['.html'])
+      res.end(index)
+    } catch {
+      res.statusCode = 404
+      res.end('Not found')
+    }
+  }
+}
+
+createServer((req, res) => {
+  const path = decodeURIComponent((req.url ?? '/').split('?')[0])
+  if (path === '/api/db' || path.startsWith('/api/db/')) {
+    req.url = path.slice('/api/db'.length) || '/'
+    return dbHandler(req, res)
+  }
+  void serveStatic(res, path)
+}).listen(port, () => console.log(`app listening on ${port} (db mode=${ports.mode})`))
 "
 }
 
@@ -354,6 +516,15 @@ function emitInspectorStatus(type: string) {
 }
 
 emitInspectorStatus('BUILD_INSPECTOR_READY')
+
+// Surface runtime crashes in the Build terminal; a white preview is
+// undebuggable otherwise.
+window.addEventListener('error', event => {
+  window.parent.postMessage({ type: 'BUILD_PREVIEW_ERROR', message: String(event.message ?? event.error ?? 'Unknown error') }, '*')
+})
+window.addEventListener('unhandledrejection', event => {
+  window.parent.postMessage({ type: 'BUILD_PREVIEW_ERROR', message: 'Unhandled rejection: ' + String(event.reason) }, '*')
+})
 
 function enable() {
   enabled = true

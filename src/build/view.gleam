@@ -1,5 +1,6 @@
 import build/actors/agent
 import build/actors/project
+import build/actors/publish
 import build/actors/settings
 import build/actors/webcontainer
 import build/components/build_agent_chat
@@ -8,6 +9,7 @@ import build/components/build_element_picker
 import build/components/build_preview
 import build/components/build_project_nav
 import build/components/build_projects_modal
+import build/components/build_publish_modal
 import build/components/build_settings_modal
 import build/components/build_terminal
 import build/model
@@ -38,8 +40,12 @@ pub fn view(app: model.Model) -> Element(msg.Msg) {
         app.project.save_status,
         app.project.name_editing,
         busy,
+        app.managed,
+        app.project.current_project_id,
+        publish.is_busy(app.publish),
       ),
-      build_settings_modal.view(app.settings),
+      build_settings_modal.view(app.settings, app.managed, app.publish),
+      build_publish_modal.view(app.publish, app.project.current_project_id),
       build_projects_modal.view(app.project, busy),
       build_element_picker.view(
         app.preview.selected_element,
@@ -52,13 +58,24 @@ pub fn view(app: model.Model) -> Element(msg.Msg) {
         app.chat.prompt,
         running,
         busy,
+        app.agent.budget_exhausted,
+        app.agent.budget_reset_at,
       ),
     ]),
-    html.main([attribute.class("workspace")], [
+    html.main(
+      [
+        attribute.class(case app.preview.code_panel_open {
+          True -> "workspace"
+          False -> "workspace codeHidden"
+        }),
+      ],
+      [
       build_preview.view(
         app.preview.preview_url,
         app.preview.selecting_element,
         running,
+        app.preview.code_panel_open,
+        app.preview.code_panel_unread,
       ),
       html.section([attribute.class("bottom")], [
         files_pane(app.project.files, app.project.selected_path),

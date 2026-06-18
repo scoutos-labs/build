@@ -26,7 +26,12 @@ pub fn settings_loads_from_storage_test() {
   let #(state, effects) =
     settings.update(
       settings.init(),
-      settings.SettingsLoaded("ollama", "key", "http://ollama", "glm-5:cloud"),
+      settings.SettingsLoaded(
+        provider: "ollama",
+        api_key: "key",
+        ollama_url: "http://ollama",
+        model: "glm-5:cloud",
+      ),
     )
 
   assert state.provider == settings.Ollama

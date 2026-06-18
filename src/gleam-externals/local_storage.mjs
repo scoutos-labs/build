@@ -15,6 +15,8 @@ export function persistSettings(provider, apiKey, ollamaUrl, model) {
   globalThis.localStorage?.setItem('openrouter-key', String(apiKey).trim())
   globalThis.localStorage?.setItem('ollama-url', String(ollamaUrl).trim())
   globalThis.localStorage?.setItem('agent-model', String(model).trim())
+  globalThis.localStorage?.removeItem('scoutos-key')
+  globalThis.localStorage?.removeItem('scoutos-url')
 }
 
 export async function testOllamaConnection(url) {

@@ -75,10 +75,10 @@ pub fn improve_selected_element_starts_agent_test() {
   assert effects
     == [
       effect.Settings(settings.PersistSettings(
-        settings.OpenRouter,
-        "sk-test",
-        "http://localhost:11434",
-        "anthropic/claude-3.5-sonnet",
+        provider: settings.OpenRouter,
+        api_key: "sk-test",
+        ollama_url: "http://localhost:11434",
+        model: "anthropic/claude-3.5-sonnet",
       )),
       effect.Agent(agent.StartElapsedTimer),
       effect.Agent(agent.CallAgent(
@@ -221,8 +221,8 @@ pub fn agent_success_applies_patches_and_replies_test() {
     model.Model(
       ..model.init(),
       agent: agent.State(
+        ..agent.init(),
         lifecycle: agent.Running("req", 1000),
-        elapsed_seconds: 0,
       ),
       webcontainer: webcontainer.State(
         ..webcontainer.init(),
@@ -287,10 +287,10 @@ pub fn submit_prompt_appends_user_and_starts_agent_test() {
   assert effects
     == [
       effect.Settings(settings.PersistSettings(
-        settings.OpenRouter,
-        "sk-test",
-        "http://localhost:11434",
-        "anthropic/claude-3.5-sonnet",
+        provider: settings.OpenRouter,
+        api_key: "sk-test",
+        ollama_url: "http://localhost:11434",
+        model: "anthropic/claude-3.5-sonnet",
       )),
       effect.Agent(agent.StartElapsedTimer),
       effect.Agent(agent.CallAgent(

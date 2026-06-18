@@ -1,3 +1,4 @@
+import build/actors/publish
 import build/actors/settings
 import build/msg
 import lustre/attribute
@@ -5,10 +6,15 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
-pub fn view(state: settings.State) -> Element(msg.Msg) {
-  case state.settings_open {
-    False -> html.text("")
-    True ->
+pub fn view(
+  state: settings.State,
+  managed: Bool,
+  publish_state: publish.State,
+) -> Element(msg.Msg) {
+  case state.settings_open, managed {
+    False, _ -> html.text("")
+    True, True -> account_panel(state, publish_state)
+    True, False ->
       html.div(
         [attribute.class("modalBackdrop"), attribute.role("presentation")],
         [
@@ -39,6 +45,117 @@ pub fn view(state: settings.State) -> Element(msg.Msg) {
         ],
       )
   }
+}
+
+/// Managed mode: no providers or models — plan, budget, the user-supplied
+/// ScoutOS publish key, and sign out.
+fn account_panel(
+  state: settings.State,
+  publish_state: publish.State,
+) -> Element(msg.Msg) {
+  html.div(
+    [attribute.class("modalBackdrop"), attribute.role("presentation")],
+    [
+      html.div(
+        [
+          attribute.class("modal"),
+          attribute.role("dialog"),
+          attribute.aria_modal(True),
+          attribute.aria_labelledby("settings-title"),
+        ],
+        [
+          html.div([attribute.class("modalHeader")], [
+            html.div([], [
+              html.h2([attribute.id("settings-title")], [html.text("Account")]),
+              html.p([], [html.text("Your plan and monthly build budget.")]),
+            ]),
+            html.button(
+              [
+                attribute.type_("button"),
+                attribute.class("ghost iconButton"),
+                attribute.aria_label("Close account panel"),
+                event.on_click(msg.Settings(settings.SettingsClosed)),
+              ],
+              [html.text("×")],
+            ),
+          ]),
+          html.label([], [
+            html.text("Plan"),
+            html.strong([], [
+              html.text(case state.account_plan {
+                "" -> "Loading..."
+                plan -> plan
+              }),
+            ]),
+          ]),
+          html.label([], [
+            html.text("Budget"),
+            html.span([], [
+              html.text(case state.account_budget {
+                "" -> "Loading..."
+                budget -> budget
+              }),
+            ]),
+          ]),
+          scoutos_key_section(publish_state),
+          html.div([attribute.class("modalActions")], [
+            html.button(
+              [
+                attribute.type_("button"),
+                attribute.class("secondary"),
+                event.on_click(msg.Settings(settings.SignOutRequested)),
+              ],
+              [html.text("Sign out")],
+            ),
+          ]),
+        ],
+      ),
+    ],
+  )
+}
+
+/// Write-only key field: the server reports set/not-set, never the key.
+fn scoutos_key_section(publish_state: publish.State) -> Element(msg.Msg) {
+  html.label([attribute.class("scoutosKey")], [
+    html.text("ScoutOS API key (for publishing)"),
+    case publish_state.key_saved {
+      True ->
+        html.div([attribute.class("keySavedRow")], [
+          html.span([], [html.text("Key saved")]),
+          html.button(
+            [
+              attribute.type_("button"),
+              attribute.class("secondary compact"),
+              event.on_click(msg.Publish(publish.DeleteKeyClicked)),
+            ],
+            [html.text("Remove")],
+          ),
+        ])
+      False ->
+        html.div([attribute.class("keyEntryRow")], [
+          html.input([
+            attribute.type_("password"),
+            attribute.value(publish_state.key_input),
+            attribute.placeholder("sk_live_..."),
+            event.on_input(fn(value) {
+              msg.Publish(publish.KeyInputChanged(value))
+            }),
+          ]),
+          html.button(
+            [
+              attribute.type_("button"),
+              attribute.class("secondary compact"),
+              event.on_click(msg.Publish(publish.SaveKeyClicked)),
+            ],
+            [html.text("Save key")],
+          ),
+        ])
+    },
+    case publish_state.key_status {
+      "" -> html.text("")
+      status -> html.small([attribute.class("status")], [html.text(status)])
+    },
+  ])
 }
 
 fn header(state: settings.State) {

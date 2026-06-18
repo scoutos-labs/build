@@ -1,17 +1,8 @@
 import { dispatchNewProjectConfirmed, dispatchRemoveProjectConfirmed } from './runtime_bridge.mjs'
 
-let newProjectPending = false
-
 export function confirmNewProject() {
-  if (newProjectPending) return
-  newProjectPending = true
-  try {
-    if (window.confirm('Start a new project? Unsaved changes are auto-saved first.')) {
-      dispatchNewProjectConfirmed()
-    }
-  } finally {
-    newProjectPending = false
-  }
+  // Auto-create new project — existing project auto-saves before switch
+  dispatchNewProjectConfirmed()
 }
 
 let removeProjectPending = false

@@ -1,44 +1,75 @@
 import { designGuidancePrompt } from './design-guidance'
 import { buildSelectedElementPrompt, type SelectedPreviewElement } from './preview-inspector'
 import type { ProjectFile } from './templates'
+import { FetchLLMClient } from './llm-client'
+import type { LLMCallParams, ModelMessage as PortMessage } from './llm-port'
 
 export type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string }
 export type AgentProvider = 'ollama' | 'openrouter'
 export type AgentPatch = { path: string; content: string }
 export type AgentResult = { reply: string; patches: AgentPatch[]; envVars?: Record<string, string> }
 
-const JSON_SYSTEM_PROMPT = `You are an app-building agent inside a browser-only StackBlitz WebContainer.
-Return ONLY valid JSON with this exact shape: {"reply":"short user-facing summary","patches":[{"path":"src/main.tsx","content":"full file content"}]}.
 
-Planning: For simple one-file changes, just do it. For broad, ambiguous, design-sensitive, or multi-file changes, understand the codebase first, plan your changes, then execute — verify each change makes sense before returning it.
+/**
+ * Assemble the agent system prompt from named sections.
+ *
+ * Decomposed into sections so each is independently testable and the
+ * prompt can be lazily built without recomputing static parts.
+ */
+export function buildSystemPrompt(): string {
+  const header = [
+    'You are an app-building agent inside a browser-only StackBlitz WebContainer.',
+    'Return ONLY valid JSON with this exact shape: {"reply":"short user-facing summary","patches":[{"path":"src/main.tsx","content":"full file content"}]}',
+  ].join('. ')
 
-Rules:
-- Modify files by returning full replacement contents.
-- Prefer Next.js + React + TypeScript.
-- Use Tailwind CSS for styling and shadcn/ui for components.
-- For persistence, use the db client in src/db.ts; it calls the hyper-zepto data port that zepto-bridge.js serves at /api/db (mounted by vite.config.ts in dev and server.js in production). Never import hyper-zepto in browser code.
-- Preserve vite.config.ts, zepto-bridge.js, and server.js (they host the database API and the production server) unless the user explicitly asks to change the backend.
-- Do not use native Node modules, server-only packages, Docker, or external databases.
-- Vite: pin to ^7.x. Vite 8+ uses rolldown WASM that crashes in WebContainers.
-- Dependency versions must be peer-compatible. If adding packages, check their peer dep requirements.
-- Keep changes small, coherent, and runnable.
-- If changing dependencies, replace package.json too.
-- Preserve src/build-inspector.ts and the './build-inspector' import unless the user explicitly asks to remove Build preview selection.
-- Apply the bundled design guidance unless the user asks for a different brand or visual direction.
-- Secrets and API keys are set in the .env file; set them via the envVars field in your response.
-- Never include markdown, prose, progress updates, or code fences outside the JSON object.
+  const planning = 'Planning: For simple one-file changes, just do it. For broad, ambiguous, design-sensitive, or multi-file changes, understand the codebase first, plan your changes, then execute — verify each change makes sense before returning it.'
 
-Self-verification (before returning):
-- Verify imports resolve (no missing or wrong imports).
-- Verify the code is syntactically valid.
-- Verify all patches are complete file contents, not partial edits.
-- Verify your reply is a useful, specific summary.
+  const rules = [
+    'Modify files by returning full replacement contents.',
+    'Prefer Next.js + React + TypeScript.',
+    'Use Tailwind CSS for styling and shadcn/ui for components.',
+    'For persistence, use the db client in src/db.ts; it calls the hyper-zepto data port that zepto-bridge.js serves at /api/db (mounted by vite.config.ts in dev and server.js in production). Never import hyper-zepto in browser code.',
+    'Preserve vite.config.ts, zepto-bridge.js, and server.js (they host the database API and the production server) unless the user explicitly asks to change the backend.',
+    'Do not use native Node modules, server-only packages, Docker, or external databases.',
+    'Vite: pin to ^7.x. Vite 8+ uses rolldown WASM that crashes in WebContainers.',
+    'Dependency versions must be peer-compatible. If adding packages, check their peer dep requirements.',
+    'Keep changes small, coherent, and runnable.',
+    'If changing dependencies, replace package.json too.',
+    "Preserve src/build-inspector.ts and the './build-inspector' import unless the user explicitly asks to remove Build preview selection.",
+    'Apply the bundled design guidance unless the user asks for a different brand or visual direction.',
+    'Secrets and API keys are set in the .env file; set them via the envVars field in your response.',
+    'Never include markdown, prose, progress updates, or code fences outside the JSON object.',
+  ]
 
-If you need more context (a file is stubbed, or a referenced module is missing), return {"reply":"I need the full contents of X, Y to proceed.","patches":[]} and the system will send them.
+  const verification = [
+    'Verify imports resolve (no missing or wrong imports).',
+    'Verify the code is syntactically valid.',
+    'Verify all patches are complete file contents, not partial edits.',
+    'Verify your reply is a useful, specific summary.',
+  ]
 
-Design guidance:
-${designGuidancePrompt()}
-`
+  const contextRequest = 'If you need more context (a file is stubbed, or a referenced module is missing), return {"reply":"I need the full contents of X, Y to proceed.","patches":[]} and the system will send them.'
+
+  return [
+    header,
+    '',
+    planning,
+    '',
+    'Rules:',
+    ...rules.map(r => `- ${r}`),
+    '',
+    'Self-verification (before returning):',
+    ...verification.map(v => `- ${v}`),
+    '',
+    contextRequest,
+    '',
+    'Design guidance:',
+    designGuidancePrompt(),
+  ].join('\n')
+}
+
+// Backward-compatible constant for existing callers.
+const JSON_SYSTEM_PROMPT = buildSystemPrompt()
 
 type AgentArgs = {
   provider: AgentProvider
@@ -54,6 +85,10 @@ type AgentArgs = {
   signal?: AbortSignal
 }
 
+/**
+ * Internal type alias — the port uses `ModelMessage` from llm-port;
+ * we map ChatMessage → PortMessage before calling the LLM client.
+ */
 type ModelMessage = { role: 'system' | 'user' | 'assistant'; content: string }
 
 /**
@@ -132,39 +167,8 @@ function projectContext(files: ContextFile[]) {
     .join('\n\n')
 }
 
-function extractJson(text: string): AgentResult {
-  const raw = findJsonObject(text)
-  const parsed = JSON.parse(raw)
-  if (!Array.isArray(parsed.patches) || typeof parsed.reply !== 'string') throw new Error('Agent response did not match expected JSON shape')
-  return parsed
-}
-
-function findJsonObject(text: string) {
-  const trimmed = text.trim()
-  const unfenced = trimmed.startsWith('```')
-    ? trimmed.replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim()
-    : trimmed
-
-  if (unfenced.startsWith('{')) return unfenced
-
-  const start = unfenced.indexOf('{')
-  if (start === -1) throw new Error(`Agent response was not JSON. It began with: ${unfenced.slice(0, 80)}`)
-
-  let depth = 0
-
-  for (let i = start; i < unfenced.length; i++) {
-    const char = unfenced[i]
-    if (char === '{') depth++
-    else if (char === '}') {
-      depth--
-      if (depth === 0) return unfenced.slice(start, i + 1)
-    }
-  }
-
-  throw new Error('Agent response contained an unclosed JSON object.')
-}
-
-export async function call_agent(args: AgentArgs): Promise<AgentResult> {
+export async function call_agent(args: AgentArgs & { fetchFn?: typeof fetch }): Promise<AgentResult> {
+  const fetchFn = args.fetchFn ?? globalThis.fetch
   const messages: ModelMessage[] = []
   messages.push({ role: 'system', content: JSON_SYSTEM_PROMPT })
   if (args.files.length > 0) {
@@ -186,90 +190,28 @@ export async function call_agent(args: AgentArgs): Promise<AgentResult> {
   }
   messages.push({ role: 'user', content: args.userPrompt })
 
-  const fetchOptions: RequestInit = {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages, model: args.model }),
+  const llmMessages: PortMessage[] = messages.map(m => ({ role: m.role, content: m.content }))
+
+  const client = new FetchLLMClient(fetchFn)
+  const result = await client.call({
+    provider: args.provider,
+    model: args.model,
+    messages: llmMessages,
+    apiKey: args.apiKey,
+    ollamaUrl: args.ollamaUrl,
     signal: args.signal,
-  }
-
-  if (args.provider === 'ollama') {
-    if (!args.ollamaUrl) throw new Error('Ollama URL is required for Ollama provider')
-    fetchOptions.body = JSON.stringify({
-      model: args.model,
-      messages: messages.map(m => ({ role: m.role, content: m.content })),
-      stream: false,
-      format: 'json',
-    })
-    const baseUrl = args.ollamaUrl.replace(/\/$/, '')
-    let response = await fetch(`${baseUrl}/api/chat`, fetchOptions)
-    if (!response.ok) {
-      const text = await response.text().catch(() => '')
-      throw new Error(`Ollama error ${response.status}: ${text || response.statusText}`)
-    }
-    let data = await response.json() as { message?: { content: string } }
-    if (!data.message?.content) throw new Error('Ollama response missing message content')
-    
-    try {
-      return extractJson(data.message.content)
-    } catch (parseError) {
-      // Retry with repair prompt
-      fetchOptions.body = JSON.stringify({
-        model: args.model,
-        messages: [
-          ...messages.map(m => ({ role: m.role, content: m.content })),
-          { role: 'assistant', content: data.message.content },
-          { role: 'user', content: 'Invalid response to repair. Return ONLY valid JSON with shape: {"reply":"summary","patches":[{"path":"file","content":"code"}]}' },
-        ],
-        stream: false,
-        format: 'json',
-      })
-      response = await fetch(`${baseUrl}/api/chat`, fetchOptions)
-      if (!response.ok) {
-        const text = await response.text().catch(() => '')
-        throw new Error(`Ollama error ${response.status}: ${text || response.statusText}`)
-      }
-      data = await response.json() as { message?: { content: string } }
-      if (!data.message?.content) throw new Error('Ollama response missing message content')
-      return extractJson(data.message.content)
-    }
-  }
-
-  if (!args.apiKey) throw new Error('OpenRouter API key is required')
-  const openRouterHeaders = {
-    ...fetchOptions.headers,
-    Authorization: `Bearer ${args.apiKey}`,
-  }
-  const openRouterBody1 = JSON.stringify({ messages, model: args.model, response_format: { type: 'json_object' } })
-  let response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    ...fetchOptions,
-    headers: openRouterHeaders,
-    body: openRouterBody1,
+    formatJson: args.provider === 'openrouter',
   })
-  
-  // Retry without response_format if provider rejects it
-  if (!response.ok && response.status === 400) {
-    const errorText = await response.text().catch(() => '')
-    if (errorText.includes('response_format')) {
-      const openRouterBody2 = JSON.stringify({ messages, model: args.model })
-      response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        ...fetchOptions,
-        headers: openRouterHeaders,
-        body: openRouterBody2,
-      })
-    }
+
+  return {
+    reply: result.reply,
+    patches: result.patches,
+    envVars: result.envVars,
   }
-  
-  if (!response.ok) {
-    const text = await response.text().catch(() => '')
-    throw new Error(`OpenRouter error ${response.status}: ${text || response.statusText}`)
-  }
-  const data = await response.json() as { choices: { message: { content: string } }[] }
-  if (!data.choices?.[0]?.message?.content) throw new Error('OpenRouter response missing content')
-  return extractJson(data.choices[0].message.content)
 }
 
 // Backward compatibility alias
-export async function runAgent(args: AgentArgs): Promise<AgentResult> {
+export async function runAgent(args: AgentArgs & { fetchFn?: typeof fetch }): Promise<AgentResult> {
   return call_agent(args)
 }
+

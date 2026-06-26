@@ -86,7 +86,7 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
     ProviderChanged(provider) -> {
       let next_model = case state.model == "", provider {
         True, Ollama -> "glm-5:cloud"
-        True, OpenRouter -> "anthropic/claude-3.5-sonnet"
+        True, OpenRouter -> "qwen/qwen3.6-35b-a3b"
         False, _ -> state.model
       }
       #(State(..state, provider: provider, model: next_model), [])

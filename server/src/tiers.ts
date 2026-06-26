@@ -8,9 +8,9 @@ export type TierConfig = {
 }
 
 export const TIERS: Record<Tier, TierConfig> = {
-  // openrouter/auto routes per-request, so weaker models may emit loose JSON;
-  // the repair retry in app.ts covers that case.
-  free: { limitUsd: 5, model: 'openrouter/auto' },
+  // qwen/qwen3.6-35b-a3b is a strong open-source model that reliably produces
+  // well-formed JSON, making it a solid default for the free tier.
+  free: { limitUsd: 5, model: 'qwen/qwen3.6-35b-a3b' },
   pro: { limitUsd: 10, model: 'anthropic/claude-sonnet-4.6' },
 }
 

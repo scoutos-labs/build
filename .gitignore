@@ -7,3 +7,4 @@ scripts/.smoke
 .env
 .DS_Store
 .env*.local
+skills

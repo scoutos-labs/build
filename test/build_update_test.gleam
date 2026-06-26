@@ -50,7 +50,7 @@ pub fn improve_selected_element_starts_agent_test() {
   let configured_settings =
     settings.State(
       ..settings.init(),
-      model: "anthropic/claude-3.5-sonnet",
+      model: "qwen/qwen3.6-35b-a3b",
       api_key: "sk-test",
       settings_open: False,
     )
@@ -78,7 +78,7 @@ pub fn improve_selected_element_starts_agent_test() {
         provider: settings.OpenRouter,
         api_key: "sk-test",
         ollama_url: "http://localhost:11434",
-        model: "anthropic/claude-3.5-sonnet",
+        model: "qwen/qwen3.6-35b-a3b",
       )),
       effect.Agent(agent.StartElapsedTimer),
       effect.Agent(agent.CallAgent(
@@ -86,7 +86,7 @@ pub fn improve_selected_element_starts_agent_test() {
         provider: settings.OpenRouter,
         api_key: "sk-test",
         ollama_url: "http://localhost:11434",
-        model: "anthropic/claude-3.5-sonnet",
+        model: "qwen/qwen3.6-35b-a3b",
         user_prompt: "Improve the selected preview element based on the user comment.",
         files: app.project.files,
         messages: [],
@@ -266,7 +266,7 @@ pub fn submit_prompt_appends_user_and_starts_agent_test() {
   let configured_settings =
     settings.State(
       ..settings.init(),
-      model: "anthropic/claude-3.5-sonnet",
+      model: "qwen/qwen3.6-35b-a3b",
       api_key: "sk-test",
       settings_open: False,
     )
@@ -290,7 +290,7 @@ pub fn submit_prompt_appends_user_and_starts_agent_test() {
         provider: settings.OpenRouter,
         api_key: "sk-test",
         ollama_url: "http://localhost:11434",
-        model: "anthropic/claude-3.5-sonnet",
+        model: "qwen/qwen3.6-35b-a3b",
       )),
       effect.Agent(agent.StartElapsedTimer),
       effect.Agent(agent.CallAgent(
@@ -298,7 +298,7 @@ pub fn submit_prompt_appends_user_and_starts_agent_test() {
         provider: settings.OpenRouter,
         api_key: "sk-test",
         ollama_url: "http://localhost:11434",
-        model: "anthropic/claude-3.5-sonnet",
+        model: "qwen/qwen3.6-35b-a3b",
         user_prompt: "make app",
         files: app.project.files,
         messages: [],

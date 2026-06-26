@@ -321,4 +321,113 @@ describe('runAgent', () => {
     // Should NOT have an env vars system message
     expect(messages.every(m => !m.content.includes('Current env vars'))).toBe(true)
   })
+
+  it('includes planning guidance in system prompt', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      message: { content: JSON.stringify({ reply: 'ok', patches: [] }) },
+    }), { status: 200 }))
+    globalThis.fetch = fetchMock as typeof fetch
+
+    await runAgent({
+      provider: 'ollama',
+      ollamaUrl: 'http://localhost:11434',
+      model: 'model',
+      userPrompt: 'build something',
+      messages: [],
+      files: [],
+    })
+
+    const [, init0] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const body = String(init0.body)
+    expect(body).toContain('For simple one-file changes, just do it')
+    expect(body).toContain('broad, ambiguous, design-sensitive')
+  })
+
+  it('includes self-verification guidance in system prompt', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      message: { content: JSON.stringify({ reply: 'ok', patches: [] }) },
+    }), { status: 200 }))
+    globalThis.fetch = fetchMock as typeof fetch
+
+    await runAgent({
+      provider: 'ollama',
+      ollamaUrl: 'http://localhost:11434',
+      model: 'model',
+      userPrompt: 'change color',
+      messages: [],
+      files: [],
+    })
+
+    const [, init0] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const body = String(init0.body)
+    expect(body).toContain('Verify imports resolve')
+    expect(body).toContain('Verify the code is syntactically valid')
+    expect(body).toContain('complete file contents')
+    expect(body).toContain('Verify your reply')
+  })
+
+  it('includes Vite 8+ crash warning in system prompt', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      message: { content: JSON.stringify({ reply: 'ok', patches: [] }) },
+    }), { status: 200 }))
+    globalThis.fetch = fetchMock as typeof fetch
+
+    await runAgent({
+      provider: 'ollama',
+      ollamaUrl: 'http://localhost:11434',
+      model: 'model',
+      userPrompt: 'update dependencies',
+      messages: [],
+      files: [],
+    })
+
+    const [, init0] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const body = String(init0.body)
+    expect(body).toContain('Vite 8+')
+    expect(body).toContain('crashes in WebContainer')
+    expect(body).toContain('^7.x')
+  })
+
+  it('includes peer dependency guidance in system prompt', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      message: { content: JSON.stringify({ reply: 'ok', patches: [] }) },
+    }), { status: 200 }))
+    globalThis.fetch = fetchMock as typeof fetch
+
+    await runAgent({
+      provider: 'ollama',
+      ollamaUrl: 'http://localhost:11434',
+      model: 'model',
+      userPrompt: 'add a package',
+      messages: [],
+      files: [],
+    })
+
+    const [, init0] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const body = String(init0.body)
+    expect(body).toContain('peer-compatible')
+  })
+
+  it('includes context request pattern in system prompt', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      message: { content: JSON.stringify({ reply: 'ok', patches: [] }) },
+    }), { status: 200 }))
+    globalThis.fetch = fetchMock as typeof fetch
+
+    await runAgent({
+      provider: 'ollama',
+      ollamaUrl: 'http://localhost:11434',
+      model: 'model',
+      userPrompt: 'build something',
+      messages: [],
+      files: [],
+    })
+
+    const [, init0] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const body = String(init0.body)
+    expect(body).toContain('I need the full contents of')
+    expect(body).toContain("patches")
+    expect(body).toContain('the system will send them')
+  })
+
 })

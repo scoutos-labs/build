@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Builder Agent Skills — Progress</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: #1a1a2e; line-height: 1.6; }
+  h1 { font-size: 1.8rem; border-bottom: 2px solid #4169ff; padding-bottom: 0.5rem; }
+  .status { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; }
+  .status.pass { background: #d4edda; color: #155724; }
+  .step { border-left: 3px solid #28a745; padding-left: 1rem; margin: 1.5rem 0; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #e0e7f5; }
+  th { background: #f6f8fc; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>Builder Agent Skills — Progress</h1>
+<p><span class="status pass">Complete</span></p>
+<h2>Step Checklist</h2>
+<table>
+  <tr><th>Step</th><th>Status</th></tr>
+  <tr><td>1. Expand frontend-design skill</td><td>✅ Pass — 8 detailed bullets from 6-line original</td></tr>
+  <tr><td>2. Add research-plan-loop guidance</td><td>✅ Pass — Planning section in system prompt</td></tr>
+  <tr><td>3. Dependency management guidance</td><td>✅ Pass — Vite 8+ warning + peer-dep rules</td></tr>
+  <tr><td>4. Self-repair guidance</td><td>✅ Pass — Self-verification + context request pattern</td></tr>
+  <tr><td>5. Quality checklist</td><td>✅ Pass — 4 verification checks before returning</td></tr>
+</table>
+<h2>Validation</h2>
+<p>78 tests passed (12 files) — 6 new tests added for new prompt content.</p>
+<h2>Changed Files</h2>
+<ul>
+  <li><code>src/agent.ts</code> — +13 lines: planning guidance, Vite pinning, peer-dep rules, self-verification, context request</li>
+  <li><code>src/design-guidance.ts</code> — +6 lines: expanded design skill with typography, color, motion, spatial composition, anti-patterns</li>
+  <li><code>src/agent.test.ts</code> — +109 lines: 5 new tests for new system prompt sections</li>
+  <li><code>src/design-guidance.test.ts</code> — +11 lines: 1 new test for expanded design skill</li>
+</ul>
+</body>
+</html>

@@ -70,7 +70,7 @@ const questions: Array<{ key: keyof Answers; label: string; helper: string; plac
   {
     key: 'problem',
     label: 'What should it help them do?',
-    helper: 'Focus on the main job, frustration, or outcome.',
+    helper: 'Focus on the main job, frustration, or outcome — and why it matters to them.',
     placeholder: 'Track leads, schedule appointments, organize tasks, learn a skill...',
   },
   {
@@ -88,7 +88,7 @@ const questions: Array<{ key: keyof Answers; label: string; helper: string; plac
   {
     key: 'style',
     label: 'How should it look and feel?',
-    helper: 'Pick a vibe, brand, or app you want it to resemble.',
+    helper: 'Pick a vibe or an app to resemble — and share a working name if you have one.',
     placeholder: 'Clean and modern like Linear, playful and colorful, premium SaaS...',
   },
   {

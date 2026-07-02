@@ -176,6 +176,11 @@ describe('runAgent', () => {
     // the model re-bootstraps it and triggers a reinstall/restart flicker.
     expect(body).toContain('preconfigured; do not modify tailwind.config.js or postcss.config.js')
     expect(body).toContain('Maintain BRAIN.md')
+    // coaching + branding behavior for non-technical founders
+    expect(body).toContain('non-technical founder')
+    // the body is JSON-serialized, so quoted fragments appear escaped
+    expect(body).toContain('sentence naming the most valuable next step')
+    expect(body).toContain('propose a brand')
   })
 
   it('keeps BRAIN.md full but truncated under context budget pressure', async () => {

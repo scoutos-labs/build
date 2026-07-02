@@ -67,6 +67,13 @@ describe('JSON_SYSTEM_PROMPT', () => {
     // + package.json rewrite), causing the reinstall/restart preview flicker.
     expect(JSON_SYSTEM_PROMPT).toContain('preconfigured; do not modify tailwind.config.js or postcss.config.js')
   })
+
+  it('instructs the agent to maintain the brain and coach the founder', () => {
+    expect(JSON_SYSTEM_PROMPT).toContain('Maintain BRAIN.md')
+    expect(JSON_SYSTEM_PROMPT).toContain('non-technical founder')
+    expect(JSON_SYSTEM_PROMPT).toContain('"Next:" sentence')
+    expect(JSON_SYSTEM_PROMPT).toContain('propose a brand')
+  })
 })
 
 describe('buildModelMessages', () => {

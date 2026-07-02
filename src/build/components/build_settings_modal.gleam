@@ -247,7 +247,7 @@ fn model_field(state: settings.State) {
       attribute.value(state.model),
       attribute.placeholder(case state.provider {
         settings.Ollama -> "glm-5:cloud"
-        settings.OpenRouter -> "anthropic/claude-3.5-sonnet"
+        settings.OpenRouter -> "qwen/qwen3.6-35b-a3b"
       }),
       event.on_input(fn(value) { msg.Settings(settings.ModelChanged(value)) }),
     ]),

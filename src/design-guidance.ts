@@ -6,10 +6,12 @@ export const anthropicBrandGuidelines = `Anthropic brand guide:
 
 export const anthropicFrontendDesignSkill = `Frontend design skill:
 - Build distinctive, production-grade interfaces with a clear aesthetic point of view.
-- Avoid generic AI aesthetics: predictable SaaS layouts, purple gradients, nested cards, default fonts, and cookie-cutter components.
+- Avoid generic AI aesthetics: predictable SaaS layouts, purple gradients, nested cards, default fonts (Inter, Roboto, Arial), and cookie-cutter components.
 - Make deliberate choices in typography, color, spacing, layout, motion, and visual details.
 - Match implementation complexity to the aesthetic vision: maximal designs need rich details; minimal designs need precision.
-- Use accessible, working code and preserve app functionality.`
+- Use accessible, working code and preserve app functionality.
+- Focus on: distinctive typography (pair a display font with a refined body), cohesive dominant color palettes with sharp accents, motion and micro-interactions, unexpected spatial composition (asymmetry, overlap, diagonal flow), atmospheric backgrounds and textures.
+- Interpret the context and make unexpected choices. No two designs should feel the same. Vary themes, fonts, and aesthetics across generations.`
 
 export const scoutBrandStyles = `Scout Studio observed brand styles from https://studio.scoutos.com:
 - Overall register: restrained product UI, crisp, quiet, high-trust, monochrome-first.

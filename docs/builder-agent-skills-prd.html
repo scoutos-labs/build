@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Builder Agent Skills — PRD</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: #1a1a2e; line-height: 1.6; }
+  h1 { font-size: 1.8rem; border-bottom: 2px solid #4169ff; padding-bottom: 0.5rem; }
+  h2 { font-size: 1.3rem; margin-top: 2rem; color: #30405f; }
+  h3 { font-size: 1.1rem; margin-top: 1.5rem; color: #4c5c78; }
+  .status { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; }
+  .status.planned { background: #edf2fb; color: #4169ff; }
+  .status.in-progress { background: #fef3cd; color: #856404; }
+  .status.pass { background: #d4edda; color: #155724; }
+  .status.fail { background: #f8d7da; color: #721c24; }
+  .step { border-left: 3px solid #4169ff; padding-left: 1rem; margin: 1.5rem 0; }
+  .criteria { background: #f8f9fa; padding: 1rem; border-radius: 8px; margin: 0.5rem 0; }
+  .criteria li { margin: 0.3rem 0; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #e0e7f5; }
+  th { background: #f6f8fc; font-weight: 600; }
+  .risk { background: #fff3cd; padding: 0.75rem; border-radius: 6px; border-left: 3px solid #ffc107; margin: 0.75rem 0; }
+  code { background: #f0f2f5; padding: 1px 5px; border-radius: 3px; font-size: 0.9em; }
+</style>
+</head>
+<body>
+
+<h1>Builder Agent Skills — PRD</h1>
+<p class="status planned">Status: Planned</p>
+
+<h2>Summary</h2>
+<p>Improve the Build app's JSON-patching agent (<code>src/agent.ts</code> system prompt) by adding structured skill instructions and expanding the design guidance. The goal is to produce better code with fewer iterations, stronger design, and more reliable self-repair.</p>
+
+<h2>Definition</h2>
+<p>The <strong>builder agent</strong> is the AI code-generation agent that runs inside each Build project. It receives the project files as context, a user prompt, and returns <code>{"reply": "...", "patches": [...]}</code>. It is not a multi-agent orchestrator — it is a single-shot JSON producer per user message.</p>
+<p><strong>"Default skills"</strong> in this context means embedding skill-level instructions directly into the agent's system prompt (via <code>JSON_SYSTEM_PROMPT</code>), similar to how <code>design-guidance.ts</code> already injects design instructions. These are not Pi skills — they are prompt-based behavioral guides.</p>
+
+<h2>Goals</h2>
+<ol>
+  <li><strong>Stronger design output</strong> — The agent currently has a 6-line frontend design note. Expand to match the quality of the standalone <code>frontend-design</code> skill.</p>
+  <li><strong>Structured planning for complex tasks</strong> — Add research-plan-loop style guidance so the agent thinks before writing code, especially for multi-file changes.</p>
+  <li><strong>Better self-repair</strong> — The agent already has a single retry for invalid JSON. Add more robust error recovery patterns.</p>
+  <li><strong>Cleaner dependency management</strong> — The agent needs better guidance on when/how to modify <code>package.json</code> without breaking the WebContainer.</p>
+</ol>
+
+<h2>Non-Goals</h2>
+<ul>
+  <li>Multi-turn agent loops (the agent still returns one JSON response per message)</li>
+  <li>Adding subagent orchestration inside the build agent</li>
+  <li>Changing the JSON contract or API surface</li>
+  <li>Adding new runtime dependencies</li>
+  <li>Changing the Gleam actors (agent.gleam stays the same)</li>
+</ul>
+
+<h2>Constraints</h2>
+<ul>
+  <li>System prompt must fit within the context budget (<code>FILE_CONTEXT_CHAR_BUDGET = 160,000</code> chars). Current prompt is ~1,800 chars.</li>
+  <li>Must preserve existing behavior: JSON-only output, Ollama/OpenRouter support, repair retry, env vars, selected element inspector.</li>
+  <li>Must not change <code>JSON_SYSTEM_PROMPT</code> shape or <code>AgentResult</code> type.</li>
+  <li>Design guidance lives in <code>design-guidance.ts</code>; agent prompt lives in <code>agent.ts</code>.</li>
+</ul>
+
+<h2>Proposed Changes</h2>
+
+<h3>Step 1: Expand frontend-design skill into the system prompt</h3>
+<div class="step">
+  <p><strong>Acceptance criteria:</strong></p>
+  <ul class="criteria">
+    <li>Replace the current 6-line <code>anthropicFrontendDesignSkill</code> with expanded guidance covering typography, color, motion, spatial composition, and anti-patterns</li>
+    <li>Add guidance about matching complexity to vision (maximalist vs minimalist)</li>
+    <li>Add guidance about avoiding generic AI aesthetics (Inter/Roboto, purple gradients, cookie-cutter layouts)</li>
+    <li>Design guidance is exported from <code>design-guidance.ts</code> as before</li>
+    <li>Agent tests verify the expanded content is included in the system prompt</li>
+  </ul>
+</div>
+
+<h3>Step 2: Add research-plan-loop guidance to system prompt</h3>
+<div class="step">
+  <p><strong>Acceptance criteria:</strong></p>
+  <ul class="criteria">
+    <li>Add a "Planning guidance" section to the system prompt with key principles: understand before changing, plan multi-file changes, start simple, verify each change compiles</li>
+    <li>Include the fast-path vs full-loop triage logic (when to just do it vs when to think first)</li>
+    <li>Keep it under 600 chars to stay within budget</li>
+    <li>Reference the concept explicitly so the agent knows to apply it</li>
+  </ul>
+</div>
+
+<h3>Step 3: Improve dependency management guidance</h3>
+<div class="step">
+  <p><strong>Acceptance criteria:</strong></p>
+  <ul class="criteria">
+    <li>Add explicit rules about Vite version pinning (avoid Vite 8+ due to WASM crashes in WebContainer)</li>
+    <li>Add guidance on using peer-compatible package versions</li>
+    <li>Clarify when to replace <code>package.json</code> vs just adding files</li>
+  </ul>
+</div>
+
+<h3>Step 4: Strengthen self-repair guidance</h3>
+<div class="step">
+  <p><strong>Acceptance criteria:</strong></p>
+  <ul class="criteria">
+    <li>Add guidance about self-verifying changes before returning (type checks, import resolution)</li>
+    <li>Add guidance on how to handle the "I need more context" case (the existing stub response pattern)</li>
+    <li>Clarify that the agent should return <code>{"patches": [], "reply": "need X files"}</code> when it needs more context</li>
+  </ul>
+</div>
+
+<h3>Step 5: Add quality checklist</h3>
+<div class="step">
+  <p><strong>Acceptance criteria:</strong></p>
+  <ul class="criteria">
+    <li>Add a brief pre-return checklist: verify imports resolve, verify no syntax errors, verify the reply is a useful summary, verify patches are complete file contents</li>
+    <li>Keep it to 5-6 bullets, no more than 300 chars</li>
+  </ul>
+</div>
+
+<h2>Validation</h2>
+<ul>
+  <li><code>npm test</code> — all existing tests pass</li>
+  <li>New tests for expanded design guidance content in system prompt</li>
+  <li>System prompt length stays under 3,000 chars (well within context budget)</li>
+  <li>No breaking changes to <code>AgentResult</code> or <code>AgentProvider</code> types</li>
+</ul>
+
+<h2>Risks</h2>
+<div class="risk">
+  <strong>Context bloat:</strong> Adding too much guidance could push the system prompt toward the context budget limit. Monitor total prompt size including files. Mitigation: keep each addition tight; the current prompt is only ~1,800 chars with plenty of headroom.
+</div>
+<div class="risk">
+  <strong>Behavior drift:</strong> Adding planning guidance might cause the agent to over-think simple tasks. Mitigation: the fast-path triage (simple one-file changes → just do it) is explicit and short.
+</div>
+
+</body>
+</html>

@@ -14,6 +14,17 @@ describe('design guidance', () => {
     expect(anthropicFrontendDesignSkill).toContain('Avoid generic AI aesthetics')
   })
 
+  it('includes expanded frontend design guidance', () => {
+    // Expanded from 6-line to full skill: covers more categories
+    expect(anthropicFrontendDesignSkill).toContain('Inter') // font anti-pattern
+    expect(anthropicFrontendDesignSkill).toContain('typography')
+    expect(anthropicFrontendDesignSkill).toContain('cohesive')
+    expect(anthropicFrontendDesignSkill).toContain('motion')
+    expect(anthropicFrontendDesignSkill).toContain('asymmetry')
+    expect(anthropicFrontendDesignSkill).toContain('distinctive typography')
+    expect(anthropicFrontendDesignSkill).toContain('No two designs should feel the same')
+  })
+
   it('includes observed Scout Studio product styling', () => {
     expect(scoutBrandStyles).toContain('GeistSans')
     expect(scoutBrandStyles).toContain('rgb(47 48 55)')

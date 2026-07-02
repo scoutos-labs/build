@@ -10,6 +10,7 @@ import build/model
 import build/msg
 import build/pure/brain
 import build/pure/build_log
+import build/pure/story
 import build/pure/templates
 import gleam/list
 import gleam/option
@@ -74,6 +75,14 @@ pub fn update(
     msg.ImproveSelectedElement(request_id, now) ->
       improve_selected_element(app, request_id, now)
     msg.ExportZip -> #(app, [effect.ExportZip(app.project.files)])
+    msg.ExportStory -> #(app, [
+      effect.ExportStoryHtml(story.from_project(
+        app.project.project_name,
+        app.chat.messages,
+        app.project.build_log,
+        app.project.files,
+      )),
+    ])
     msg.CancelAgent -> {
       let #(agent_state, effects) =
         agent.update(app.agent, agent.AgentRequestCanceled)

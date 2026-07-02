@@ -9,6 +9,7 @@ import build/model
 import build/msg
 import build/pure/build_log
 import build/pure/preview_inspector
+import build/pure/story
 import build/update
 import gleam/list
 import gleam/option
@@ -384,4 +385,30 @@ pub fn agent_success_appends_build_log_entry_test() {
 
   assert next.project.build_log
     == [build_log.entry(1234, "make a todo app", "Done", ["src/main.tsx"])]
+}
+
+pub fn story_dialog_opens_and_closes_test() {
+  let #(opened, open_effects) =
+    update.update(model.init(), msg.Project(project.StoryDialogOpened))
+  assert opened.project.story_open
+  assert open_effects == []
+
+  let #(closed, close_effects) =
+    update.update(opened, msg.Project(project.StoryDialogClosed))
+  assert !closed.project.story_open
+  assert close_effects == []
+}
+
+pub fn export_story_emits_derived_story_test() {
+  let #(_, effects) = update.update(model.init(), msg.ExportStory)
+
+  assert effects
+    == [
+      effect.ExportStoryHtml(story.from_project(
+        "Untitled Project",
+        [],
+        [],
+        model.init().project.files,
+      )),
+    ]
 }

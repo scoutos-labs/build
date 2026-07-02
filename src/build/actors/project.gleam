@@ -20,6 +20,7 @@ pub type State {
     files: List(templates.ProjectFile),
     selected_path: String,
     build_log: List(build_log.Entry),
+    story_open: Bool,
   )
 }
 
@@ -53,6 +54,8 @@ pub type Msg {
   SelectedPathChanged(path: String)
   ResetToStarter
   BuildLogAppended(entry: build_log.Entry)
+  StoryDialogOpened
+  StoryDialogClosed
 }
 
 pub type Effect {
@@ -103,6 +106,7 @@ pub fn init() -> State {
     files: templates.starter_files(),
     selected_path: "src/main.tsx",
     build_log: [],
+    story_open: False,
   )
 }
 
@@ -204,6 +208,8 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
       State(..state, build_log: list.append(state.build_log, [entry])),
       [],
     )
+    StoryDialogOpened -> #(State(..state, story_open: True), [])
+    StoryDialogClosed -> #(State(..state, story_open: False), [])
   }
 }
 

@@ -57,6 +57,8 @@ Return ONLY valid JSON with this exact shape: {"reply":"short user-facing summar
 Rules:
 - Modify files by returning full replacement contents.
 - Prefer Vite + React + TypeScript.
+- Use Tailwind CSS for styling and shadcn/ui for components.
+- Tailwind, PostCSS, and the cn() helper in src/lib/utils.ts are preconfigured; do not modify tailwind.config.js or postcss.config.js, and only change package.json to add a genuinely new dependency.
 - For persistence, use the db client in src/db.ts; it calls the hyper-zepto data port that zepto-bridge.js serves at /api/db (mounted by vite.config.ts in dev and server.js in production). Never import hyper-zepto in browser code.
 - Preserve vite.config.ts, zepto-bridge.js, and server.js (they host the database API and the production server) unless the user explicitly asks to change the backend.
 - Do not use native Node modules, server-only packages, Docker, or external databases.

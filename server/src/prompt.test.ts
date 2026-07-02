@@ -33,6 +33,15 @@ describe('extractJson', () => {
   })
 })
 
+describe('JSON_SYSTEM_PROMPT', () => {
+  it('tells the model the Tailwind toolchain is pre-baked in the starter', () => {
+    expect(JSON_SYSTEM_PROMPT).toContain('Use Tailwind CSS for styling and shadcn/ui for components.')
+    // Without this rule the model re-bootstraps Tailwind (new tailwind config
+    // + package.json rewrite), causing the reinstall/restart preview flicker.
+    expect(JSON_SYSTEM_PROMPT).toContain('preconfigured; do not modify tailwind.config.js or postcss.config.js')
+  })
+})
+
 describe('buildModelMessages', () => {
   it('assembles system prompt, files, element context, history, and user prompt in order', () => {
     const messages = buildModelMessages({

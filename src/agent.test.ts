@@ -152,7 +152,7 @@ describe('runAgent', () => {
       .rejects.toThrow('OpenRouter API key is required')
   })
 
-  it('sends system prompt with Next.js, Tailwind CSS, and shadcn/ui preferences', async () => {
+  it('sends system prompt with Vite, Tailwind CSS, and shadcn/ui preferences', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       message: { content: JSON.stringify({ reply: 'ok', patches: [] }) },
     }), { status: 200 }))
@@ -169,9 +169,12 @@ describe('runAgent', () => {
 
     const [, init0] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     const body = String(init0.body)
-    expect(body).toContain('Next.js')
+    expect(body).toContain('Prefer Vite + React + TypeScript')
     expect(body).toContain('Tailwind CSS')
     expect(body).toContain('shadcn/ui')
+    // The starter pre-bakes the Tailwind toolchain; the prompt must say so or
+    // the model re-bootstraps it and triggers a reinstall/restart flicker.
+    expect(body).toContain('preconfigured; do not modify tailwind.config.js or postcss.config.js')
   })
 
   it('sends project files context alongside user prompt', async () => {
@@ -193,7 +196,7 @@ describe('runAgent', () => {
     const body = String(init0.body)
     const messages = JSON.parse(body).messages as { role: string; content: string }[]
     expect(messages[0].role).toBe('system')
-    expect(messages[0].content).toContain('Next.js')
+    expect(messages[0].content).toContain('Prefer Vite + React + TypeScript')
     expect(messages[0].content).toContain('Tailwind CSS')
     expect(messages[0].content).toContain('shadcn/ui')
     // Files are sent as a separate system message

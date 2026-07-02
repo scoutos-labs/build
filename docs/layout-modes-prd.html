@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PRD — Journey-based layout modes</title>
+<style>
+  :root { --ink:#172033; --muted:#5b6579; --line:#e3e7ef; --accent:#d97757; }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color:var(--ink); max-width: 60rem; margin: 2rem auto; padding: 0 1.25rem; line-height:1.55; }
+  h1 { font-size:1.6rem; border-bottom:2px solid var(--accent); padding-bottom:.4rem; }
+  h2 { font-size:1.2rem; margin-top:2.2rem; border-bottom:1px solid var(--line); padding-bottom:.25rem; }
+  h3 { font-size:1rem; margin-top:1.4rem; }
+  table { border-collapse: collapse; width:100%; font-size:.92rem; }
+  th, td { border:1px solid var(--line); padding:.45rem .6rem; text-align:left; vertical-align:top; }
+  th { background:#f6f8fc; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.88em; background:#f4f5f8; border-radius:4px; }
+  code { padding:.08em .35em; }
+  pre { padding:.7rem .9rem; overflow-x:auto; }
+  .chip { display:inline-block; font-size:.75rem; font-weight:600; padding:.1rem .55rem; border-radius:999px; background:#eef1f7; color:var(--muted); margin-right:.3rem; }
+  .step { border:1px solid var(--line); border-radius:8px; padding:.8rem 1rem; margin:.8rem 0; }
+  .step h3 { margin:.1rem 0 .5rem; }
+  ul { margin:.3rem 0 .3rem 1.2rem; }
+  .muted { color:var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>PRD — Journey-based layout modes</h1>
+<p class="muted">Task slug: <code>layout-modes</code> · 2026-07-02 · Branch <code>layout-modes</code> · Companion: <a href="layout-modes-progress.html">progress</a> · Handoff: <code>docs/layout-modes-handoff.md</code></p>
+
+<h2>Definition</h2>
+<p>A <strong>layout mode</strong> is ephemeral per-session UI state owned by the Gleam model: which of three fixed arrangements of the two always-mounted surfaces (chat panel, workspace) is visible — <code>ChatMode</code> (full-screen conversational surface), <code>SplitMode</code> (chat ~1/3 + preview ~2/3), <code>BuilderMode</code> (split + files/editor/terminal). UI labels: <strong>Chat / App / Code</strong>.</p>
+<p><strong>Is not:</strong> persisted project data (reload deliberately replays chat → reveal); a conditional element tree (all modes render identical DOM, only the <code>.app</code> class changes); a new actor (it generalizes <code>code_panel_open</code> in the preview actor).</p>
+
+<h2>Verified ground truth</h2>
+<ul>
+  <li><code>preview_url</code> is never reset — "" only at session boot. Chat-by-default is a session-boot condition.</li>
+  <li><code>PreviewUrlChanged</code> may NOT re-fire on mid-session remounts (dev server stays alive, <code>webcontainer.ts:80</code> early-return); crash-restarts DO re-fire. Never rely on URL re-fire mid-session.</li>
+  <li>The interview wizard lives inside the preview iframe — new projects must land in Split so the wizard is visible (the "wizard guarantee").</li>
+  <li>Iframe and <code>.bottom</code> strip must stay mounted across switches (iframe reload flicker; xterm survival via <code>display:none</code> + ResizeObserver refit in <code>terminal.mjs</code>).</li>
+  <li>"Select element" affordance lives in the preview bar (hidden in Chat for free); selected-element panel lives in the chat sidebar (stays usable).</li>
+</ul>
+
+<h2>Goals / Non-goals</h2>
+<ul>
+  <li>First impression is conversational; boot noise hidden; auto-reveal Split on the session's first preview URL.</li>
+  <li>One segmented control (Chat / App / Code) visible in every mode; auto logic never fights a manual choice.</li>
+  <li>Zero stability regression: no iframe reload, xterm survives, unread badge semantics preserved.</li>
+  <li><strong>Non-goals:</strong> floating chat overlay; interview-in-chat; per-project mode persistence; resizable split.</li>
+</ul>
+
+<h2>State machine (preview actor)</h2>
+<pre>pub type LayoutMode { ChatMode SplitMode BuilderMode }
+State: layout: LayoutMode (replaces code_panel_open), layout_is_manual: Bool
+Msg:   LayoutModeSelected(LayoutMode) (replaces CodePanelToggled)</pre>
+<table>
+<tr><th>Event</th><th>Rule</th></tr>
+<tr><td><code>LayoutModeSelected(m)</code></td><td>Set mode, <code>layout_is_manual = True</code>. Builder clears <code>code_panel_unread</code>. Chat while selecting → disable inspector (<code>BuildInspectorDisable</code>).</td></tr>
+<tr><td><code>PreviewUrlChanged</code></td><td>Existing behavior + if <code>ChatMode &amp;&amp; !layout_is_manual</code> → <code>SplitMode</code> (the reveal). Re-fires are no-ops.</td></tr>
+<tr><td><code>CodePanelErrorSignaled</code></td><td>Badge if not Builder; clear in Builder (port of today's rule).</td></tr>
+<tr><td><code>NewProjectConfirmed / OpenProject / ResetProject</code> (update.gleam)</td><td>Clear <code>layout_is_manual</code>; if <code>ChatMode &amp;&amp; preview_url != ""</code> → <code>SplitMode</code> (wizard guarantee; user-initiated navigation, not a yank). Never move Split/Builder users.</td></tr>
+</table>
+
+<h2>Steps</h2>
+
+<div class="step"><h3>1 — Actor state machine (pure Gleam)</h3>
+<ul><li><span class="chip">accept</span> <code>test/build_layout_mode_test.gleam</code> (mirrors build_code_panel_test): starts_in_chat_mode; first_preview_url_auto_switches_to_split; url_refire_does_not_change_split_or_builder; manual_chat_choice_blocks_auto_switch; selecting_builder_clears_unread; error_outside_builder_sets_unread; error_in_builder_does_not_badge; switching_to_chat_disables_element_selection (asserts <code>selecting_element</code> cleared AND <code>BuildInspectorDisable</code> posted). <code>gleam test</code> green.</li>
+<li><span class="chip">evidence</span> Test names + <code>npm test</code> output.</li></ul></div>
+
+<div class="step"><h3>2 — Journey resets (update.gleam)</h3>
+<ul><li><span class="chip">accept</span> Tests through <code>update.update</code>: new_project_exits_chat_mode_when_url_exists; open_project_keeps_builder_mode; open_project_rearms_auto_switch.</li>
+<li><span class="chip">evidence</span> <code>npm test</code> output.</li></ul></div>
+
+<div class="step"><h3>3 — View + segmented control</h3>
+<ul><li><span class="chip">accept</span> <code>.app modeChat|modeSplit|modeBuilder</code> classes; new <code>build_layout_switch.gleam</code> in the chat titleRow (visible in all modes): three text segments, quiet-active styling, unread dot on Code, accessible semantics. Old preview-bar Code toggle removed. DOM tree identical across modes; iframe node identity stable. <code>npm run build</code> green.</li>
+<li><span class="chip">evidence</span> Screenshots ×3 modes; no iframe white-flash on switching.</li></ul></div>
+
+<div class="step"><h3>4 — CSS</h3>
+<ul><li><span class="chip">accept</span> Chat: single column, centered chat (max ~720px), no sidebar border. Split/Builder: <code>minmax(314px,1fr) 2.2fr</code>. ≤980px: Chat = full-height chat column; Split/Builder = existing stacked rows. Terminal survives Chat→Code round-trip (history + live prompt + correct fit). Preview never reloads on switch.</li>
+<li><span class="chip">accept</span> Chat mode shows a quiet boot status line driven by the WebContainer boot phase — and it must render the <code>Error</code> phase (boot failure may not visually escape full-screen Chat otherwise).</li>
+<li><span class="chip">evidence</span> Screenshots (desktop ×3, ≤980px ×2); manual terminal check.</li></ul></div>
+
+<div class="step"><h3>5 — End-to-end journey verification</h3>
+<ul><li><span class="chip">accept</span> Fresh session: opens in centered Chat, no boot noise; URL arrives → Split reveal with wizard visible. Manual Chat pre-boot → stays Chat on URL. Crash-restart in Code → no mode change. <code>[preview error]</code> in App → dot on Code; entering Code clears.</li>
+<li><span class="chip">accept</span> Returning user (existing project auto-loads from IndexedDB): reload lands in Chat with history + boot status, then auto-reveals Split when the URL arrives (installs can take tens of seconds — the status line carries that wait).</li>
+<li><span class="chip">evidence</span> Recording/screenshots; handoff note.</li></ul></div>
+
+<div class="step"><h3>6 — Docs</h3>
+<ul><li><span class="chip">accept</span> <code>docs/architecture.md</code> mentions mode type, ownership, non-persistence decision.</li></ul></div>
+
+<h2>Taste / originality criteria</h2>
+<ul>
+  <li>Chat mode reads as a designed conversational product, not a sidebar missing its right half: centered ≤720px column, border removed, generous top spacing, gradient-ringed composer as anchor.</li>
+  <li>Pre-boot chat shows a quiet muted boot status line — no spinner drama; the <code>pulseOrb</code> belongs to the reveal.</li>
+  <li>Chat→Split is the one theatrical moment: a ~200ms restrained transition, no bounce.</li>
+  <li>Segmented control: one capsule, three text labels (no icon-only), active = existing quiet-active convention (<code>#eceef3</code> + ink), 6px <code>#c2421f</code> unread dot inside Code.</li>
+</ul>
+
+<h2>Validation</h2>
+<pre>npm test        # gleam + vitest (baseline: 92 gleam + 107 vitest green on main)
+npm run build   # gleam build + tsc -b + vite build
+npm run dev     # manual journey checks</pre>
+
+<h2>Judge rubric</h2>
+<p>Standard LFG rubric; taste/originality ≥4 required for the chat surface, segmented control, and the reveal transition. Regression focus: iframe node identity, xterm survival, unread-badge semantics, wizard guarantee.</p>
+
+<h2>Risks</h2>
+<ul>
+  <li>Stranded Chat mid-session (URL never re-fires) → mitigated by project-open rule; do not rely on URL re-fire.</li>
+  <li>Iframe reload on switch → class-only switching; verify node identity.</li>
+  <li>xterm zero-height fit → existing guard; verify round-trip.</li>
+  <li>Test churn on code_panel tests → port, don't delete.</li>
+</ul>
+
+<h2>Definition of done</h2>
+<p>Steps 1–4 + 6 pass with evidence; Step 5 items verified live where tooling allows, remainder recorded as a manual checklist; suites and build green; judge pass with taste ≥4.</p>
+
+</body>
+</html>

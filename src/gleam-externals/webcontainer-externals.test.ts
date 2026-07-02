@@ -19,6 +19,8 @@ vi.mock('./runtime_bridge.mjs', () => ({
   dispatchWebContainerBootFailed: vi.fn(),
   dispatchWebContainerBootStarted: vi.fn(),
   dispatchWebContainerBootSucceeded: vi.fn(),
+  dispatchWebContainerInstalling: vi.fn(),
+  dispatchWebContainerStartingDevServer: vi.fn(),
   dispatchWebContainerLog: vi.fn((line: string) => h.logs.push(line)),
   dispatchWebContainerRemountFinished: vi.fn(),
 }))

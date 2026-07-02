@@ -80,6 +80,8 @@ export function dispatchChatCleared() { sendMsg(Msg.Msg$Chat(Chat.Msg$ChatCleare
 export function dispatchWebContainerRemountRequested(files) { sendMsg(Msg.Msg$WebContainer(WebContainer.Msg$RemountRequested(toGleamFiles(files)))) }
 export function dispatchWebContainerLog(line) { sendMsg(Msg.Msg$WebContainer(WebContainer.Msg$LogAppended(line))) }
 export function dispatchWebContainerBootStarted() { sendMsg(Msg.Msg$WebContainer(WebContainer.Msg$BootStarted())) }
+export function dispatchWebContainerInstalling() { sendMsg(Msg.Msg$WebContainer(WebContainer.Msg$PhaseChanged(WebContainer.BootPhase$Installing()))) }
+export function dispatchWebContainerStartingDevServer() { sendMsg(Msg.Msg$WebContainer(WebContainer.Msg$PhaseChanged(WebContainer.BootPhase$StartingDevServer()))) }
 export function dispatchWebContainerBootSucceeded() { sendMsg(Msg.Msg$WebContainer(WebContainer.Msg$BootSucceeded())) }
 export function dispatchWebContainerBootFailed(message) { sendMsg(Msg.Msg$WebContainer(WebContainer.Msg$BootFailed(message))) }
 export function dispatchWebContainerRemountFinished() { sendMsg(Msg.Msg$WebContainer(WebContainer.Msg$RemountFinished())) }

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Progress — layout-modes</title>
+<style>
+  :root { --ink:#172033; --muted:#5b6579; --line:#e3e7ef; --accent:#d97757; }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color:var(--ink); max-width: 60rem; margin: 2rem auto; padding: 0 1.25rem; line-height:1.5; }
+  h1 { font-size:1.5rem; border-bottom:2px solid var(--accent); padding-bottom:.4rem; }
+  h2 { font-size:1.15rem; margin-top:2rem; border-bottom:1px solid var(--line); padding-bottom:.25rem; }
+  table { border-collapse: collapse; width:100%; font-size:.9rem; }
+  th, td { border:1px solid var(--line); padding:.4rem .55rem; text-align:left; vertical-align:top; }
+  th { background:#f6f8fc; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.88em; background:#f4f5f8; border-radius:4px; padding:.08em .35em; }
+  .chip { display:inline-block; font-size:.72rem; font-weight:700; padding:.12rem .55rem; border-radius:999px; }
+  .pending { background:#eef1f7; color:#5b6579; }
+  .inprog { background:#fff3e0; color:#b26a00; }
+  .pass { background:#e8f5e9; color:#2e7d32; }
+  .manual { background:#e3f2fd; color:#1565c0; }
+  .muted { color:var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>Progress — layout-modes</h1>
+<p><strong>Status:</strong> <span class="chip pass">complete</span> · PRD: <a href="layout-modes-prd.html">layout-modes-prd.html</a> · Branch <code>layout-modes</code></p>
+
+<h2>Step checklist</h2>
+<table>
+<tr><th>Step</th><th>Status</th><th>Evidence</th></tr>
+<tr><td>1 actor state machine</td><td><span class="chip pass">pass</span></td><td>Commit <code>580240b</code> (amended from 1610e66) + repair commit; <code>test/build_layout_mode_test.gleam</code> — all 8 planned tests plus split-keeps-selection; 101 gleam green.</td></tr>
+<tr><td>2 journey resets</td><td><span class="chip pass">pass</span></td><td><code>preview.on_project_navigation</code> wired to New/Open/Reset; 5 journey tests incl. wizard guarantee and re-arm.</td></tr>
+<tr><td>3 view + segmented control</td><td><span class="chip pass">pass</span></td><td><code>build_layout_switch.gleam</code> in titleRow; old preview-bar toggle removed; identical DOM verified by smoke (workspace mounted-but-hidden; iframe identity stable). Deviation: arrow-key roving focus skipped — tab + aria-pressed.</td></tr>
+<tr><td>4 CSS</td><td><span class="chip pass">pass</span></td><td>Mode grids + 200ms column transition; centered 720px chat; bootStatus (incl. error state) chat-only; 980px rules. Screenshots in <code>scripts/.smoke/layout-modes/</code>.</td></tr>
+<tr><td>5 e2e journey verification</td><td><span class="chip pass">pass (automated)</span> <span class="chip manual">manual remainder</span></td><td><code>scripts/smoke-layout-modes.mjs</code>: 16/16 against live dev server — chat boot, reveal, Code reveal, manual-chat no-yank on URL re-fire, badge set/clear, iframe never remounted, narrow viewport. Remaining manual: real WebContainer boot (fresh + returning user), crash-restart via jsh, terminal round-trip fit.</td></tr>
+<tr><td>6 docs</td><td><span class="chip pass">pass</span></td><td><code>docs/architecture.md</code> Layout modes section (mode type, ownership, non-persistence).</td></tr>
+</table>
+
+<h2>Reviewer / judge findings</h2>
+<ul><li><strong>Plan review:</strong> PASS conditional — both conditions folded in (Chat boot-status renders Error; returning-user journey). </li><li><strong>Implementation review:</strong> PASS with conditions, all resolved: B1 — the grid transition could never animate (track-count changes are discrete); replaced with a one-shot workspace reveal animation (240ms fade + 6px rise). B2 — docs committed, commit ref fixed. N1 — empty preview URL (non-browser fallback) no longer triggers the reveal. N2 — clicking the already-active segment is a no-op so an idle click can't kill the auto reveal (two tests re-arranged to start from Split per that semantic). N3 — Installing/StartingDevServer phases now actually dispatch from the boot path, so the chat boot-status line carries the long install wait. N4/N5 — unused imports and duplicate gitignore line removed. Taste: chat surface 4/5, control 4/5, reveal 3/5 → repaired with the real animation. Judge found no correctness bugs in the shipped state machine.</li></ul>
+
+<h2>Repair loops</h2>
+<ul><li>Impl-review repair: no-op guard broke two tests that arranged from init (already ChatMode) — re-arranged from SplitMode per the judge's own N2 semantics.</li><li>Phase dispatchers missing from the externals test's runtime_bridge mock made bootContainer throw mid-flight — mock extended.</li></ul>
+
+<h2>Residual risks</h2>
+<ul>
+  <li>Mid-session URL re-fire unreliability — mitigated by project-open transitions.</li>
+  <li>Iframe node identity across mode switches — class-only rendering required.</li>
+</ul>
+
+</body>
+</html>

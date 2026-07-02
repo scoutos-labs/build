@@ -1,4 +1,4 @@
-import { dispatchPreviewUrlChanged, dispatchProjectFilesUpdated, dispatchProjectSaveStatus, dispatchWebContainerBootFailed, dispatchWebContainerBootStarted, dispatchWebContainerBootSucceeded, dispatchWebContainerLog, dispatchWebContainerRemountFinished } from './runtime_bridge.mjs'
+import { dispatchPreviewUrlChanged, dispatchProjectFilesUpdated, dispatchProjectSaveStatus, dispatchWebContainerBootFailed, dispatchWebContainerBootStarted, dispatchWebContainerBootSucceeded, dispatchWebContainerInstalling, dispatchWebContainerLog, dispatchWebContainerRemountFinished, dispatchWebContainerStartingDevServer } from './runtime_bridge.mjs'
 
 const fallbackStarterFiles = [
   { path: 'package.json', content: '{}' },
@@ -79,11 +79,13 @@ export async function bootContainer(files) {
     dispatchWebContainerLog('Booting WebContainer...')
     await m.mountProject(lastFiles)
     dispatchWebContainerLog('Installing dependencies...')
+    dispatchWebContainerInstalling()
     const exitCode = await m.runInstall(line => dispatchWebContainerLog(line))
     // Only a successful install may arm the skip-install optimization —
     // recording a failed install would skip the retry on every later remount.
     if (installSucceeded(exitCode)) lastInstalledPackageJson = packageJsonOf(lastFiles)
     dispatchWebContainerLog('Starting preview server...')
+    dispatchWebContainerStartingDevServer()
     await m.startDevServer(line => dispatchWebContainerLog(line), url => dispatchPreviewUrlChanged(url))
     dispatchWebContainerBootSucceeded()
   } catch (error) {

@@ -58,7 +58,11 @@ pub fn update(
       let #(agent_state, agent_effects) =
         agent.update(app.agent, agent.AgentRequestCanceled)
       #(
-        model.Model(..app, agent: agent_state),
+        model.Model(
+          ..app,
+          agent: agent_state,
+          preview: preview.on_project_navigation(app.preview),
+        ),
         list.append(list.map(agent_effects, effect.Agent), [
           effect.Project(project.CreateProject(
             name: "Untitled Project",
@@ -92,7 +96,13 @@ pub fn update(
       let #(project_state, project_effects) =
         project.update(app.project, project.ResetToStarter)
       let chat_state = chat.update(app.chat, chat.ChatCleared)
-      #(model.Model(..app, project: project_state, chat: chat_state), [
+      #(
+        model.Model(
+          ..app,
+          project: project_state,
+          chat: chat_state,
+          preview: preview.on_project_navigation(app.preview),
+        ), [
         effect.Agent(agent.AbortAgent),
         ..list.map(project_effects, effect.Project)
       ])
@@ -101,7 +111,11 @@ pub fn update(
       let #(agent_state, agent_effects) =
         agent.update(app.agent, agent.AgentRequestCanceled)
       #(
-        model.Model(..app, agent: agent_state),
+        model.Model(
+          ..app,
+          agent: agent_state,
+          preview: preview.on_project_navigation(app.preview),
+        ),
         list.append(list.map(agent_effects, effect.Agent), [
           effect.Project(project.OpenProject(id)),
         ]),

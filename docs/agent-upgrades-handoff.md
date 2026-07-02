@@ -23,3 +23,11 @@ resuming the loop in a new session; details live in
   rules + budget guard; SavedProject.buildLog threaded Gleam→IndexedDB.
 - 2026-07-01 step-C-done — commit 419122a: coaching + branding prompt rules,
   interview copy nudges. Next: Phase D (story derivation, view, HTML export).
+- 2026-07-01 step-D-done — commit a037e63: story derivation + view + HTML
+  export, 8 new tests.
+- 2026-07-01 complete — impl judge approved with one blocking fix
+  (createProject dropped buildLog on first-ever save) — fixed in 8564e60
+  with create-path test; nice-to-haves applied. Final: 92 gleam + 99 vitest
+  + 103 server tests green; npm run build green. Manual checklist remains
+  in agent-upgrades-progress.html (browser flicker pass, live-model
+  transcripts, story screenshots).

@@ -25,15 +25,15 @@
 <body>
 
 <h1>Progress — agent-upgrades</h1>
-<p><strong>Status:</strong> <span class="chip inprog">implementation-review gate</span> · PRD: <a href="agent-upgrades-prd.html">agent-upgrades-prd.html</a></p>
+<p><strong>Status:</strong> <span class="chip pass">complete</span> · PRD: <a href="agent-upgrades-prd.html">agent-upgrades-prd.html</a></p>
 
 <h2>Banner</h2>
 <table>
-<tr><th>Current phase</th><td>All steps implemented (A1–D3); implementation judge running.</td></tr>
-<tr><th>npm test</th><td>PASS — 89 gleam + 98 vitest = 187 (baseline was 151)</td></tr>
+<tr><th>Current phase</th><td>Complete — judge approved; blocking fix landed in <code>8564e60</code>. 191 root tests (92 gleam + 99 vitest) + 103 server tests green.</td></tr>
+<tr><th>npm test</th><td>PASS — 92 gleam + 99 vitest = 191 (baseline was 151)</td></tr>
 <tr><th>npm run build</th><td>PASS (gleam build + tsc -b + vite build)</td></tr>
 <tr><th>server tests</th><td>PASS — 103 (after <code>npm install</code> in server/, which was missing deps)</td></tr>
-<tr><th>Uncommitted changes present?</th><td>Only the three LFG docs (prd/progress/handoff).</td></tr>
+<tr><th>Uncommitted changes present?</th><td>No — docs tracked in <code>8564e60</code>.</td></tr>
 </table>
 
 <h2>Step checklist</h2>
@@ -60,7 +60,7 @@
 <ul>
   <li><strong>Diff review (pre-commit):</strong> 4 must-fixes found, all applied in A1 (exit-code gating; mount-relative suppression window; pre-baked-Tailwind prompt rule; skip-logic tests + TS/Gleam parity). Known accepted holes: terminal-driven installs don't update the skip marker (safe direction — extra reinstall); <code>rm -rf node_modules</code> in the terminal isn't detected; double reload still possible on the reinstall path.</li>
   <li><strong>Plan review:</strong> APPROVE, no blockers; 4 notes folded into implementation.</li>
-  <li><strong>Implementation review:</strong> running; findings will be appended here.</li>
+  <li><strong>Implementation review:</strong> APPROVE with one blocking fix — <code>createProject</code> dropped <code>buildLog</code>, losing chapter one of the story on the canonical first-build flow. Fixed in <code>8564e60</code> with a create-path test. Judge also verified: build_log threading correct, externals arity/constructor names correct, XSS clean (accent regex-validated before CSS injection), seed ordering safe. Taste 4/5, originality 4/5 for the Story surfaces. Nice-to-haves applied: preamble-less brain parsing, accent parity with the export renderer, plan-preamble trim, CSS nit, architecture.md refresh. Remaining follow-up: ESC-close (no modal in the app has it; candidate for one global handler).</li>
 </ul>
 
 <h2>Repair loops</h2>

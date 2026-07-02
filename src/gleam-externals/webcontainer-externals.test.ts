@@ -143,6 +143,52 @@ describe('webcontainer externals install-skip', () => {
   })
 })
 
+describe('webcontainer externals boot gate', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    vi.clearAllMocks()
+    h.logs.length = 0
+    h.mountProject.mockImplementation(async () => {})
+    h.runInstall.mockResolvedValue(0)
+    h.readProjectFile.mockResolvedValue(undefined)
+  })
+
+  it('writes issued mid-boot land only after the boot mount', async () => {
+    // chat works before the container is ready, so an agent patch can arrive
+    // while bootContainer is still mounting its files snapshot — the write
+    // must wait or the mount silently overwrites it
+    const wc = await loadModule()
+    const events: string[] = []
+    let finishMount: () => void = () => {}
+    h.mountProject.mockImplementation(async () => {
+      events.push('mount')
+      await new Promise<void>(resolve => { finishMount = resolve })
+    })
+
+    const boot = wc.bootContainer(project(PKG_A))
+    await vi.waitFor(() => expect(events).toContain('mount'))
+
+    const write = (wc as unknown as { writeFileToContainer: (p: string, c: string) => Promise<void> })
+      .writeFileToContainer('src/main.tsx', 'patched')
+      .then(() => events.push('write'))
+    // give the write every chance to run early — it must not
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(events).toEqual(['mount'])
+
+    finishMount()
+    await boot
+    await write
+    expect(events).toEqual(['mount', 'write'])
+  })
+
+  it('writes proceed immediately when no boot is in flight', async () => {
+    const wc = await loadModule()
+    await (wc as unknown as { writeFileToContainer: (p: string, c: string) => Promise<void> })
+      .writeFileToContainer('src/main.tsx', 'content')
+    // no hang and the underlying write happened — the gate starts resolved
+  })
+})
+
 describe('webcontainer externals preview reload debounce', () => {
   let srcSets: number
 

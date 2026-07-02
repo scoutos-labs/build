@@ -28,6 +28,9 @@ pub fn view(app: model.Model) -> Element(msg.Msg) {
   let selected = selected_file(app)
   let running = agent.is_running(app.agent)
   let busy = running || webcontainer.is_busy(app.webcontainer)
+  // Chat stays usable while the workspace boots — only a project-switch
+  // remount (or a running request) locks the composer.
+  let chat_busy = running || webcontainer.is_remounting(app.webcontainer)
   html.div(
     [
       attribute.class(case app.preview.layout {
@@ -76,7 +79,7 @@ pub fn view(app: model.Model) -> Element(msg.Msg) {
         app.chat.expanded_messages,
         app.chat.prompt,
         running,
-        busy,
+        chat_busy,
         app.agent.budget_exhausted,
         app.agent.budget_reset_at,
       ),

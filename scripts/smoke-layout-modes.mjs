@@ -54,6 +54,11 @@ note('workspace hidden in chat mode', !(await page.locator('.workspace').isVisib
 note('workspace stays mounted (identical DOM)', await page.locator('.workspace').count() === 1)
 note('boot status line visible in chat', await page.locator('.bootStatus').isVisible())
 note('segmented control visible in chat', await page.locator('.layoutSwitch').isVisible())
+// chat must be usable BEFORE the container is ready: type + send enabled
+await page.locator('.panel.chat textarea').fill('make me an app')
+note('composer accepts input during boot', await page.locator('.panel.chat textarea').inputValue() === 'make me an app')
+note('send button enabled during boot', !(await page.locator('.panel.chat .actions button').first().isDisabled()))
+await page.locator('.panel.chat textarea').fill('')
 
 // 2. The reveal: first preview URL auto-switches to split.
 await bridge(`bridge.dispatchPreviewUrlChanged('${BASE}/')`)

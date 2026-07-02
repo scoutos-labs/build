@@ -13,6 +13,13 @@ let lastFiles = fallbackStarterFiles
 // and avoids the preview reload storm that caused the switch flicker.
 let lastInstalledPackageJson = null
 const scheduledFileWrites = new Map()
+// Chat is usable before the container is ready, so agent patches can arrive
+// mid-boot. bootContainer mounts a files snapshot taken at dispatch time; a
+// write landing between WebContainer.boot() resolving and that mount would be
+// silently overwritten. Container writes and installs therefore wait for the
+// in-flight boot to finish. Resolved by default so these paths never hang
+// when no boot happens (tests, fallback environments).
+let bootGate = Promise.resolve()
 
 async function modules() {
   try {
@@ -73,6 +80,8 @@ function normalizeFiles(files) {
 
 export async function bootContainer(files) {
   const m = await modules()
+  let releaseBootGate
+  bootGate = new Promise(resolve => { releaseBootGate = resolve })
   setLastFiles(normalizeFiles(files).length ? normalizeFiles(files) : m.starterFiles)
   dispatchWebContainerBootStarted()
   try {
@@ -90,6 +99,8 @@ export async function bootContainer(files) {
     dispatchWebContainerBootSucceeded()
   } catch (error) {
     dispatchWebContainerBootFailed(message(error))
+  } finally {
+    releaseBootGate()
   }
 }
 
@@ -106,6 +117,7 @@ export function mountAndInstall(files) {
 
 async function doMountAndInstall(files) {
   const m = await modules()
+  await bootGate
   const mountStartedAt = Date.now()
   if (files) setLastFiles(normalizeFiles(files))
   // Only reinstall when package.json actually changed. Reusing the existing
@@ -149,6 +161,7 @@ function appendRuntimeLog(line) {
 
 export async function runNpmInstall() {
   const m = await modules()
+  await bootGate
   globalThis.__buildLastNpmInstall = true
   appendRuntimeLog('package.json changed; running npm install...')
   const exitCode = await m.runInstall(line => appendRuntimeLog(line))
@@ -172,6 +185,7 @@ export async function readFilesFromContainer() {
 
 export async function writeFileToContainer(path, content) {
   const m = await modules()
+  await bootGate
   await m.writeProjectFile(path, content)
 }
 

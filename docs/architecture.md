@@ -31,11 +31,13 @@ Elm-style model/update/view with domain actors and effect interpreters:
 - `components/` — view modules: `build_agent_chat`, `build_editor`,
   `build_element_picker`, `build_preview`, `build_project_nav`,
   `build_projects_modal`, `build_publish_modal`, `build_settings_modal`,
-  `build_terminal`.
+  `build_story_modal`, `build_terminal`.
 - `runtime/` — effect interpreters per domain (`agent`, `ids`, `managed`,
-  `preview`, `project`, `publish`, `settings`, `webcontainer`, `zip`).
-- `pure/` — pure logic shared by update/view: `design_guidance`, `editor`,
-  `preview_inspector`, `templates`.
+  `preview`, `project`, `publish`, `settings`, `story`, `webcontainer`,
+  `zip`).
+- `pure/` — pure logic shared by update/view: `brain` (BRAIN.md seed),
+  `build_log`, `design_guidance`, `editor`, `preview_inspector`, `story`
+  (Build Story derivation), `templates`.
 
 ## JS interop (`src/gleam-externals/`)
 
@@ -43,6 +45,7 @@ Externals bridge Gleam effects to browser APIs and to the live TS modules:
 `agent.mjs`, `browser.mjs`, `dom.mjs`, `editor.mjs`, `ids.mjs`,
 `local_storage.mjs`, `managed.mjs`, `projects.mjs`, `publish.mjs`,
 `runtime_bridge.mjs` (dispatches typed messages back into the Lustre runtime),
+`story.mjs` (Build Story HTML export via `src/story-html.ts`),
 `terminal.mjs`, `webcontainer.mjs`, `zip.mjs`.
 
 `webcontainer.mjs` owns the remount/install lifecycle: it skips `npm install`
@@ -93,7 +96,9 @@ first user chat message.
 ## Persistence
 
 Anonymous, local-first. Projects live in IndexedDB (`src/projects.ts`) as
-`SavedProject {id, name, files, messages, selectedPath, createdAt, updatedAt}`.
+`SavedProject {id, name, files, messages, selectedPath, createdAt, updatedAt,
+buildLog?}` — `buildLog` records one truncated `{at, prompt, reply, paths}`
+entry per successful agent turn and feeds the Build Story.
 Model settings live in localStorage. Managed mode stores encrypted credentials
 server-side (see `docs/scoutos-live-prd.md`).
 

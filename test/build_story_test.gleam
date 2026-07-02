@@ -122,3 +122,44 @@ _Dated design and engineering decisions land here as the app evolves._
   assert derived.decisions == []
   assert story.accent(derived) == "#d97757"
 }
+
+pub fn story_parses_brain_without_title_preamble_test() {
+  let no_preamble =
+    "## What & Why
+
+Build an app for: florists
+"
+  let derived = story.from_project("Florist", [], [], [brain(no_preamble)])
+
+  assert derived.origin == "Build an app for: florists"
+}
+
+pub fn story_accent_rejects_longer_hex_runs_test() {
+  let derived =
+    story.from_project("App", [], [], [
+      brain("## Brand\n\nPalette: #deadbeef then #2f6f4e\n"),
+    ])
+
+  // #deadbeef must not be read as #deadbe (the export renderer rejects it);
+  // the next valid 6-digit color wins.
+  assert story.accent(derived) == "#2f6f4e"
+}
+
+pub fn story_trims_plan_preamble_from_first_chapter_test() {
+  let entries = [
+    build_log.entry(
+      1,
+      "Build this app from the interview plan.\n\nBuild an app for: florists",
+      "Done",
+      ["src/main.tsx"],
+    ),
+  ]
+  let derived = story.from_project("Florist", [], entries, [])
+
+  assert derived.chapters
+    == [
+      story.Chapter(at: 1, ask: "Build an app for: florists", outcome: "Done", areas: [
+        "screens & logic",
+      ]),
+    ]
+}

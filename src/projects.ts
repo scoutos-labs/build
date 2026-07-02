@@ -83,7 +83,7 @@ export async function saveProject(project: SavedProject): Promise<SavedProject> 
   return project
 }
 
-export async function createProject(args: Partial<Pick<SavedProject, 'name' | 'files' | 'messages' | 'selectedPath'>> = {}): Promise<SavedProject> {
+export async function createProject(args: Partial<Pick<SavedProject, 'name' | 'files' | 'messages' | 'selectedPath' | 'buildLog'>> = {}): Promise<SavedProject> {
   const now = new Date().toISOString()
   const project: SavedProject = {
     id: crypto.randomUUID(),
@@ -93,6 +93,9 @@ export async function createProject(args: Partial<Pick<SavedProject, 'name' | 'f
     selectedPath: args.selectedPath ?? '',
     createdAt: now,
     updatedAt: now,
+    // The first-ever autosave of a project goes through this create path —
+    // dropping the buildLog here would lose chapter one of the Build Story.
+    buildLog: args.buildLog ?? [],
   }
   return saveProject(project)
 }

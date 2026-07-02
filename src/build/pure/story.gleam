@@ -80,7 +80,8 @@ fn first_user_message(messages: List(chat.Message)) -> Option(String) {
 /// Extracts the body of a "## <name>" section, dropping scaffold placeholder
 /// lines (which the seed writes as _italic guidance_).
 fn section_body(brain: String, name: String) -> String {
-  let sections = string.split(brain, "\n## ")
+  // prepend a newline so a brain whose FIRST line is "## ..." still parses
+  let sections = string.split("\n" <> brain, "\n## ")
   let found =
     list.find(sections, fn(section) {
       string.starts_with(section, name <> "\n")
@@ -126,11 +127,26 @@ fn chapters(
       list.map(entries, fn(entry) {
         Chapter(
           at: entry.at,
-          ask: entry.prompt,
+          ask: clean_ask(entry.prompt),
           outcome: entry.reply,
           areas: areas(entry.paths),
         )
       })
+  }
+}
+
+// Plan builds record a system-flavored preamble before the founder's plan;
+// the story should read like the founder's own words.
+const plan_preamble = "Build this app from the interview plan."
+
+fn clean_ask(prompt: String) -> String {
+  case string.starts_with(prompt, plan_preamble) {
+    True ->
+      case string.trim(string.drop_start(prompt, string.length(plan_preamble))) {
+        "" -> prompt
+        rest -> rest
+      }
+    False -> prompt
   }
 }
 
@@ -183,7 +199,10 @@ fn find_hex(candidates: List(String)) -> Option(String) {
     [] -> None
     [candidate, ..rest] -> {
       let hex = string.slice(candidate, 0, 6)
-      case string.length(hex) == 6 && is_hex(hex) {
+      // reject longer hex runs (e.g. #deadbeef) to match the export renderer
+      let seventh = string.slice(candidate, 6, 1)
+      let boundary = seventh == "" || !is_hex(seventh)
+      case string.length(hex) == 6 && is_hex(hex) && boundary {
         True -> Some("#" <> hex)
         False -> find_hex(rest)
       }

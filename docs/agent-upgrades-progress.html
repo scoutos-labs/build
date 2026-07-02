@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Progress — agent-upgrades</title>
+<style>
+  :root { --ink:#172033; --muted:#5b6579; --line:#e3e7ef; --accent:#d97757; }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color:var(--ink); max-width: 60rem; margin: 2rem auto; padding: 0 1.25rem; line-height:1.5; }
+  h1 { font-size:1.5rem; border-bottom:2px solid var(--accent); padding-bottom:.4rem; }
+  h2 { font-size:1.15rem; margin-top:2rem; border-bottom:1px solid var(--line); padding-bottom:.25rem; }
+  table { border-collapse: collapse; width:100%; font-size:.9rem; }
+  th, td { border:1px solid var(--line); padding:.4rem .55rem; text-align:left; vertical-align:top; }
+  th { background:#f6f8fc; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.88em; background:#f4f5f8; border-radius:4px; }
+  pre { padding:.6rem .8rem; overflow-x:auto; }
+  .chip { display:inline-block; font-size:.72rem; font-weight:700; padding:.12rem .55rem; border-radius:999px; }
+  .pending { background:#eef1f7; color:#5b6579; }
+  .inprog { background:#fff3e0; color:#b26a00; }
+  .pass { background:#e8f5e9; color:#2e7d32; }
+  .manual { background:#e3f2fd; color:#1565c0; }
+  .muted { color:var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>Progress — agent-upgrades</h1>
+<p><strong>Status:</strong> <span class="chip inprog">implementation-review gate</span> · PRD: <a href="agent-upgrades-prd.html">agent-upgrades-prd.html</a></p>
+
+<h2>Banner</h2>
+<table>
+<tr><th>Current phase</th><td>All steps implemented (A1–D3); implementation judge running.</td></tr>
+<tr><th>npm test</th><td>PASS — 89 gleam + 98 vitest = 187 (baseline was 151)</td></tr>
+<tr><th>npm run build</th><td>PASS (gleam build + tsc -b + vite build)</td></tr>
+<tr><th>server tests</th><td>PASS — 103 (after <code>npm install</code> in server/, which was missing deps)</td></tr>
+<tr><th>Uncommitted changes present?</th><td>Only the three LFG docs (prd/progress/handoff).</td></tr>
+</table>
+
+<h2>Step checklist</h2>
+<table>
+<tr><th>Step</th><th>Status</th><th>Evidence</th></tr>
+<tr><td>A1 commit baseline + review fixes</td><td><span class="chip pass">pass</span></td><td>Commits <code>7e785d4</code>, <code>0078f16</code>, <code>732d0ba</code>. Diff review's 3 must-fixes applied: install exit-code gating, mount-relative reload window, pre-baked-Tailwind prompt rule; plus remount serialization, dead-code removal, container-read in runNpmInstall, wider Tailwind glob, main.tsx escape parity fix. 10 new tests in <code>src/gleam-externals/webcontainer-externals.test.ts</code>.</td></tr>
+<tr><td>A2 template drift test</td><td><span class="chip pass">pass</span></td><td><code>src/templates.test.ts</code> "matches the Gleam starter template byte-for-byte" vs compiled Gleam module; evidence command is <code>npm test</code> (builds Gleam first) per judge note.</td></tr>
+<tr><td>A3 prompt parity tests</td><td><span class="chip pass">pass</span></td><td><code>src/prompt-parity.test.ts</code> (5 tests): Rules block, budget, ALWAYS_FULL, BRAIN guard, stub note; client-only rules declared explicitly.</td></tr>
+<tr><td>A4 architecture.md rewrite</td><td><span class="chip pass">pass</span></td><td>Commit <code>5e5541d</code>; grep loop verified all referenced paths exist.</td></tr>
+<tr><td>A5 manual flicker regression</td><td><span class="chip manual">manual</span></td><td>Logic pinned by unit tests; real-browser checklist below remains for the user.</td></tr>
+<tr><td>B1 BRAIN.md seed</td><td><span class="chip pass">pass</span></td><td><code>src/build/pure/brain.gleam</code>; seeded in <code>build_from_plan</code> before the agent call; tests in <code>build_pure_test</code> + <code>build_update_test</code> (<code>build_from_plan_seeds_brain_test</code>).</td></tr>
+<tr><td>B2 brain prompt rules</td><td><span class="chip pass">pass</span></td><td>Both prompts; parity green; assertions in <code>agent.test.ts</code> + <code>server prompt.test.ts</code>. Live-model transcript: manual item.</td></tr>
+<tr><td>B3 brain context guard</td><td><span class="chip pass">pass</span></td><td>BRAIN.md in ALWAYS_FULL both sides; 10k truncation guard; tests both suites (never stubbed; truncated with marker).</td></tr>
+<tr><td>B4 buildLog persistence</td><td><span class="chip pass">pass</span></td><td>Commit <code>7755061</code>: Gleam state/effects → projects.mjs → IndexedDB round-trip test with fake-indexeddb; legacy projects tolerate absence; append tested in <code>agent_success_appends_build_log_entry_test</code>.</td></tr>
+<tr><td>C1 coaching rules</td><td><span class="chip pass">pass</span></td><td>Both prompts + tests. Transcripts: manual item.</td></tr>
+<tr><td>C2 branding rules</td><td><span class="chip pass">pass</span></td><td>Both prompts + tests; Brand section contract ties into BRAIN.md seed scaffold.</td></tr>
+<tr><td>C3 interview nudge</td><td><span class="chip pass">pass</span></td><td>Why-it-matters + name/vibe copy in both template copies; drift test keeps them identical.</td></tr>
+<tr><td>D1 story derivation</td><td><span class="chip pass">pass</span></td><td><code>src/build/pure/story.gleam</code>; 5 tests in <code>test/build_story_test.gleam</code>: full data, chat fallback, empty, malformed brain, seed placeholders ignored.</td></tr>
+<tr><td>D2 story view</td><td><span class="chip pass">pass</span></td><td><code>build_story_modal.gleam</code> + toolbar 📖 button; dialog open/close test. Deviation: close mirrors existing modals (button/backdrop), ESC not added — no existing modal handles ESC (judge note 4).</td></tr>
+<tr><td>D3 story HTML export</td><td><span class="chip pass">pass</span></td><td><code>src/story-html.ts</code> + <code>story.mjs</code> external; tests: XSS escaping, zero external URLs, filename slug, brand accent, empty state.</td></tr>
+</table>
+
+<h2>Reviewer / judge findings</h2>
+<ul>
+  <li><strong>Diff review (pre-commit):</strong> 4 must-fixes found, all applied in A1 (exit-code gating; mount-relative suppression window; pre-baked-Tailwind prompt rule; skip-logic tests + TS/Gleam parity). Known accepted holes: terminal-driven installs don't update the skip marker (safe direction — extra reinstall); <code>rm -rf node_modules</code> in the terminal isn't detected; double reload still possible on the reinstall path.</li>
+  <li><strong>Plan review:</strong> APPROVE, no blockers; 4 notes folded into implementation.</li>
+  <li><strong>Implementation review:</strong> running; findings will be appended here.</li>
+</ul>
+
+<h2>Repair loops</h2>
+<ul>
+  <li>A1: 1 repair round (test hang — mock implementation leaking across suites via clearAllMocks; fixed by resetting in beforeEach). 1 build fix (ambient *.mjs typing needed casts).</li>
+  <li>B4: 2 compile rounds (test arity updates for new effect fields).</li>
+  <li>D: 1 compile round (<code>derive</code> is a reserved Gleam keyword → renamed <code>from_project</code>). 1 test fix (JSON-escaped quotes in body assertion).</li>
+</ul>
+
+<h2>Manual checklist (for the user, needs a real browser)</h2>
+<ol>
+  <li><code>npm run dev</code>; create project A, build via interview; create project B; switch A↔B — preview should reload at most once per switch, terminal shows "Dependencies unchanged — skipping install."</li>
+  <li>Ask the agent for a dependency-adding change — install runs, preview recovers.</li>
+  <li>After the interview build: BRAIN.md appears in the files pane with What &amp; Why; agent replies are plain-language and end with "Next:"; Brand section fills in.</li>
+  <li>📖 button → Story view renders; Export story downloads an HTML file that opens from disk offline and looks right at phone and desktop widths.</li>
+</ol>
+
+<h2>Residual risks</h2>
+<ul>
+  <li>Prompt rules are advisory for small/local models; the deterministic seed and derivation keep Brain/Story functional regardless.</li>
+  <li>Client/server prompt duplication remains until the planned Phase-3 unification; parity tests are the guard.</li>
+  <li>The drift test compares against compiled Gleam output — stale if run via bare <code>vitest run</code> after Gleam-only edits; use <code>npm test</code>.</li>
+  <li>buildLog grows unbounded with turns (each entry ≤ ~700 chars); pruning policy deferred until it matters.</li>
+</ul>
+
+</body>
+</html>

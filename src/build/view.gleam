@@ -1,4 +1,5 @@
 import build/actors/agent
+import build/actors/preview
 import build/actors/project
 import build/actors/publish
 import build/actors/settings
@@ -6,6 +7,7 @@ import build/actors/webcontainer
 import build/components/build_agent_chat
 import build/components/build_editor
 import build/components/build_element_picker
+import build/components/build_layout_switch
 import build/components/build_preview
 import build/components/build_project_nav
 import build/components/build_projects_modal
@@ -26,15 +28,24 @@ pub fn view(app: model.Model) -> Element(msg.Msg) {
   let selected = selected_file(app)
   let running = agent.is_running(app.agent)
   let busy = running || webcontainer.is_busy(app.webcontainer)
-  html.div([attribute.class("app")], [
+  html.div(
+    [
+      attribute.class(case app.preview.layout {
+        preview.ChatMode -> "app modeChat"
+        preview.SplitMode -> "app modeSplit"
+        preview.BuilderMode -> "app modeBuilder"
+      }),
+    ],
+    [
     html.aside([attribute.class("panel chat")], [
       html.header([], [
-        title_row(),
+        title_row(app.preview.layout, app.preview.code_panel_unread),
         html.p([], [
           html.text(
             "Use an agent to create your application in a live browser workspace.",
           ),
         ]),
+        boot_status(app.webcontainer.boot_phase),
       ]),
       build_project_nav.view(
         app.project.project_name,
@@ -72,7 +83,7 @@ pub fn view(app: model.Model) -> Element(msg.Msg) {
     ]),
     html.main(
       [
-        attribute.class(case app.preview.code_panel_open {
+        attribute.class(case preview.code_panel_open(app.preview) {
           True -> "workspace"
           False -> "workspace codeHidden"
         }),
@@ -82,8 +93,6 @@ pub fn view(app: model.Model) -> Element(msg.Msg) {
         app.preview.preview_url,
         app.preview.selecting_element,
         running,
-        app.preview.code_panel_open,
-        app.preview.code_panel_unread,
       ),
       html.section([attribute.class("bottom")], [
         files_pane(app.project.files, app.project.selected_path),
@@ -97,20 +106,47 @@ pub fn view(app: model.Model) -> Element(msg.Msg) {
   ])
 }
 
-fn title_row() {
+fn title_row(layout: preview.LayoutMode, code_panel_unread: Bool) {
   html.div([attribute.class("titleRow")], [
     html.h1([], [html.text("Build")]),
-    html.button(
-      [
-        attribute.type_("button"),
-        attribute.class("secondary iconButton"),
-        attribute.title("Model settings"),
-        attribute.aria_label("Model settings"),
-        event.on_click(msg.Settings(settings.SettingsOpened)),
-      ],
-      [html.text("⚙️")],
-    ),
+    html.div([attribute.class("titleRowTools")], [
+      build_layout_switch.view(layout, code_panel_unread),
+      html.button(
+        [
+          attribute.type_("button"),
+          attribute.class("secondary iconButton"),
+          attribute.title("Model settings"),
+          attribute.aria_label("Model settings"),
+          event.on_click(msg.Settings(settings.SettingsOpened)),
+        ],
+        [html.text("⚙️")],
+      ),
+    ]),
   ])
+}
+
+// A quiet journey line for chat mode (CSS hides it elsewhere): the workspace
+// boots behind the scenes and this is the only visible trace — including
+// failures, which must not be silently swallowed by the full-screen chat.
+fn boot_status(phase: webcontainer.BootPhase) {
+  let text = case phase {
+    webcontainer.LoadingIndexedDb -> "Loading your projects…"
+    webcontainer.BootingContainer -> "Setting up your workspace…"
+    webcontainer.Installing -> "Installing your app's pieces…"
+    webcontainer.StartingDevServer -> "Starting your app…"
+    webcontainer.Remounting -> "Switching projects…"
+    webcontainer.Ready -> ""
+    webcontainer.Error(message) ->
+      "Something went wrong while starting your workspace: " <> message
+  }
+  let class = case phase {
+    webcontainer.Error(_) -> "bootStatus error"
+    _ -> "bootStatus"
+  }
+  case text {
+    "" -> html.text("")
+    _ -> html.p([attribute.class(class)], [html.text(text)])
+  }
 }
 
 fn files_pane(files: List(templates.ProjectFile), selected_path: String) {

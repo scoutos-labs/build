@@ -29,9 +29,9 @@ Elm-style model/update/view with domain actors and effect interpreters:
 - `actors/` — pure domain `update()` state machines: `agent`, `chat`,
   `preview`, `project`, `publish`, `settings`, `webcontainer`.
 - `components/` — view modules: `build_agent_chat`, `build_editor`,
-  `build_element_picker`, `build_preview`, `build_project_nav`,
-  `build_projects_modal`, `build_publish_modal`, `build_settings_modal`,
-  `build_story_modal`, `build_terminal`.
+  `build_element_picker`, `build_layout_switch`, `build_preview`,
+  `build_project_nav`, `build_projects_modal`, `build_publish_modal`,
+  `build_settings_modal`, `build_story_modal`, `build_terminal`.
 - `runtime/` — effect interpreters per domain (`agent`, `ids`, `managed`,
   `preview`, `project`, `publish`, `settings`, `story`, `webcontainer`,
   `zip`).
@@ -79,6 +79,21 @@ Two surfaces exist twice and are guarded by tests:
   `ALWAYS_FULL` set, and stub note across both sources. Client-only rules must
   be declared there explicitly. Full unification is planned in
   `docs/managed-openrouter-migration-plan.md` Phase 3.
+
+## Layout modes
+
+The preview actor owns a `LayoutMode` (`ChatMode` / `SplitMode` /
+`BuilderMode`; UI labels Chat / App / Code) — ephemeral per-session UI state,
+deliberately not persisted, so every session replays chat-during-boot → the
+split reveal when the first preview URL arrives. `layout_is_manual` records a
+segmented-control choice; after that the auto reveal never moves the user.
+Project new/open/reset re-arms it and moves ChatMode users to SplitMode when
+a URL already exists (mid-session remounts never re-fire the URL, and a new
+project's starter app is the interview wizard). BuilderMode is the old code
+panel: the files/editor/terminal strip with the unread-dot semantics moved
+onto the Code segment. All modes render identical DOM — only the `.app`
+class changes — so the preview iframe and xterm shell survive switches.
+Smoke: `scripts/smoke-layout-modes.mjs`.
 
 ## Agent protocol
 

@@ -70,10 +70,11 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
     PreviewUrlChanged(url) -> {
       // The session's first URL is the reveal: the app now exists, show it.
       // Re-fires (crash restarts, reboots) are no-ops because by then the
-      // layout is no longer an automatic ChatMode.
-      let layout = case state.layout, state.layout_is_manual {
-        ChatMode, False -> SplitMode
-        _, _ -> state.layout
+      // layout is no longer an automatic ChatMode. An empty URL (the
+      // non-browser fallback) must not reveal a permanently blank preview.
+      let layout = case url != "", state.layout, state.layout_is_manual {
+        True, ChatMode, False -> SplitMode
+        _, _, _ -> state.layout
       }
       #(
         State(..state, preview_url: url, layout: layout),
@@ -109,6 +110,10 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
       State(..state, selected_element: option.None, element_comment: ""),
       [],
     )
+    LayoutModeSelected(mode) if mode == state.layout ->
+      // Clicking the already-active segment is a no-op — in particular it
+      // must not set layout_is_manual and silently kill the auto reveal.
+      #(state, [])
     LayoutModeSelected(mode) -> {
       // Entering Builder reveals the strip, so the unread nudge is served;
       // leaving it keeps any existing badge (same rule as the old toggle).

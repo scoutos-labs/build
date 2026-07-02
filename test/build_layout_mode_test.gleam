@@ -3,9 +3,7 @@ import build/actors/preview
 import build/actors/webcontainer
 import build/model
 import build/msg
-import build/pure/preview_inspector
 import build/update
-import gleam/option
 import gleeunit
 
 pub fn main() -> Nil {
@@ -43,11 +41,11 @@ pub fn url_refire_does_not_change_split_or_builder_test() {
 }
 
 pub fn manual_chat_choice_blocks_auto_switch_test() {
+  // a deliberate switch back to Chat (from another mode) is manual: the
+  // auto reveal must never fight it
+  let split = preview.State(..preview.init(), layout: preview.SplitMode)
   let #(chose_chat, _) =
-    preview.update(
-      preview.init(),
-      preview.LayoutModeSelected(preview.ChatMode),
-    )
+    preview.update(split, preview.LayoutModeSelected(preview.ChatMode))
   assert chose_chat.layout_is_manual
 
   let #(state, _) =
@@ -81,7 +79,14 @@ pub fn error_in_builder_does_not_badge_test() {
 }
 
 pub fn switching_to_chat_disables_element_selection_test() {
-  let selecting = preview.State(..preview.init(), selecting_element: True)
+  // selection can only be armed while the preview is visible, so the
+  // scenario starts from SplitMode
+  let selecting =
+    preview.State(
+      ..preview.init(),
+      layout: preview.SplitMode,
+      selecting_element: True,
+    )
   let #(state, effects) =
     preview.update(selecting, preview.LayoutModeSelected(preview.ChatMode))
   assert !state.selecting_element
@@ -193,4 +198,23 @@ pub fn reset_project_exits_chat_when_url_exists_test() {
     ))
   let #(next, _) = update.update(app, msg.ResetProject)
   assert next.preview.layout == preview.SplitMode
+}
+
+pub fn empty_url_does_not_reveal_test() {
+  // the non-browser fallback fires onUrl("") — never reveal a blank preview
+  let #(state, _) = preview.update(preview.init(), preview.PreviewUrlChanged(""))
+  assert state.layout == preview.ChatMode
+}
+
+pub fn clicking_active_segment_is_a_noop_test() {
+  // an idle click on the already-active Chat segment must not arm the
+  // manual flag and silently kill the auto reveal
+  let #(state, effects) =
+    preview.update(preview.init(), preview.LayoutModeSelected(preview.ChatMode))
+  assert state == preview.init()
+  assert effects == []
+
+  let #(revealed, _) =
+    preview.update(state, preview.PreviewUrlChanged("http://p"))
+  assert revealed.layout == preview.SplitMode
 }

@@ -33,6 +33,33 @@ describe('extractJson', () => {
   })
 })
 
+describe('BRAIN.md context handling', () => {
+  it('never stubs BRAIN.md under budget pressure', () => {
+    const result = selectContextFiles({
+      userPrompt: 'hello',
+      messages: [],
+      files: [
+        { path: 'BRAIN.md', content: 'decisions '.repeat(100) },
+        { path: 'src/huge.ts', content: 'x'.repeat(FILE_CONTEXT_CHAR_BUDGET) },
+      ],
+    })
+    expect(result.find(file => file.path === 'BRAIN.md')?.stub).toBe(false)
+    expect(result.find(file => file.path === 'src/huge.ts')?.stub).toBe(true)
+  })
+
+  it('truncates an oversized BRAIN.md with a rewrite marker instead of spending the budget', () => {
+    const result = selectContextFiles({
+      userPrompt: '',
+      messages: [],
+      files: [{ path: 'BRAIN.md', content: 'b'.repeat(50_000) }],
+    })
+    const brain = result.find(file => file.path === 'BRAIN.md')
+    expect(brain?.stub).toBe(false)
+    expect(brain?.content.length).toBeLessThan(11_000)
+    expect(brain?.content).toContain('[brain truncated — rewrite BRAIN.md so it is under 6000 characters]')
+  })
+})
+
 describe('JSON_SYSTEM_PROMPT', () => {
   it('tells the model the Tailwind toolchain is pre-baked in the starter', () => {
     expect(JSON_SYSTEM_PROMPT).toContain('Use Tailwind CSS for styling and shadcn/ui for components.')

@@ -8,6 +8,7 @@ import build/actors/webcontainer
 import build/effect
 import build/model
 import build/msg
+import build/pure/brain
 import build/pure/templates
 import gleam/list
 import gleam/option
@@ -395,7 +396,19 @@ fn build_from_plan(
     "Replace the starter interview app with the new application described in this interview plan. Use the plan as the source of truth. Build a polished, runnable React + TypeScript app. Preserve src/build-inspector.ts and its import.\n\nApp plan:\n" <> plan_summary
   case !agent.is_running(app.agent) && !webcontainer.is_busy(app.webcontainer) {
     False -> #(app, [])
-    True -> call_agent_with_prompt(app, user_message, agent_prompt, request_id, now)
+    True -> {
+      // Seed BRAIN.md before the agent call so the What & Why exists (and is
+      // sent as context) regardless of whether the model maintains it.
+      let #(project_state, project_effects) =
+        project.update(
+          app.project,
+          project.FileApplied(brain.brain_path, brain.seed(plan_summary)),
+        )
+      let seeded = model.Model(..app, project: project_state)
+      let #(next, effects) =
+        call_agent_with_prompt(seeded, user_message, agent_prompt, request_id, now)
+      #(next, list.append(list.map(project_effects, effect.Project), effects))
+    }
   }
 }
 

@@ -52,6 +52,13 @@ describe('client/server prompt parity', () => {
     expect(setOf(clientSource, 'src/agent.ts')).toEqual(setOf(serverSource, 'server/src/prompt.ts'))
   })
 
+  it('keeps the BRAIN.md guard identical', () => {
+    const maxChars = (source: string, file: string) => constant(source, /BRAIN_MAX_CHARS = (\d[\d_]*)/, file)
+    const note = (source: string, file: string) => constant(source, /BRAIN_TRUNCATION_NOTE = '([^']*)'/, file)
+    expect(maxChars(clientSource, 'src/agent.ts')).toBe(maxChars(serverSource, 'server/src/prompt.ts'))
+    expect(note(clientSource, 'src/agent.ts')).toBe(note(serverSource, 'server/src/prompt.ts'))
+  })
+
   it('keeps the stub note and stub limits identical', () => {
     const stubNote = (source: string, file: string) =>
       constant(source, /const STUB_NOTE = `\n\n([\s\S]*?)`/, file)

@@ -9,7 +9,9 @@ import build/model
 import build/msg
 import build/pure/preview_inspector
 import build/update
+import gleam/list
 import gleam/option
+import gleam/string
 import gleeunit
 
 pub fn main() -> Nil {
@@ -307,4 +309,41 @@ pub fn submit_prompt_appends_user_and_starts_agent_test() {
       )),
       effect.ScrollMessagesToBottom,
     ]
+}
+
+pub fn build_from_plan_seeds_brain_test() {
+  let configured_settings =
+    settings.State(
+      ..settings.init(),
+      model: "anthropic/claude-3.5-sonnet",
+      api_key: "sk-test",
+      settings_open: False,
+    )
+  let app =
+    model.Model(
+      ..model.init(),
+      settings: configured_settings,
+      webcontainer: webcontainer.State(
+        ..webcontainer.init(),
+        boot_phase: webcontainer.Ready,
+      ),
+    )
+  let #(next, effects) =
+    update.update(
+      app,
+      msg.BuildFromPlan("Build an app for: dog walkers", "req", 1000),
+    )
+
+  // The seed exists in project files before the agent responds, so the What
+  // & Why survives even if the model never maintains BRAIN.md.
+  assert list.any(next.project.files, fn(file) {
+    file.path == "BRAIN.md" && string.contains(file.content, "dog walkers")
+  })
+  assert next.agent.lifecycle == agent.Running("req", 1000)
+  assert list.any(effects, fn(eff) {
+    case eff {
+      effect.Project(project.WriteFileToContainer("BRAIN.md", _)) -> True
+      _ -> False
+    }
+  })
 }

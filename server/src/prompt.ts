@@ -66,6 +66,8 @@ Rules:
 - If changing dependencies, replace package.json too.
 - Preserve src/build-inspector.ts and the './build-inspector' import unless the user explicitly asks to remove Build preview selection.
 - Apply the bundled design guidance unless the user asks for a different brand or visual direction.
+- Maintain BRAIN.md, the project's plain-language wiki: keep "## What & Why" describing the user's goals (change it only when the user changes their goals), keep "## How it works" a current plain-language summary of the app, record brand choices under "## Brand", and append dated entries under "## Decisions" when you make significant design or engineering choices.
+- Keep BRAIN.md under 6,000 characters: prune superseded decisions and never paste code into it.
 - Never include markdown, prose, progress updates, or code fences outside the JSON object.
 
 Design guidance:
@@ -110,7 +112,18 @@ const STUB_LINES = 20
 /** Caps a stub regardless of line count — one minified line can be huge. */
 const STUB_MAX_CHARS = 1000
 /** Project skeleton, always sent in full so the model can reason about structure. */
-const ALWAYS_FULL = new Set(['package.json', 'vite.config.ts', 'zepto-bridge.js', 'server.js', 'index.html', 'src/db.ts'])
+const ALWAYS_FULL = new Set(['package.json', 'vite.config.ts', 'zepto-bridge.js', 'server.js', 'index.html', 'src/db.ts', 'BRAIN.md'])
+
+/** BRAIN.md ships in full every request, so a runaway brain would eat the
+ * context budget — past this cap it is truncated with a rewrite marker. */
+const BRAIN_PATH = 'BRAIN.md'
+const BRAIN_MAX_CHARS = 10_000
+const BRAIN_TRUNCATION_NOTE = '\n\n[brain truncated — rewrite BRAIN.md so it is under 6000 characters]'
+
+function guardBrainFile(file: ProjectFile): ProjectFile {
+  if (file.path !== BRAIN_PATH || file.content.length <= BRAIN_MAX_CHARS) return file
+  return { ...file, content: file.content.slice(0, BRAIN_MAX_CHARS) + BRAIN_TRUNCATION_NOTE }
+}
 const SMALL_FILE_CHARS = 1500
 /** Trailing chat messages scanned for file mentions — this is also what makes
  * "ask for a stubbed file" work: the model names the path in its reply, the
@@ -124,8 +137,9 @@ function basename(path: string) {
 }
 
 export function selectContextFiles(body: AgentRequestBody): ContextFile[] {
-  const total = body.files.reduce((sum, file) => sum + file.content.length, 0)
-  if (total <= FILE_CONTEXT_CHAR_BUDGET) return body.files.map(file => ({ ...file, stub: false }))
+  const files = body.files.map(guardBrainFile)
+  const total = files.reduce((sum, file) => sum + file.content.length, 0)
+  if (total <= FILE_CONTEXT_CHAR_BUDGET) return files.map(file => ({ ...file, stub: false }))
 
   const mentionText = [
     body.userPrompt,
@@ -144,7 +158,7 @@ export function selectContextFiles(body: AgentRequestBody): ContextFile[] {
     return 4
   }
 
-  const ranked = body.files
+  const ranked = files
     .map((file, index) => ({ file, index, priority: priority(file) }))
     .sort((a, b) => a.priority - b.priority || a.index - b.index)
   let spent = 0
@@ -156,7 +170,7 @@ export function selectContextFiles(body: AgentRequestBody): ContextFile[] {
       spent += entry.file.content.length
     }
   }
-  return body.files.map(file => ({ ...file, stub: stubbed.has(file.path) }))
+  return files.map(file => ({ ...file, stub: stubbed.has(file.path) }))
 }
 
 const STUB_NOTE = `

@@ -57,18 +57,27 @@ export async function loadInitialProject() {
 function gleamListToArray(list) { return typeof list?.toArray === 'function' ? list.toArray() : [] }
 function normalizeFiles(files) { return gleamListToArray(files).map(file => ({ path: file.path, content: file.content })) }
 function normalizeMessages(messages) { return gleamListToArray(messages).map(message => ({ role: message.role.constructor.name === 'User' ? 'user' : 'assistant', content: message.content })) }
+function normalizeBuildLog(buildLog) {
+  return gleamListToArray(buildLog).map(entry => ({
+    at: entry.at,
+    prompt: entry.prompt,
+    reply: entry.reply,
+    paths: gleamListToArray(entry.paths),
+  }))
+}
 
-export async function saveCurrentProject(name, filesArg, messagesArg, selectedPath, currentProjectId, silent) {
+export async function saveCurrentProject(name, filesArg, messagesArg, buildLogArg, selectedPath, currentProjectId, silent) {
   const m = await modules()
-  lastSavePayload = { name, filesArg, messagesArg, selectedPath, currentProjectId, silent }
+  lastSavePayload = { name, filesArg, messagesArg, buildLogArg, selectedPath, currentProjectId, silent }
   const cleanName = String(name || '').trim() || 'Untitled Project'
   const files = normalizeFiles(filesArg)
   const messages = normalizeMessages(messagesArg)
+  const buildLog = normalizeBuildLog(buildLogArg)
   const now = new Date().toISOString()
   const existing = currentProjectId ? await m.getProject(currentProjectId) : undefined
   const project = existing
-    ? { ...existing, name: cleanName, files, messages, selectedPath, updatedAt: now }
-    : await m.createProject({ name: cleanName, files, messages, selectedPath })
+    ? { ...existing, name: cleanName, files, messages, buildLog, selectedPath, updatedAt: now }
+    : await m.createProject({ name: cleanName, files, messages, buildLog, selectedPath })
   const saved = existing ? await m.saveProject(project) : project
   await dispatchProjectLoaded(saved)
   await dispatchProjectSaveStatus(silent ? `Auto-saved ${m.formatUpdatedAt(saved.updatedAt)}` : 'Saved just now')
@@ -115,11 +124,11 @@ export async function persistCurrentProjectId(id) {
   await m.setCurrentProjectId(id || null)
 }
 
-export function scheduleSave(delay, name, filesArg, messagesArg, selectedPath, currentProjectId) {
-  lastSavePayload = { name, filesArg, messagesArg, selectedPath, currentProjectId, silent: true }
+export function scheduleSave(delay, name, filesArg, messagesArg, buildLogArg, selectedPath, currentProjectId) {
+  lastSavePayload = { name, filesArg, messagesArg, buildLogArg, selectedPath, currentProjectId, silent: true }
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {
     saveTimer = null
-    if (lastSavePayload) void saveCurrentProject(lastSavePayload.name, lastSavePayload.filesArg, lastSavePayload.messagesArg, lastSavePayload.selectedPath, lastSavePayload.currentProjectId, true)
+    if (lastSavePayload) void saveCurrentProject(lastSavePayload.name, lastSavePayload.filesArg, lastSavePayload.messagesArg, lastSavePayload.buildLogArg, lastSavePayload.selectedPath, lastSavePayload.currentProjectId, true)
   }, delay)
 }

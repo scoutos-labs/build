@@ -3,6 +3,7 @@ import { toList } from '../gleam.mjs'
 import * as Option from '../../gleam_stdlib/gleam/option.mjs'
 import * as Msg from '../build/msg.mjs'
 import * as Project from '../build/actors/project.mjs'
+import * as BuildLog from '../build/pure/build_log.mjs'
 import * as Templates from '../build/pure/templates.mjs'
 import * as Chat from '../build/actors/chat.mjs'
 import * as WebContainer from '../build/actors/webcontainer.mjs'
@@ -29,6 +30,15 @@ export function toGleamFiles(files = []) {
   return toList(files.map(file => Templates.ProjectFile$ProjectFile(file.path, file.content)))
 }
 
+export function toGleamBuildLog(entries = []) {
+  return toList(entries.map(entry => BuildLog.Entry$Entry(
+    entry.at ?? 0,
+    entry.prompt ?? '',
+    entry.reply ?? '',
+    toList(entry.paths ?? []),
+  )))
+}
+
 export function toGleamMessages(messages = []) {
   return toList(messages.map(message => Chat.Message$Message(
     message.role === 'user' ? Chat.Role$User() : Chat.Role$Assistant(),
@@ -47,6 +57,7 @@ export function dispatchProjectLoaded(project) {
     toGleamFiles(project?.files ?? []),
     project?.selectedPath ?? project?.selected_path ?? '',
     project?.updatedAt ?? project?.updated_at ?? '',
+    toGleamBuildLog(project?.buildLog ?? project?.build_log ?? []),
   )))
 }
 

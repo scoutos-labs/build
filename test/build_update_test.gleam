@@ -7,6 +7,7 @@ import build/actors/webcontainer
 import build/effect
 import build/model
 import build/msg
+import build/pure/build_log
 import build/pure/preview_inspector
 import build/update
 import gleam/list
@@ -123,6 +124,7 @@ pub fn save_and_new_project_emit_effects_test() {
         name: "Untitled Project",
         files: app.project.files,
         messages: app.chat.messages,
+        build_log: app.project.build_log,
         selected_path: app.project.selected_path,
         current_project_id: app.project.current_project_id,
         silent: True,
@@ -181,6 +183,7 @@ pub fn editor_file_changes_debounce_container_write_and_schedule_autosave_test()
         next.project.project_name,
         next.project.files,
         next.chat.messages,
+        next.project.build_log,
         next.project.selected_path,
         next.project.current_project_id,
       )),
@@ -212,6 +215,7 @@ pub fn file_changes_schedule_autosave_when_hydrated_test() {
         next.project.project_name,
         next.project.files,
         next.chat.messages,
+        next.project.build_log,
         next.project.selected_path,
         next.project.current_project_id,
       )),
@@ -258,6 +262,7 @@ pub fn agent_success_applies_patches_and_replies_test() {
         next.project.project_name,
         next.project.files,
         next.chat.messages,
+        next.project.build_log,
         next.project.selected_path,
         next.project.current_project_id,
       )),
@@ -346,4 +351,37 @@ pub fn build_from_plan_seeds_brain_test() {
       _ -> False
     }
   })
+}
+
+pub fn agent_success_appends_build_log_entry_test() {
+  let app =
+    model.Model(
+      ..model.init(),
+      agent: agent.State(
+        ..agent.init(),
+        lifecycle: agent.Running("req", 1234),
+      ),
+      chat: chat.State(
+        messages: [chat.Message(chat.User, "make a todo app")],
+        prompt: "",
+        expanded_messages: [],
+      ),
+      webcontainer: webcontainer.State(
+        ..webcontainer.init(),
+        boot_phase: webcontainer.Ready,
+        hydrated: True,
+      ),
+    )
+  let #(next, _) =
+    update.update(
+      app,
+      msg.Agent(
+        agent.AgentRequestSucceeded("req", "Done", [
+          agent.Patch("src/main.tsx", "patched"),
+        ]),
+      ),
+    )
+
+  assert next.project.build_log
+    == [build_log.entry(1234, "make a todo app", "Done", ["src/main.tsx"])]
 }

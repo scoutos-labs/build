@@ -9,6 +9,7 @@ import build/effect
 import build/model
 import build/msg
 import build/pure/brain
+import build/pure/build_log
 import build/pure/templates
 import gleam/list
 import gleam/option
@@ -45,6 +46,7 @@ pub fn update(
         name: app.project.project_name,
         files: app.project.files,
         messages: app.chat.messages,
+        build_log: app.project.build_log,
         selected_path: app.project.selected_path,
         current_project_id: app.project.current_project_id,
         silent: silent,
@@ -206,6 +208,21 @@ fn update_agent(
           let chat_state = chat.update(app.chat, chat.AssistantReplied(reply))
           let #(project_state, project_effects) =
             apply_patches(app.project, patches)
+          // Record the turn for the Build Story: request-start timestamp,
+          // truncated prompt/reply, and the touched paths only.
+          let started_at = case app.agent.lifecycle {
+            agent.Running(_, at) -> at
+            _ -> 0
+          }
+          let log_entry =
+            build_log.entry(
+              started_at,
+              last_user_prompt(app.chat.messages),
+              reply,
+              list.map(patches, fn(patch) { patch.path }),
+            )
+          let #(project_state, _) =
+            project.update(project_state, project.BuildLogAppended(log_entry))
           with_auto_save(
             model.Model(
               ..app,
@@ -236,6 +253,15 @@ fn update_agent(
       }
     _ -> #(model.Model(..app, agent: agent_state), mapped_agent_effects)
   }
+}
+
+fn last_user_prompt(messages: List(chat.Message)) -> String {
+  list.fold(messages, "", fn(acc, message) {
+    case message.role {
+      chat.User -> message.content
+      chat.Assistant -> acc
+    }
+  })
 }
 
 fn request_matches(state: agent.State, request_id: String) -> Bool {
@@ -276,6 +302,7 @@ fn with_auto_save(
           app.project.project_name,
           app.project.files,
           app.chat.messages,
+          app.project.build_log,
           app.project.selected_path,
           app.project.current_project_id,
         )),

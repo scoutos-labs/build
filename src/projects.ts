@@ -1,6 +1,13 @@
 import type { ChatMessage } from './agent'
 import type { ProjectFile } from './templates'
 
+export type BuildLogEntry = {
+  at: number
+  prompt: string
+  reply: string
+  paths: string[]
+}
+
 export type SavedProject = {
   id: string
   name: string
@@ -9,6 +16,9 @@ export type SavedProject = {
   selectedPath: string
   createdAt: string
   updatedAt: string
+  /** One entry per successful agent turn; absent on projects saved before
+   * the Build Story feature. Prompts/replies are stored truncated. */
+  buildLog?: BuildLogEntry[]
 }
 
 const DB_NAME = 'build-db'

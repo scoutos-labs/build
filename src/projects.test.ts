@@ -67,6 +67,24 @@ describe('IndexedDB project storage', () => {
     await expect(getCurrentProjectId()).resolves.toBeNull()
   })
 
+  it('round-trips the buildLog and tolerates projects saved without one', async () => {
+    const { createProject, getProject, saveProject } = await freshProjectsModule()
+
+    const legacy = await createProject({ name: 'Legacy' })
+    const project = await createProject({ name: 'Storied' })
+    const buildLog = [
+      { at: 1720000000000, prompt: 'make a todo app', reply: 'Done', paths: ['src/main.tsx'] },
+      { at: 1720000100000, prompt: 'make it blue', reply: 'Styled', paths: ['src/style.css'] },
+    ]
+    await saveProject({ ...project, buildLog })
+
+    const loaded = await getProject(project.id)
+    expect(loaded?.buildLog).toEqual(buildLog)
+    // projects saved before the Build Story feature simply have no buildLog
+    const legacyLoaded = await getProject(legacy.id)
+    expect(legacyLoaded?.buildLog).toBeUndefined()
+  })
+
   it('returns undefined for missing projects', async () => {
     const { getProject } = await freshProjectsModule()
     await expect(getProject('missing')).resolves.toBeUndefined()

@@ -1,5 +1,6 @@
 import build/actors/chat
 import build/actors/project
+import build/pure/build_log
 import build/pure/templates
 import gleam/option
 
@@ -10,6 +11,7 @@ pub fn interpret(effect: project.Effect) -> Nil {
       name,
       files,
       messages,
+      build_log,
       selected_path,
       current_project_id,
       silent,
@@ -18,6 +20,7 @@ pub fn interpret(effect: project.Effect) -> Nil {
         name,
         files,
         messages,
+        build_log,
         selected_path,
         option.unwrap(current_project_id, ""),
         silent,
@@ -39,6 +42,7 @@ pub fn interpret(effect: project.Effect) -> Nil {
       name,
       files,
       messages,
+      build_log,
       selected_path,
       current_project_id,
     ) ->
@@ -47,6 +51,7 @@ pub fn interpret(effect: project.Effect) -> Nil {
         name,
         files,
         messages,
+        build_log,
         selected_path,
         option.unwrap(current_project_id, ""),
       )
@@ -61,6 +66,7 @@ fn save_current_project(
   name: String,
   files: List(templates.ProjectFile),
   messages: List(chat.Message),
+  build_log: List(build_log.Entry),
   selected_path: String,
   current_project_id: String,
   silent: Bool,
@@ -105,6 +111,7 @@ fn schedule_save(
   name: String,
   files: List(templates.ProjectFile),
   messages: List(chat.Message),
+  build_log: List(build_log.Entry),
   selected_path: String,
   current_project_id: String,
 ) -> Nil

@@ -338,7 +338,7 @@ fn with_auto_save(
 fn can_submit_prompt(app: model.Model) -> Bool {
   app.chat.prompt != ""
   && !agent.is_running(app.agent)
-  && !webcontainer.is_busy(app.webcontainer)
+  && !webcontainer.is_remounting(app.webcontainer)
   && !app.agent.budget_exhausted
 }
 
@@ -444,7 +444,10 @@ fn build_from_plan(
   let user_message = "Build this app from the interview plan.\n\n" <> plan_summary
   let agent_prompt =
     "Replace the starter interview app with the new application described in this interview plan. Use the plan as the source of truth. Build a polished, runnable React + TypeScript app. Preserve src/build-inspector.ts and its import.\n\nApp plan:\n" <> plan_summary
-  case !agent.is_running(app.agent) && !webcontainer.is_busy(app.webcontainer) {
+  case
+    !agent.is_running(app.agent)
+    && !webcontainer.is_remounting(app.webcontainer)
+  {
     False -> #(app, [])
     True -> {
       // Seed BRAIN.md before the agent call so the What & Why exists (and is

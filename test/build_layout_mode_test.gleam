@@ -1,6 +1,8 @@
+import build/actors/agent
 import build/actors/chat
 import build/actors/preview
 import build/actors/webcontainer
+import build/actors/settings
 import build/model
 import build/msg
 import build/update
@@ -217,4 +219,55 @@ pub fn clicking_active_segment_is_a_noop_test() {
   let #(revealed, _) =
     preview.update(state, preview.PreviewUrlChanged("http://p"))
   assert revealed.layout == preview.SplitMode
+}
+
+// --- chat availability during boot ---
+
+pub fn submit_prompt_works_while_container_boots_test() {
+  let configured_settings =
+    settings.State(
+      ..settings.init(),
+      model: "anthropic/claude-3.5-sonnet",
+      api_key: "sk-test",
+      settings_open: False,
+    )
+  let app =
+    model.Model(
+      ..model.init(),
+      settings: configured_settings,
+      chat: chat.State(messages: [], prompt: "make app", expanded_messages: []),
+      webcontainer: webcontainer.State(
+        ..webcontainer.init(),
+        boot_phase: webcontainer.Installing,
+      ),
+    )
+  let #(next, _) = update.update(app, msg.SubmitPrompt("req", 1000))
+
+  // the agent only needs the in-memory files; boot must not block chat
+  assert agent.is_running(next.agent)
+}
+
+pub fn submit_prompt_blocked_during_remount_test() {
+  let configured_settings =
+    settings.State(
+      ..settings.init(),
+      model: "anthropic/claude-3.5-sonnet",
+      api_key: "sk-test",
+      settings_open: False,
+    )
+  let app =
+    model.Model(
+      ..model.init(),
+      settings: configured_settings,
+      chat: chat.State(messages: [], prompt: "make app", expanded_messages: []),
+      webcontainer: webcontainer.State(
+        ..webcontainer.init(),
+        boot_phase: webcontainer.Remounting,
+      ),
+    )
+  let #(next, effects) = update.update(app, msg.SubmitPrompt("req", 1000))
+
+  // a project-switch remount is the one unsafe window
+  assert !agent.is_running(next.agent)
+  assert effects == []
 }

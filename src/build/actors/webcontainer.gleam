@@ -54,6 +54,13 @@ pub fn is_busy(state: State) -> Bool {
   state.boot_phase != Ready
 }
 
+/// The agent only needs the in-memory project files, so chatting during the
+/// initial boot (or after a boot failure) is fine — the only unsafe window
+/// is a project-switch remount, when the file set is being swapped.
+pub fn is_remounting(state: State) -> Bool {
+  state.boot_phase == Remounting
+}
+
 pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
   case msg {
     BootStarted -> #(State(..state, boot_phase: BootingContainer), [])

@@ -19,6 +19,7 @@ pub type Msg {
   CancelAgent
   ResetProject
   ExportZip
+  ExportStory
   OpenProject(String)
   RemoveProject(String)
   RemoveProjectConfirmed(String)

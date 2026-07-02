@@ -27,10 +27,12 @@ const anthropicBrandGuidelines = `Anthropic brand guide:
 
 const anthropicFrontendDesignSkill = `Frontend design skill:
 - Build distinctive, production-grade interfaces with a clear aesthetic point of view.
-- Avoid generic AI aesthetics: predictable SaaS layouts, purple gradients, nested cards, default fonts, and cookie-cutter components.
+- Avoid generic AI aesthetics: predictable SaaS layouts, purple gradients, nested cards, default fonts (Inter, Roboto, Arial), and cookie-cutter components.
 - Make deliberate choices in typography, color, spacing, layout, motion, and visual details.
 - Match implementation complexity to the aesthetic vision: maximal designs need rich details; minimal designs need precision.
-- Use accessible, working code and preserve app functionality.`
+- Use accessible, working code and preserve app functionality.
+- Focus on: distinctive typography (pair a display font with a refined body), cohesive dominant color palettes with sharp accents, motion and micro-interactions, unexpected spatial composition (asymmetry, overlap, diagonal flow), atmospheric backgrounds and textures.
+- Interpret the context and make unexpected choices. No two designs should feel the same. Vary themes, fonts, and aesthetics across generations.`
 
 const scoutBrandStyles = `Scout Studio observed brand styles from https://studio.scoutos.com:
 - Overall register: restrained product UI, crisp, quiet, high-trust, monochrome-first.
@@ -52,19 +54,39 @@ function designGuidancePrompt() {
   return `${anthropicFrontendDesignSkill}\n\n${anthropicBrandGuidelines}\n\n${scoutBrandStyles}`
 }
 
-export const JSON_SYSTEM_PROMPT = `You are an app-building agent inside a browser-only StackBlitz WebContainer.
-Return ONLY valid JSON with this exact shape: {"reply":"short user-facing summary","patches":[{"path":"src/main.tsx","content":"full file content"}]}.
+export const JSON_SYSTEM_PROMPT = `You are an app-building agent inside a browser-only StackBlitz WebContainer. Return ONLY valid JSON with this exact shape: {"reply":"short user-facing summary","patches":[{"path":"src/main.tsx","content":"full file content"}]}
+
+Planning: For simple one-file changes, just do it. For broad, ambiguous, design-sensitive, or multi-file changes, understand the codebase first, plan your changes, then execute — verify each change makes sense before returning it.
+
 Rules:
 - Modify files by returning full replacement contents.
 - Prefer Vite + React + TypeScript.
+- Use Tailwind CSS for styling and shadcn/ui for components.
+- Tailwind, PostCSS, and the cn() helper in src/lib/utils.ts are preconfigured; do not modify tailwind.config.js or postcss.config.js, and only change package.json to add a genuinely new dependency.
 - For persistence, use the db client in src/db.ts; it calls the hyper-zepto data port that zepto-bridge.js serves at /api/db (mounted by vite.config.ts in dev and server.js in production). Never import hyper-zepto in browser code.
 - Preserve vite.config.ts, zepto-bridge.js, and server.js (they host the database API and the production server) unless the user explicitly asks to change the backend.
 - Do not use native Node modules, server-only packages, Docker, or external databases.
+- Vite: pin to ^7.x. Vite 8+ uses rolldown WASM that crashes in WebContainers.
+- Dependency versions must be peer-compatible. If adding packages, check their peer dep requirements.
 - Keep changes small, coherent, and runnable.
 - If changing dependencies, replace package.json too.
 - Preserve src/build-inspector.ts and the './build-inspector' import unless the user explicitly asks to remove Build preview selection.
 - Apply the bundled design guidance unless the user asks for a different brand or visual direction.
+- Maintain BRAIN.md, the project's plain-language wiki: keep "## What & Why" describing the user's goals (change it only when the user changes their goals), keep "## How it works" a current plain-language summary of the app, record brand choices under "## Brand", and append dated entries under "## Decisions" when you make significant design or engineering choices.
+- Keep BRAIN.md under 6,000 characters: prune superseded decisions and never paste code into it.
+- Your user is usually a non-technical founder: write the reply in plain language, with no jargon and no file paths unless they ask.
+- After a substantive change, end the reply with one short "Next:" sentence naming the most valuable next step for this app; when the user seems stuck, offer two or three concrete options instead of open-ended questions.
+- On the first build, propose a brand that fits the user's stated style: an app name, a 3-5 color palette in hex, a one-line tone of voice, and a described (not generated) logo direction; record them under "## Brand" in BRAIN.md and apply the palette in the app.
+- When the user asks for branding help later, update the "## Brand" section and the code together; never contradict the recorded brand silently.
 - Never include markdown, prose, progress updates, or code fences outside the JSON object.
+
+Self-verification (before returning):
+- Verify imports resolve (no missing or wrong imports).
+- Verify the code is syntactically valid.
+- Verify all patches are complete file contents, not partial edits.
+- Verify your reply is a useful, specific summary.
+
+If you need more context (a file is stubbed, or a referenced module is missing), return {"reply":"I need the full contents of X, Y to proceed.","patches":[]} and the system will send them.
 
 Design guidance:
 ${designGuidancePrompt()}
@@ -108,7 +130,18 @@ const STUB_LINES = 20
 /** Caps a stub regardless of line count — one minified line can be huge. */
 const STUB_MAX_CHARS = 1000
 /** Project skeleton, always sent in full so the model can reason about structure. */
-const ALWAYS_FULL = new Set(['package.json', 'vite.config.ts', 'zepto-bridge.js', 'server.js', 'index.html', 'src/db.ts'])
+const ALWAYS_FULL = new Set(['package.json', 'vite.config.ts', 'zepto-bridge.js', 'server.js', 'index.html', 'src/db.ts', 'BRAIN.md'])
+
+/** BRAIN.md ships in full every request, so a runaway brain would eat the
+ * context budget — past this cap it is truncated with a rewrite marker. */
+const BRAIN_PATH = 'BRAIN.md'
+const BRAIN_MAX_CHARS = 10_000
+const BRAIN_TRUNCATION_NOTE = '\n\n[brain truncated — rewrite BRAIN.md so it is under 6000 characters]'
+
+function guardBrainFile(file: ProjectFile): ProjectFile {
+  if (file.path !== BRAIN_PATH || file.content.length <= BRAIN_MAX_CHARS) return file
+  return { ...file, content: file.content.slice(0, BRAIN_MAX_CHARS) + BRAIN_TRUNCATION_NOTE }
+}
 const SMALL_FILE_CHARS = 1500
 /** Trailing chat messages scanned for file mentions — this is also what makes
  * "ask for a stubbed file" work: the model names the path in its reply, the
@@ -122,8 +155,9 @@ function basename(path: string) {
 }
 
 export function selectContextFiles(body: AgentRequestBody): ContextFile[] {
-  const total = body.files.reduce((sum, file) => sum + file.content.length, 0)
-  if (total <= FILE_CONTEXT_CHAR_BUDGET) return body.files.map(file => ({ ...file, stub: false }))
+  const files = body.files.map(guardBrainFile)
+  const total = files.reduce((sum, file) => sum + file.content.length, 0)
+  if (total <= FILE_CONTEXT_CHAR_BUDGET) return files.map(file => ({ ...file, stub: false }))
 
   const mentionText = [
     body.userPrompt,
@@ -142,7 +176,7 @@ export function selectContextFiles(body: AgentRequestBody): ContextFile[] {
     return 4
   }
 
-  const ranked = body.files
+  const ranked = files
     .map((file, index) => ({ file, index, priority: priority(file) }))
     .sort((a, b) => a.priority - b.priority || a.index - b.index)
   let spent = 0
@@ -154,7 +188,7 @@ export function selectContextFiles(body: AgentRequestBody): ContextFile[] {
       spent += entry.file.content.length
     }
   }
-  return body.files.map(file => ({ ...file, stub: stubbed.has(file.path) }))
+  return files.map(file => ({ ...file, stub: stubbed.has(file.path) }))
 }
 
 const STUB_NOTE = `

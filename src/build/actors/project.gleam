@@ -1,5 +1,7 @@
 import build/actors/chat
+import build/pure/build_log
 import build/pure/templates
+import gleam/list
 import gleam/option.{type Option, None, Some}
 
 pub type SavedProject {
@@ -17,6 +19,8 @@ pub type State {
     projects_open: Bool,
     files: List(templates.ProjectFile),
     selected_path: String,
+    build_log: List(build_log.Entry),
+    story_open: Bool,
   )
 }
 
@@ -27,6 +31,7 @@ pub type Msg {
     files: List(templates.ProjectFile),
     selected_path: String,
     updated_at: String,
+    build_log: List(build_log.Entry),
   )
   ProjectListRefreshed(projects: List(SavedProject))
   ProjectCreated(
@@ -48,6 +53,9 @@ pub type Msg {
   FileEdited(path: String, content: String)
   SelectedPathChanged(path: String)
   ResetToStarter
+  BuildLogAppended(entry: build_log.Entry)
+  StoryDialogOpened
+  StoryDialogClosed
 }
 
 pub type Effect {
@@ -56,6 +64,7 @@ pub type Effect {
     name: String,
     files: List(templates.ProjectFile),
     messages: List(chat.Message),
+    build_log: List(build_log.Entry),
     selected_path: String,
     current_project_id: Option(String),
     silent: Bool,
@@ -66,6 +75,7 @@ pub type Effect {
     messages: List(chat.Message),
     selected_path: String,
   )
+  // CreateProject always starts with an empty build log.
   OpenProject(id: String)
   DeleteProject(id: String)
   RefreshProjectList
@@ -78,6 +88,7 @@ pub type Effect {
     name: String,
     files: List(templates.ProjectFile),
     messages: List(chat.Message),
+    build_log: List(build_log.Entry),
     selected_path: String,
     current_project_id: Option(String),
   )
@@ -94,12 +105,14 @@ pub fn init() -> State {
     projects_open: False,
     files: templates.starter_files(),
     selected_path: "src/main.tsx",
+    build_log: [],
+    story_open: False,
   )
 }
 
 pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
   case msg {
-    ProjectLoaded(id, name, files, selected_path, updated_at) -> {
+    ProjectLoaded(id, name, files, selected_path, updated_at, build_log) -> {
       let next_files = case files {
         [] -> templates.starter_files()
         _ -> files
@@ -120,6 +133,7 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
           files: next_files,
           selected_path: path,
           save_status: status,
+          build_log: build_log,
         ),
         [],
       )
@@ -136,6 +150,7 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
         files: files,
         selected_path: selected_path,
         save_status: "Saved just now",
+        build_log: [],
       ),
       [],
     )
@@ -185,9 +200,16 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
         files: templates.starter_files(),
         selected_path: "src/main.tsx",
         save_status: "Unsaved changes",
+        build_log: [],
       ),
       [RemountProject(templates.starter_files())],
     )
+    BuildLogAppended(entry) -> #(
+      State(..state, build_log: list.append(state.build_log, [entry])),
+      [],
+    )
+    StoryDialogOpened -> #(State(..state, story_open: True), [])
+    StoryDialogClosed -> #(State(..state, story_open: False), [])
   }
 }
 

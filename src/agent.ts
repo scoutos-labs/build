@@ -15,6 +15,10 @@ export type AgentResult = { reply: string; patches: AgentPatch[]; envVars?: Reco
  *
  * Decomposed into sections so each is independently testable and the
  * prompt can be lazily built without recomputing static parts.
+ *
+ * The Rules block must stay in sync with server/src/prompt.ts (the managed
+ * source of truth) — src/prompt-parity.test.ts enforces this, with
+ * client-only rules declared there explicitly.
  */
 export function buildSystemPrompt(): string {
   const header = [
@@ -26,8 +30,9 @@ export function buildSystemPrompt(): string {
 
   const rules = [
     'Modify files by returning full replacement contents.',
-    'Prefer Next.js + React + TypeScript.',
+    'Prefer Vite + React + TypeScript.',
     'Use Tailwind CSS for styling and shadcn/ui for components.',
+    'Tailwind, PostCSS, and the cn() helper in src/lib/utils.ts are preconfigured; do not modify tailwind.config.js or postcss.config.js, and only change package.json to add a genuinely new dependency.',
     'For persistence, use the db client in src/db.ts; it calls the hyper-zepto data port that zepto-bridge.js serves at /api/db (mounted by vite.config.ts in dev and server.js in production). Never import hyper-zepto in browser code.',
     'Preserve vite.config.ts, zepto-bridge.js, and server.js (they host the database API and the production server) unless the user explicitly asks to change the backend.',
     'Do not use native Node modules, server-only packages, Docker, or external databases.',
@@ -37,6 +42,12 @@ export function buildSystemPrompt(): string {
     'If changing dependencies, replace package.json too.',
     "Preserve src/build-inspector.ts and the './build-inspector' import unless the user explicitly asks to remove Build preview selection.",
     'Apply the bundled design guidance unless the user asks for a different brand or visual direction.',
+    'Maintain BRAIN.md, the project\'s plain-language wiki: keep "## What & Why" describing the user\'s goals (change it only when the user changes their goals), keep "## How it works" a current plain-language summary of the app, record brand choices under "## Brand", and append dated entries under "## Decisions" when you make significant design or engineering choices.',
+    'Keep BRAIN.md under 6,000 characters: prune superseded decisions and never paste code into it.',
+    'Your user is usually a non-technical founder: write the reply in plain language, with no jargon and no file paths unless they ask.',
+    'After a substantive change, end the reply with one short "Next:" sentence naming the most valuable next step for this app; when the user seems stuck, offer two or three concrete options instead of open-ended questions.',
+    'On the first build, propose a brand that fits the user\'s stated style: an app name, a 3-5 color palette in hex, a one-line tone of voice, and a described (not generated) logo direction; record them under "## Brand" in BRAIN.md and apply the palette in the app.',
+    'When the user asks for branding help later, update the "## Brand" section and the code together; never contradict the recorded brand silently.',
     'Secrets and API keys are set in the .env file; set them via the envVars field in your response.',
     'Never include markdown, prose, progress updates, or code fences outside the JSON object.',
   ]
@@ -99,9 +110,20 @@ type ModelMessage = { role: 'system' | 'user' | 'assistant'; content: string }
 const FILE_CONTEXT_CHAR_BUDGET = 160_000
 const STUB_LINES = 20
 const STUB_MAX_CHARS = 1000
-const ALWAYS_FULL = new Set(['package.json', 'vite.config.ts', 'zepto-bridge.js', 'server.js', 'index.html', 'src/db.ts'])
+const ALWAYS_FULL = new Set(['package.json', 'vite.config.ts', 'zepto-bridge.js', 'server.js', 'index.html', 'src/db.ts', 'BRAIN.md'])
 const SMALL_FILE_CHARS = 1500
 const RECENT_MESSAGES = 6
+
+/** BRAIN.md ships in full every request, so a runaway brain would eat the
+ * context budget — past this cap it is truncated with a rewrite marker. */
+const BRAIN_PATH = 'BRAIN.md'
+const BRAIN_MAX_CHARS = 10_000
+const BRAIN_TRUNCATION_NOTE = '\n\n[brain truncated — rewrite BRAIN.md so it is under 6000 characters]'
+
+function guardBrainFile(file: ProjectFile): ProjectFile {
+  if (file.path !== BRAIN_PATH || file.content.length <= BRAIN_MAX_CHARS) return file
+  return { ...file, content: file.content.slice(0, BRAIN_MAX_CHARS) + BRAIN_TRUNCATION_NOTE }
+}
 
 type ContextFile = ProjectFile & { stub: boolean }
 
@@ -116,8 +138,9 @@ function selectContextFiles(args: {
   selectedElement?: SelectedPreviewElement
   elementComment?: string
 }): ContextFile[] {
-  const total = args.files.reduce((sum, file) => sum + file.content.length, 0)
-  if (total <= FILE_CONTEXT_CHAR_BUDGET) return args.files.map(file => ({ ...file, stub: false }))
+  const files = args.files.map(guardBrainFile)
+  const total = files.reduce((sum, file) => sum + file.content.length, 0)
+  if (total <= FILE_CONTEXT_CHAR_BUDGET) return files.map(file => ({ ...file, stub: false }))
 
   const mentionText = [
     args.userPrompt,
@@ -136,7 +159,7 @@ function selectContextFiles(args: {
     return 4
   }
 
-  const ranked = args.files
+  const ranked = files
     .map((file, index) => ({ file, index, priority: priority(file) }))
     .sort((a, b) => a.priority - b.priority || a.index - b.index)
   let spent = 0
@@ -148,7 +171,7 @@ function selectContextFiles(args: {
       spent += entry.file.content.length
     }
   }
-  return args.files.map(file => ({ ...file, stub: stubbed.has(file.path) }))
+  return files.map(file => ({ ...file, stub: stubbed.has(file.path) }))
 }
 
 const STUB_NOTE = `

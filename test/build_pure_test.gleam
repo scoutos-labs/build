@@ -1,3 +1,5 @@
+import build/pure/brain
+import build/pure/build_log
 import build/pure/design_guidance
 import build/pure/editor
 import build/pure/preview_inspector
@@ -142,4 +144,28 @@ fn selected_element() -> preview_inspector.SelectedPreviewElement {
     bounding_rect: preview_inspector.BoundingRect(x: 1.0, y: 2.0, width: 100.0, height: 40.0),
     computed_styles: [#("color", "rgb(255, 255, 255)"), #("backgroundColor", "rgb(0, 0, 0)")],
   )
+}
+
+pub fn brain_seed_contains_plan_and_scaffold_test() {
+  let seed = brain.seed("Build an app for: dog walkers")
+
+  assert string.contains(seed, "## What & Why")
+  assert string.contains(seed, "Build an app for: dog walkers")
+  assert string.contains(seed, "## Brand")
+  assert string.contains(seed, "## How it works")
+  assert string.contains(seed, "## Decisions")
+  assert brain.brain_path == "BRAIN.md"
+}
+
+pub fn build_log_entry_truncates_prompt_and_reply_test() {
+  let entry =
+    build_log.entry(1, string.repeat("p", 300), string.repeat("r", 600), ["a"])
+
+  assert string.length(entry.prompt) == 201
+  assert string.length(entry.reply) == 501
+  assert entry.paths == ["a"]
+
+  let short = build_log.entry(2, "ask", "answer", [])
+  assert short.prompt == "ask"
+  assert short.reply == "answer"
 }

@@ -1,71 +1,111 @@
 # Build Architecture
 
-Build now uses a Gleam/Elm-style actor architecture for application state.
+Last rewritten: 2026-07-01. Build's UI is a **Gleam/Lustre** application. The
+earlier React + TypeScript actor layout this document used to describe
+(`src/App.tsx`, `src/store.ts`, `src/actors/*.ts`) no longer exists.
 
-## Overview
-
-React renders a snapshot from `src/store.ts` and sends user events as typed `AppMsg` messages. The store routes those messages to domain actors in `src/actors/`. Actor `update()` functions are pure: they return the next state plus typed effects. The runtime in `src/runtime/` interprets those effects and dispatches follow-up messages.
-
-```text
-React UI → dispatch(AppMsg)
-  → appUpdate(AppState, AppMsg)
-  → domain actor update()
-  → [nextState, AppEffect[]]
-  → runtime interpretEffect()
-  → API / IndexedDB / WebContainer / DOM / timers
-  → dispatch(result AppMsg)
-```
-
-## Domain actors
-
-- `src/actors/settings.ts` — provider, API key, Ollama URL, model, settings modal, connection status.
-- `src/actors/chat.ts` — prompt, chat messages, expanded message state.
-- `src/actors/project.ts` — project name, current/saved projects, files, selected file, save status.
-- `src/actors/agent.ts` — agent request lifecycle and elapsed timer state.
-- `src/actors/preview.ts` — preview URL, element selection mode, selected element/comment.
-- `src/actors/webcontainer.ts` — boot/remount phase, logs, hydration and autosave suppression flags.
-
-## Runtime responsibilities
-
-`src/runtime/index.ts` owns impure work:
-
-- localStorage writes for model settings;
-- Ollama connection test fetches;
-- IndexedDB project load/save/create/delete/list operations;
-- WebContainer mount/install/dev-server/file-sync operations;
-- `runAgent()` calls, abort controllers, request timeout, elapsed timer;
-- autosave debounce timer;
-- preview iframe `postMessage` via injectable adapter.
-
-Effects are interpreted sequentially. This preserves important ordering such as applying file patches before running `npm install` when `package.json` changes.
-
-## Agent request lifecycle
-
-Agent requests use request IDs to ignore stale completions. Runtime abort controllers are also tied to the active request ID so an old request finishing cannot clear a newer active controller.
-
-The app-side agent request timeout is **5 minutes** (`300_000` ms). On timeout or manual cancel, the runtime aborts the fetch signal passed into `runAgent()` and the UI shows:
+## Entry chain
 
 ```text
-Request canceled or timed out after 5 minutes.
+index.html
+  → src/main.ts            (imports styles.css, then main-gleam)
+  → src/main-gleam.ts      (registers editor/terminal web components,
+                            managed-auth, trusted preview postMessage routing,
+                            then calls main() from the compiled Gleam app)
+  → build/dev/javascript/build/build_app.mjs   (compiled from src/build_app.gleam)
 ```
 
-## Autosave
+`npm run dev`/`npm run build` run `gleam build` first; the compiled output in
+`build/dev/javascript/` is what the browser executes. Never edit files under
+`build/` — edit the Gleam sources and rebuild.
 
-Autosave remains app-side and local-browser-only. The runtime schedules a debounced save after user-visible project/chat changes once WebContainer hydration has completed. Autosave is suppressed during remounts to avoid saving transient project state.
+## Gleam application (`src/build/`)
 
-## Entry points
+Elm-style model/update/view with domain actors and effect interpreters:
 
-- `src/main.tsx` is now only the React entrypoint.
-- `src/App.tsx` is the UI shell. It reads from `useAppStore()` and dispatches messages.
-- `src/store.ts` composes state and cross-domain transitions.
+- `model.gleam`, `msg.gleam`, `update.gleam`, `view.gleam`, `effect.gleam`,
+  `runtime.gleam` — the app core. `update.gleam` routes messages to domain
+  actors and returns typed effects.
+- `actors/` — pure domain `update()` state machines: `agent`, `chat`,
+  `preview`, `project`, `publish`, `settings`, `webcontainer`.
+- `components/` — view modules: `build_agent_chat`, `build_editor`,
+  `build_element_picker`, `build_preview`, `build_project_nav`,
+  `build_projects_modal`, `build_publish_modal`, `build_settings_modal`,
+  `build_story_modal`, `build_terminal`.
+- `runtime/` — effect interpreters per domain (`agent`, `ids`, `managed`,
+  `preview`, `project`, `publish`, `settings`, `story`, `webcontainer`,
+  `zip`).
+- `pure/` — pure logic shared by update/view: `brain` (BRAIN.md seed),
+  `build_log`, `design_guidance`, `editor`, `preview_inspector`, `story`
+  (Build Story derivation), `templates`.
+
+## JS interop (`src/gleam-externals/`)
+
+Externals bridge Gleam effects to browser APIs and to the live TS modules:
+`agent.mjs`, `browser.mjs`, `dom.mjs`, `editor.mjs`, `ids.mjs`,
+`local_storage.mjs`, `managed.mjs`, `projects.mjs`, `publish.mjs`,
+`runtime_bridge.mjs` (dispatches typed messages back into the Lustre runtime),
+`story.mjs` (Build Story HTML export via `src/story-html.ts`),
+`terminal.mjs`, `webcontainer.mjs`, `zip.mjs`.
+
+`webcontainer.mjs` owns the remount/install lifecycle: it skips `npm install`
+when `package.json` is unchanged since the last successful install (a failed
+install disarms the skip), serializes overlapping remounts, and suppresses the
+post-mount iframe hard-reload when vite already reloaded the preview after the
+mount started. Pinned by `src/gleam-externals/webcontainer-externals.test.ts`.
+
+## Live TypeScript modules (`src/`)
+
+Still-live TS reached from externals or `main-gleam.ts`: `agent.ts` (LLM call +
+client prompt assembly), `templates.ts` (starter files for the JS side),
+`projects.ts` (IndexedDB persistence), `design-guidance.ts`, `editor.ts`,
+`env-store.ts`, `managed-agent-client.ts`, `managed-auth.ts`,
+`preview-inspector.ts`, `preview-message-guard.ts`, `publish-files.ts`,
+`webcontainer.ts` (WebContainer process management, dev-server crash restart),
+`zip.ts`.
+
+## Intentional duplication and its guards
+
+Two surfaces exist twice and are guarded by tests:
+
+- **Starter template** — `src/templates.ts` (used by JS externals) and
+  `src/build/pure/templates.gleam` (used by `update.gleam` for new/reset
+  projects). Guard: the byte-for-byte drift test in `src/templates.test.ts`,
+  which compares against the *compiled* Gleam module — run it via `npm test`
+  (which runs `gleam build` first), not bare `vitest run`.
+- **Agent prompt + context selection** — `src/agent.ts` (non-managed client)
+  and `server/src/prompt.ts` (managed mode; declared source of truth). Guard:
+  `src/prompt-parity.test.ts` compares the Rules block, context budget,
+  `ALWAYS_FULL` set, and stub note across both sources. Client-only rules must
+  be declared there explicitly. Full unification is planned in
+  `docs/managed-openrouter-migration-plan.md` Phase 3.
+
+## Agent protocol
+
+The model must return JSON `{"reply": string, "patches": [{path, content}]}`
+with full replacement file contents (client-side additionally supports an
+`envVars` object). Context selection sends the whole project under a
+160,000-char budget; over budget, files the request plausibly touches stay
+full and the rest are stubbed to their first lines. Requests time out
+app-side after 5 minutes.
+
+The generated starter app's `main.tsx` contains the interview wizard; its plan
+summary is posted to the parent via `BUILD_APP_FROM_PLAN` and becomes the
+first user chat message.
+
+## Persistence
+
+Anonymous, local-first. Projects live in IndexedDB (`src/projects.ts`) as
+`SavedProject {id, name, files, messages, selectedPath, createdAt, updatedAt,
+buildLog?}` — `buildLog` records one truncated `{at, prompt, reply, paths}`
+entry per successful agent turn and feeds the Build Story.
+Model settings live in localStorage. Managed mode stores encrypted credentials
+server-side (see `docs/scoutos-live-prd.md`).
 
 ## Validation
 
-Current validation commands:
-
 ```bash
-npm test
-npm run build
+npm test          # gleam test + vitest (root)
+npm run build     # gleam build + tsc -b + vite build
+cd server && npm test
 ```
-
-At the time of this migration, the suite has 71 tests across 16 test files.

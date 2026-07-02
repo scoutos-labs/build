@@ -11,6 +11,7 @@ import build/components/build_project_nav
 import build/components/build_projects_modal
 import build/components/build_publish_modal
 import build/components/build_settings_modal
+import build/components/build_story_modal
 import build/components/build_terminal
 import build/model
 import build/msg
@@ -47,6 +48,13 @@ pub fn view(app: model.Model) -> Element(msg.Msg) {
       build_settings_modal.view(app.settings, app.managed, app.publish),
       build_publish_modal.view(app.publish, app.project.current_project_id),
       build_projects_modal.view(app.project, busy),
+      build_story_modal.view(
+        app.project.story_open,
+        app.project.project_name,
+        app.chat.messages,
+        app.project.build_log,
+        app.project.files,
+      ),
       build_element_picker.view(
         app.preview.selected_element,
         app.preview.element_comment,

@@ -4,6 +4,7 @@ import build/runtime/preview
 import build/runtime/project
 import build/runtime/publish
 import build/runtime/settings
+import build/runtime/story
 import build/runtime/webcontainer
 import build/runtime/zip
 
@@ -16,6 +17,7 @@ pub fn interpret(effect: effect.Effect) -> Nil {
     effect.WebContainer(payload) -> webcontainer.interpret(payload)
     effect.Publish(payload) -> publish.interpret(payload)
     effect.ExportZip(files) -> zip.export_zip(files)
+    effect.ExportStoryHtml(payload) -> story.export_story_html(payload)
     effect.ConfirmNewProject -> confirm_new_project()
     effect.ConfirmRemoveProject(id) -> confirm_remove_project(id)
     effect.ScrollMessagesToBottom -> scroll_messages_to_bottom()

@@ -67,6 +67,37 @@ describe('IndexedDB project storage', () => {
     await expect(getCurrentProjectId()).resolves.toBeNull()
   })
 
+  it('keeps the buildLog through the create path (first-ever autosave)', async () => {
+    const { createProject, getProject } = await freshProjectsModule()
+    const buildLog = [{ at: 1720000000000, prompt: 'build my app', reply: 'Built it', paths: ['src/main.tsx'] }]
+    // the first autosave after an interview build creates the project WITH a log
+    const created = await createProject({ name: 'First Build', buildLog })
+
+    expect(created.buildLog).toEqual(buildLog)
+    await expect(getProject(created.id)).resolves.toMatchObject({ buildLog })
+  })
+
+  it('round-trips the buildLog and tolerates projects saved without one', async () => {
+    const { createProject, getProject, saveProject } = await freshProjectsModule()
+
+    // a record written before the buildLog feature existed has no such field
+    const legacyCreated = await createProject({ name: 'Legacy' })
+    const { buildLog: _dropped, ...legacyRecord } = legacyCreated
+    const legacy = await saveProject(legacyRecord as typeof legacyCreated)
+    const project = await createProject({ name: 'Storied' })
+    const buildLog = [
+      { at: 1720000000000, prompt: 'make a todo app', reply: 'Done', paths: ['src/main.tsx'] },
+      { at: 1720000100000, prompt: 'make it blue', reply: 'Styled', paths: ['src/style.css'] },
+    ]
+    await saveProject({ ...project, buildLog })
+
+    const loaded = await getProject(project.id)
+    expect(loaded?.buildLog).toEqual(buildLog)
+    // projects saved before the Build Story feature simply have no buildLog
+    const legacyLoaded = await getProject(legacy.id)
+    expect(legacyLoaded?.buildLog).toBeUndefined()
+  })
+
   it('returns undefined for missing projects', async () => {
     const { getProject } = await freshProjectsModule()
     await expect(getProject('missing')).resolves.toBeUndefined()

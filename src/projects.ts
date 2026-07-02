@@ -1,6 +1,13 @@
 import type { ChatMessage } from './agent'
 import type { ProjectFile } from './templates'
 
+export type BuildLogEntry = {
+  at: number
+  prompt: string
+  reply: string
+  paths: string[]
+}
+
 export type SavedProject = {
   id: string
   name: string
@@ -9,6 +16,9 @@ export type SavedProject = {
   selectedPath: string
   createdAt: string
   updatedAt: string
+  /** One entry per successful agent turn; absent on projects saved before
+   * the Build Story feature. Prompts/replies are stored truncated. */
+  buildLog?: BuildLogEntry[]
 }
 
 const DB_NAME = 'build-db'
@@ -73,7 +83,7 @@ export async function saveProject(project: SavedProject): Promise<SavedProject> 
   return project
 }
 
-export async function createProject(args: Partial<Pick<SavedProject, 'name' | 'files' | 'messages' | 'selectedPath'>> = {}): Promise<SavedProject> {
+export async function createProject(args: Partial<Pick<SavedProject, 'name' | 'files' | 'messages' | 'selectedPath' | 'buildLog'>> = {}): Promise<SavedProject> {
   const now = new Date().toISOString()
   const project: SavedProject = {
     id: crypto.randomUUID(),
@@ -83,6 +93,9 @@ export async function createProject(args: Partial<Pick<SavedProject, 'name' | 'f
     selectedPath: args.selectedPath ?? '',
     createdAt: now,
     updatedAt: now,
+    // The first-ever autosave of a project goes through this create path —
+    // dropping the buildLog here would lose chapter one of the Build Story.
+    buildLog: args.buildLog ?? [],
   }
   return saveProject(project)
 }

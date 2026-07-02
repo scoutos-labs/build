@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PRD — Build: Stabilization + Build Story, Project Brain, Coaching/Branding</title>
+<style>
+  :root { --ink:#172033; --muted:#5b6579; --line:#e3e7ef; --accent:#d97757; --ok:#2e7d32; --warn:#b26a00; --bad:#c62828; }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color:var(--ink); max-width: 60rem; margin: 2rem auto; padding: 0 1.25rem; line-height:1.55; }
+  h1 { font-size:1.6rem; border-bottom:2px solid var(--accent); padding-bottom:.4rem; }
+  h2 { font-size:1.2rem; margin-top:2.2rem; border-bottom:1px solid var(--line); padding-bottom:.25rem; }
+  h3 { font-size:1rem; margin-top:1.4rem; }
+  table { border-collapse: collapse; width:100%; font-size:.92rem; }
+  th, td { border:1px solid var(--line); padding:.45rem .6rem; text-align:left; vertical-align:top; }
+  th { background:#f6f8fc; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.88em; background:#f4f5f8; border-radius:4px; }
+  code { padding:.08em .35em; }
+  pre { padding:.7rem .9rem; overflow-x:auto; }
+  .chip { display:inline-block; font-size:.75rem; font-weight:600; padding:.1rem .55rem; border-radius:999px; background:#eef1f7; color:var(--muted); margin-right:.3rem; }
+  .step { border:1px solid var(--line); border-radius:8px; padding: .8rem 1rem; margin: .8rem 0; }
+  .step h3 { margin:.1rem 0 .5rem; }
+  ul { margin:.3rem 0 .3rem 1.2rem; }
+  .muted { color:var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>PRD — Build: Stabilization + Build Story, Project Brain, Coaching &amp; Branding</h1>
+<p class="muted">Task slug: <code>agent-upgrades</code> · Created 2026-07-01 · Companion: <a href="agent-upgrades-progress.html">progress log</a> · Handoff: <code>docs/agent-upgrades-handoff.md</code></p>
+
+<h2>Summary</h2>
+<p>Review and land the in-flight working-tree changes (Tailwind pre-bake, Vite prompt switch, install-skip/flicker fixes), remove the highest-risk drift hazards, then extend the Build agent product with three founder-facing capabilities: a non-technical shareable <strong>Build Story</strong>, a per-project <strong>Brain</strong> (<code>BRAIN.md</code>) capturing what/why from the user and how/decisions from the agent, and <strong>coaching + branding</strong> behavior in the agent.</p>
+
+<h2>Verified ground truth</h2>
+<ul>
+  <li>Live UI is Gleam/Lustre: <code>index.html → src/main.ts → src/main-gleam.ts → src/build_app.gleam</code> with <code>src/build/{model,msg,update,view,effect,runtime}.gleam</code>, actors, components, pure. <code>docs/architecture.md</code> is stale (describes removed React/actors layout).</li>
+  <li>Live TS via externals: <code>src/agent.ts</code>, <code>src/templates.ts</code>, <code>src/projects.ts</code>, <code>src/design-guidance.ts</code>, <code>src/zip.ts</code>, <code>src/publish-files.ts</code>, <code>src/managed-agent-client.ts</code>.</li>
+  <li>Agent protocol: JSON <code>{reply, patches[]}</code>, full-file replacement; 160k-char context budget with <code>ALWAYS_FULL</code> + stubbing, duplicated in <code>src/agent.ts</code> and <code>server/src/prompt.ts</code> (server is source of truth; unification deferred).</li>
+  <li>Starter template duplicated in <code>src/templates.ts</code> and <code>src/build/pure/templates.gleam</code>; no drift detection exists today.</li>
+  <li><code>SavedProject</code> = <code>{id, name, files, messages, selectedPath, createdAt, updatedAt}</code>; patch history is <em>not</em> persisted — the Build Story requires a new lightweight <code>buildLog</code> going forward and must degrade for old projects.</li>
+  <li>The interview wizard lives inside the starter template's <code>main.tsx</code>; its plan summary becomes the first user chat message (persisted, unstructured).</li>
+</ul>
+
+<h2>Definitions (what these mean in Build)</h2>
+<h3>Build Story</h3>
+<p><strong>Is:</strong> a shareable, non-technical narrative of how the app came to be — a view in Build plus an exportable single self-contained HTML file, derived <em>deterministically</em> at render time from chat history + <code>buildLog</code> + <code>BRAIN.md</code>. <strong>Is not:</strong> a per-turn LLM artifact, a file in the generated project, or telemetry.</p>
+<h3>Project Brain</h3>
+<p><strong>Is:</strong> a single <code>BRAIN.md</code> at the generated project's root with fixed sections — <code>## What &amp; Why</code> (seeded from interview; user-owned), <code>## Brand</code>, <code>## How it works</code>, <code>## Decisions</code> (dated log) — maintained by the agent through ordinary patches, riding along in IndexedDB, zip export, and publish for free. <strong>Is not:</strong> a second database, a transcript, or end-user docs. Hard cap 6,000 chars (prompt rule) with a 10,000-char truncation guard in context selection.</p>
+<h3>Coaching &amp; Branding</h3>
+<p><strong>Is:</strong> prompt-level behavior — plain-language replies for non-technical founders, one concrete <code>Next:</code> suggestion after substantive changes, and first-build brand proposal (name, palette, tone, logo direction) recorded in <code>BRAIN.md ## Brand</code> and applied in the app. <strong>Is not:</strong> a separate mode, new UI surface, or logo image generation.</p>
+
+<h2>Goals</h2>
+<ol>
+  <li>Eliminate the two drift hazards (template TS↔Gleam, prompt client↔server) with automated tests; fix stale docs; land the flicker/install work safely.</li>
+  <li>Every project gets a durable, exportable record of what/why and how — <code>BRAIN.md</code>.</li>
+  <li>A founder can open a Story view and export a polished standalone HTML post — zero setup, zero network calls.</li>
+  <li>The agent coaches and brands without protocol changes.</li>
+</ol>
+
+<h2>Non-goals</h2>
+<ul>
+  <li>No accounts, sync, telemetry, or hosted story sharing.</li>
+  <li>No agent JSON schema change; no diff-based patches.</li>
+  <li>No LLM-generated story prose in v1 (deferred D4).</li>
+  <li>No retroactive story reconstruction beyond chat history.</li>
+  <li>No client/server prompt unification this iteration (parity tests are the stopgap).</li>
+</ul>
+
+<h2>Constraints (privacy/security first)</h2>
+<ul>
+  <li>Anonymous local-first: all new data lives in <code>SavedProject</code>/project files. Exported story HTML is fully self-contained — inline CSS, no external URLs, no fetches.</li>
+  <li>User content in the exported HTML must be HTML-escaped (XSS hard requirement).</li>
+  <li><code>BRAIN.md</code> joins <code>ALWAYS_FULL</code> in both context selectors; truncation guard above 10k chars keeps the budget safe.</li>
+  <li>Every prompt rule lands in both <code>src/agent.ts</code> and <code>server/src/prompt.ts</code> with parity tests.</li>
+  <li><code>buildLog</code> entries store truncated prompt/reply + paths only, never file contents. Old projects tolerate <code>buildLog === undefined</code>; no IndexedDB version bump.</li>
+  <li>Small/local models may ignore brain/coaching rules — client-side seeding guarantees the What &amp; Why regardless.</li>
+</ul>
+
+<h2>Plan</h2>
+
+<h3>Phase A — Stabilization</h3>
+<div class="step"><h3>A1 — Commit the working tree as baseline</h3>
+<ul><li><span class="chip">accept</span> Diff-review findings addressed or consciously waived; logically split commits; <code>git status</code> clean; <code>npm test</code> + <code>npm run build</code> green on the commit.</li>
+<li><span class="chip">evidence</span> Test output, <code>git log --stat</code>.</li></ul></div>
+
+<div class="step"><h3>A2 — Template drift test (TS ↔ Gleam)</h3>
+<ul><li><span class="chip">accept</span> Vitest test compares <code>starterFiles</code> from <code>src/templates.ts</code> with compiled Gleam templates (<code>build/dev/javascript/build/build/pure/templates.mjs</code>): equal path sets and per-file contents. Mutating either copy alone fails the test.</li>
+<li><span class="chip">evidence</span> <code>npx vitest run src/templates.test.ts</code>; deliberate-mutation spot check.</li>
+<li><span class="chip">risk</span> If compiled-artifact import is brittle, fallback: shared checksum fixture asserted by both suites.</li></ul></div>
+
+<div class="step"><h3>A3 — Prompt parity tests (client ↔ server)</h3>
+<ul><li><span class="chip">accept</span> Both suites assert the shared canonical rule lines and identical budget/<code>ALWAYS_FULL</code> membership; adding a rule to one prompt only fails a test.</li>
+<li><span class="chip">evidence</span> <code>npm test</code>; <code>cd server &amp;&amp; npm test</code>.</li></ul></div>
+
+<div class="step"><h3>A4 — Rewrite docs/architecture.md</h3>
+<ul><li><span class="chip">accept</span> Describes the real Gleam/Lustre architecture; no references to removed files; every referenced path exists.</li>
+<li><span class="chip">evidence</span> Manual read + grep loop verifying paths.</li></ul></div>
+
+<div class="step"><h3>A5 — Manual regression pass on flicker/install work</h3>
+<ul><li><span class="chip">accept</span> Project switch: at most one preview reload; "Dependencies unchanged — skipping install." when package.json unchanged; agent-driven package.json change still installs.</li>
+<li><span class="chip">evidence</span> Manual checklist + terminal log lines recorded in progress doc.</li></ul></div>
+
+<h3>Phase B — Project Brain</h3>
+<div class="step"><h3>B1 — Deterministic BRAIN.md seed on plan build</h3>
+<ul><li><span class="chip">accept</span> After the interview build, <code>BRAIN.md</code> exists with <code>## What &amp; Why</code> from plan answers + scaffold sections; in files pane, exported zip, and persists across reload. Pure Gleam seed function unit-tested.</li>
+<li><span class="chip">evidence</span> Gleam unit tests; manual flow; <code>npm test</code>.</li></ul></div>
+
+<div class="step"><h3>B2 — Prompt rules for brain upkeep (client + server)</h3>
+<ul><li><span class="chip">accept</span> Rules added to both prompts (maintain BRAIN.md, dated Decisions entries, keep How-it-works current, ≤6,000 chars, no code); parity tests updated and green; one live transcript shows BRAIN.md patched alongside features.</li>
+<li><span class="chip">evidence</span> <code>npm test</code>; server tests; transcript.</li></ul></div>
+
+<div class="step"><h3>B3 — Context-budget protection for BRAIN.md</h3>
+<ul><li><span class="chip">accept</span> BRAIN.md in <code>ALWAYS_FULL</code> both sides; &gt;10k chars → truncated with rewrite marker; unit tests both suites; budget never exceeded.</li>
+<li><span class="chip">evidence</span> <code>npx vitest run src/agent.test.ts</code>; server prompt tests.</li></ul></div>
+
+<div class="step"><h3>B4 — Persist buildLog going forward</h3>
+<ul><li><span class="chip">accept</span> <code>SavedProject.buildLog</code> optional; appended on <code>AgentRequestSucceeded</code> (timestamp, truncated prompt/reply, touched paths); survives reload; old projects load fine.</li>
+<li><span class="chip">evidence</span> Gleam update tests; <code>src/projects.test.ts</code> round-trip with fake-indexeddb; manual reload.</li></ul></div>
+
+<h3>Phase C — Coaching &amp; Branding</h3>
+<div class="step"><h3>C1 — Coaching prompt rules</h3>
+<ul><li><span class="chip">accept</span> Both prompts: plain-language replies, single concrete <code>Next:</code> suggestion after substantive changes, options-not-open-questions when the user is stuck; parity tests; 3 manual transcripts.</li>
+<li><span class="chip">evidence</span> Tests + transcripts.</li></ul></div>
+
+<div class="step"><h3>C2 — Branding rules + Brand section contract</h3>
+<ul><li><span class="chip">accept</span> First build proposes name/palette/tone/logo direction, records in <code>## Brand</code>, applies palette; later branding asks update Brand + code together; parity tests; manual run shows populated Brand + visible palette.</li>
+<li><span class="chip">evidence</span> Tests; screenshot + BRAIN.md from manual run.</li></ul></div>
+
+<div class="step"><h3>C3 — Interview nudge for What &amp; Why (both template copies)</h3>
+<ul><li><span class="chip">accept</span> Wizard copy sharpened toward why-it-matters; style question invites name/vibe; no new fields; A2 drift test green; both template test suites updated.</li>
+<li><span class="chip">evidence</span> <code>npm test</code>; manual wizard walkthrough.</li></ul></div>
+
+<h3>Phase D — Build Story</h3>
+<div class="step"><h3>D1 — Pure story derivation (<code>src/build/pure/story.gleam</code>)</h3>
+<ul><li><span class="chip">accept</span> <code>derive_story(messages, build_log, brain)</code> → typed Story (title, origin, chapters with friendly area labels, decisions, brand). Handles: full data, no-buildLog fallback, empty project, malformed BRAIN.md — never crashes.</li>
+<li><span class="chip">evidence</span> Gleam unit tests for all four cases.</li></ul></div>
+
+<div class="step"><h3>D2 — Story view in Build</h3>
+<ul><li><span class="chip">accept</span> Story button in project nav; full-screen modal matching existing modal patterns; renders fresh/multi-turn/legacy projects; ESC-closable; taste rubric below scores ≥4.</li>
+<li><span class="chip">evidence</span> Gleam view/update tests; manual checks; screenshot.</li></ul></div>
+
+<div class="step"><h3>D3 — Export standalone HTML</h3>
+<ul><li><span class="chip">accept</span> Download <code>«name»-story.html</code>; opens from <code>file://</code>; zero external URL references (grep-verified); user content HTML-escaped (tested); matches in-app view.</li>
+<li><span class="chip">evidence</span> Vitest tests on <code>src/story-html.ts</code> incl. escaping; manual open-from-disk; grep output.</li></ul></div>
+
+<div class="step"><h3>D4 — (Deferred) LLM "polish story" pass</h3>
+<p class="muted">Out of scope for v1.</p></div>
+
+<h2>Taste &amp; originality criteria (Story surfaces)</h2>
+<ul>
+  <li>Editorial narrative, not restyled chat bubbles.</li>
+  <li>No generic AI aesthetic (no purple gradients, card grids, default-blue). Single accent drawn from the project's own <code>## Brand</code> palette when present — each story is tinted by the app it describes.</li>
+  <li>Zero raw file paths / stack jargon / JSON in the default view.</li>
+  <li>Honest: real asks, real changes, real timestamps; no filler hype.</li>
+  <li>Exported HTML looks intentional at 360px and 1200px, prints acceptably, opens offline instantly.</li>
+</ul>
+
+<h2>Validation commands</h2>
+<pre>npm test                      # gleam test + vitest (baseline 151 passing)
+npm run build                 # gleam build + tsc -b + vite build
+cd server &amp;&amp; npm test         # when server/src/prompt.ts is touched</pre>
+
+<h2>LLM-as-judge rubric</h2>
+<table>
+<tr><th>Area</th><th>Judgment</th></tr>
+<tr><td>Correctness</td><td>Solves the stated problem without regressions; all suites green.</td></tr>
+<tr><td>Acceptance coverage</td><td>Every step criterion has recorded evidence in the progress doc.</td></tr>
+<tr><td>Security/privacy</td><td>Local-first preserved; story export self-contained and escaped; no secrets/telemetry.</td></tr>
+<tr><td>Simplicity</td><td>Smallest coherent version; no new persistence machinery beyond <code>buildLog</code>.</td></tr>
+<tr><td>Taste</td><td>Story surfaces score ≥4/5 against the criteria above.</td></tr>
+<tr><td>Originality</td><td>Story tinted by project brand; not a cookie-cutter timeline.</td></tr>
+<tr><td>Maintainability</td><td>Pure derivation logic unit-tested; parity/drift tests guard the duplicated surfaces.</td></tr>
+<tr><td>Validation</td><td>Commands above run and recorded per step.</td></tr>
+</table>
+
+<h2>Final acceptance</h2>
+<ul>
+  <li>Phases A–C complete with all step criteria evidenced; Phase D complete or explicitly handed off as the next shippable unit (recommended cut line: A–C is one coherent release, D independently shippable).</li>
+  <li><code>npm test</code>, <code>npm run build</code>, and server tests green at final commit.</li>
+  <li>Progress doc shows no unresolved <code>fail</code>/<code>blocked</code> items; residual risks listed.</li>
+</ul>
+
+<h2>Open questions → defaults chosen</h2>
+<ul>
+  <li>BRAIN.md visible/editable in files pane and included in publish: <strong>yes</strong> for v1; publish-exclusion is a noted fast-follow.</li>
+  <li>No structured <code>SavedProject.plan</code>; the seed writes into BRAIN.md.</li>
+  <li>Small models ignoring upkeep rules: acceptable degradation (seed guarantees What &amp; Why).</li>
+  <li>Compiled-Gleam import in vitest (A2) is the main technical risk; fallback named.</li>
+</ul>
+
+</body>
+</html>

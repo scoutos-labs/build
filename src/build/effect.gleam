@@ -4,6 +4,7 @@ import build/actors/project
 import build/actors/publish
 import build/actors/settings
 import build/actors/webcontainer
+import build/pure/story
 import build/pure/templates
 
 pub type Effect {
@@ -14,6 +15,7 @@ pub type Effect {
   WebContainer(webcontainer.Effect)
   Publish(publish.Effect)
   ExportZip(files: List(templates.ProjectFile))
+  ExportStoryHtml(story: story.Story)
   ConfirmNewProject
   ConfirmRemoveProject(id: String)
   ScrollMessagesToBottom

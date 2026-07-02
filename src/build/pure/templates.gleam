@@ -17,11 +17,14 @@ pub fn starter_files() -> List(ProjectFile) {
       "index.html",
       "<div id=\"root\"></div><script type=\"module\" src=\"/src/main.tsx\"></script>\n",
     ),
+    ProjectFile("tailwind.config.js", tailwind_config_js()),
+    ProjectFile("postcss.config.js", postcss_config_js()),
     ProjectFile("vite.config.ts", vite_config_ts()),
     ProjectFile("zepto-bridge.js", zepto_bridge_js()),
     ProjectFile("server.js", server_js()),
     ProjectFile("src/main.tsx", main_tsx()),
     ProjectFile("src/db.ts", db_ts()),
+    ProjectFile("src/lib/utils.ts", lib_utils_ts()),
     ProjectFile("src/build-inspector.ts", build_inspector_ts()),
     ProjectFile("src/style.css", style_css()),
   ]
@@ -139,8 +142,23 @@ fn strip_leading_slashes(path: String) -> String {
 
 fn package_json() -> String {
   // vite pinned below 8: Vite 8 bundles via rolldown, whose WASM binding
-  // (emnapi) crashes inside WebContainers.
-  "{\n  \"scripts\": {\n    \"dev\": \"vite --host 0.0.0.0\",\n    \"build\": \"vite build\",\n    \"start\": \"node server.js\"\n  },\n  \"dependencies\": {\n    \"@vitejs/plugin-react\": \"^4.3.4\",\n    \"hyper-zepto\": \"^0.1.0\",\n    \"vite\": \"^7.3.2\",\n    \"typescript\": \"latest\",\n    \"react\": \"^18.3.1\",\n    \"react-dom\": \"^18.3.1\"\n  },\n  \"devDependencies\": {},\n  \"type\": \"module\"\n}"
+  // (emnapi) crashes inside WebContainers. Tailwind v3 + shadcn helpers are
+  // pre-baked so the agent doesn't have to bootstrap styling on the first
+  // build (avoids a package.json change → reinstall → dev-server restart /
+  // preview flicker).
+  "{\n  \"scripts\": {\n    \"dev\": \"vite --host 0.0.0.0\",\n    \"build\": \"vite build\",\n    \"start\": \"node server.js\"\n  },\n  \"dependencies\": {\n    \"@vitejs/plugin-react\": \"^4.3.4\",\n    \"class-variance-authority\": \"^0.7.1\",\n    \"clsx\": \"^2.1.1\",\n    \"hyper-zepto\": \"^0.1.0\",\n    \"lucide-react\": \"^0.468.0\",\n    \"react\": \"^18.3.1\",\n    \"react-dom\": \"^18.3.1\",\n    \"tailwind-merge\": \"^2.6.0\",\n    \"typescript\": \"latest\",\n    \"vite\": \"^7.3.2\"\n  },\n  \"devDependencies\": {\n    \"autoprefixer\": \"^10.4.20\",\n    \"postcss\": \"^8.4.49\",\n    \"tailwindcss\": \"^3.4.17\"\n  },\n  \"type\": \"module\"\n}"
+}
+
+fn tailwind_config_js() -> String {
+  "/** @type {import('tailwindcss').Config} */\nexport default {\n  content: ['./index.html', './src/**/*.{js,jsx,ts,tsx}'],\n  theme: { extend: {} },\n  plugins: [],\n}\n"
+}
+
+fn postcss_config_js() -> String {
+  "export default {\n  plugins: {\n    tailwindcss: {},\n    autoprefixer: {},\n  },\n}\n"
+}
+
+fn lib_utils_ts() -> String {
+  "import { type ClassValue, clsx } from 'clsx'\nimport { twMerge } from 'tailwind-merge'\n\n// shadcn/ui style helper: merges class names and resolves Tailwind conflicts.\nexport function cn(...inputs: ClassValue[]) {\n  return twMerge(clsx(inputs))\n}\n"
 }
 
 fn main_tsx() -> String {
@@ -175,7 +193,7 @@ const questions: Array<{ key: keyof Answers; label: string; helper: string; plac
   {
     key: 'problem',
     label: 'What should it help them do?',
-    helper: 'Focus on the main job, frustration, or outcome.',
+    helper: 'Focus on the main job, frustration, or outcome — and why it matters to them.',
     placeholder: 'Track leads, schedule appointments, organize tasks, learn a skill...',
   },
   {
@@ -193,7 +211,7 @@ const questions: Array<{ key: keyof Answers; label: string; helper: string; plac
   {
     key: 'style',
     label: 'How should it look and feel?',
-    helper: 'Pick a vibe, brand, or app you want it to resemble.',
+    helper: 'Pick a vibe or an app to resemble — and share a working name if you have one.',
     placeholder: 'Clean and modern like Linear, playful and colorful, premium SaaS...',
   },
   {
@@ -226,7 +244,7 @@ function buildPlanSummary(answers: Answers) {
     coreFeatures: compact(answers.features, 'A polished dashboard, clear navigation, create/edit flows, and helpful empty states'),
     dataToStore: compact(answers.data, 'Local app records with sensible fields and sample data'),
     visualDirection: compact(answers.style, 'Modern, friendly, responsive, and production-quality'),
-    extrasAndConstraints: compact(answers.integrations, 'Keep it runnable in the browser with React, TypeScript, Vite, and the hyper-zepto db helpers in src/db.ts when persistence is useful'),
+    extrasAndConstraints: compact(answers.integrations, 'Keep it runnable in the browser with React, TypeScript, Vite, Tailwind CSS, shadcn/ui, and the hyper-zepto db helpers in src/db.ts when persistence is useful'),
   }
 
   const summary = `Build an app for: ${plan.appIdea}\\n\\nTarget users: ${plan.targetUsers}\\n\\nMain goal: ${plan.primaryGoal}\\n\\nMust-have features: ${plan.coreFeatures}\\n\\nData model / persistence: ${plan.dataToStore}\\n\\nVisual direction: ${plan.visualDirection}\\n\\nExtras / constraints: ${plan.extrasAndConstraints}`
@@ -575,7 +593,7 @@ document.addEventListener('click', event => {
 }
 
 fn style_css() -> String {
-  ":root {
+  "@tailwind base;\n@tailwind components;\n@tailwind utilities;\n\n:root {
   color: #172033;
   background: radial-gradient(circle at top left, #eaf0ff 0, transparent 34rem), #f6f8fc;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;

@@ -32,6 +32,7 @@ pub fn view(
         [
           button([attribute.class("secondary iconButton"), attribute.title("Open projects"), attribute.aria_label("Open projects"), event.on_click(msg.Project(project.ProjectsDialogOpened))], "📁"),
           button([attribute.class("secondary iconButton"), attribute.title("New project"), attribute.aria_label("New project"), attribute.disabled(busy), event.on_click(msg.NewProject)], "＋"),
+          button([attribute.class("secondary iconButton"), attribute.title("Build story"), attribute.aria_label("Build story"), event.on_click(msg.Project(project.StoryDialogOpened))], "📖"),
           publish_control(managed, project_id, busy, publish_busy),
         ],
       ),

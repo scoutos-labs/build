@@ -156,7 +156,7 @@ describe('runAgent', () => {
     })).rejects.toThrow('OpenRouter API key is required')
   })
 
-  it('sends system prompt with Next.js, Tailwind CSS, and shadcn/ui preferences', async () => {
+  it('sends system prompt with Vite, Tailwind CSS, and shadcn/ui preferences', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       message: { content: JSON.stringify({ reply: 'ok', patches: [] }) },
     }), { status: 200 }))
@@ -168,9 +168,45 @@ describe('runAgent', () => {
 
     const [, init0] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     const body = String(init0.body)
-    expect(body).toContain('Next.js')
+    expect(body).toContain('Prefer Vite + React + TypeScript')
     expect(body).toContain('Tailwind CSS')
     expect(body).toContain('shadcn/ui')
+    // The starter pre-bakes the Tailwind toolchain; the prompt must say so or
+    // the model re-bootstraps it and triggers a reinstall/restart flicker.
+    expect(body).toContain('preconfigured; do not modify tailwind.config.js or postcss.config.js')
+    expect(body).toContain('Maintain BRAIN.md')
+    // coaching + branding behavior for non-technical founders
+    expect(body).toContain('non-technical founder')
+    // the body is JSON-serialized, so quoted fragments appear escaped
+    expect(body).toContain('sentence naming the most valuable next step')
+    expect(body).toContain('propose a brand')
+  })
+
+  it('keeps BRAIN.md full but truncated under context budget pressure', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      message: { content: JSON.stringify({ reply: 'ok', patches: [] }) },
+    }), { status: 200 }))
+    globalThis.fetch = fetchMock as typeof fetch
+
+    await runAgent({
+      provider: 'ollama',
+      ollamaUrl: 'http://localhost:11434',
+      model: 'model',
+      userPrompt: 'tweak something',
+      messages: [],
+      files: [
+        { path: 'BRAIN.md', content: 'b'.repeat(50_000) },
+        { path: 'src/huge.ts', content: 'x'.repeat(200_000) },
+      ],
+    })
+
+    const [, init0] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const body = String(init0.body)
+    // oversized brain is truncated with the rewrite marker, never stubbed
+    expect(body).toContain('[brain truncated — rewrite BRAIN.md so it is under 6000 characters]')
+    expect(body).not.toContain('--- BRAIN.md [stub')
+    // the unrelated huge file is the one that gets stubbed
+    expect(body).toContain('--- src/huge.ts [stub')
   })
 
   it('sends project files context alongside user prompt', async () => {
@@ -190,7 +226,7 @@ describe('runAgent', () => {
     const body = String(init0.body)
     const messages = bodyJson(body).messages as { role: string; content: string }[]
     expect(messages[0].role).toBe('system')
-    expect(messages[0].content).toContain('Next.js')
+    expect(messages[0].content).toContain('Prefer Vite + React + TypeScript')
     expect(messages[0].content).toContain('Tailwind CSS')
     expect(messages[0].content).toContain('shadcn/ui')
     const filesMsg = messages.find(m => m.role === 'system' && m.content.startsWith('Current project files'))

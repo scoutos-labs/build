@@ -55,6 +55,17 @@ input:focus, textarea:focus, select:focus { border-color: transparent; box-shado
 .msg.assistant { align-self: flex-start; background: #ffffff; color: var(--scout-ink); border: 1px solid var(--scout-line); box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
 .msg:hover { filter: brightness(.99); }
 .empty { padding: 13px; color: var(--scout-muted); border: 1px dashed #d9dadd; border-radius: 14px; background: #fff; }
+/* Chat-mode empty state: center the lone suggestion instead of letting it
+   float at the top of a tall dead column (the composer stays pinned). */
+.app.modeChat .messages:has(> .empty:only-child) { justify-content: center; }
+.app.modeChat .messages > .empty:only-child { text-align: center; max-width: 30rem; margin: 0 auto; }
+/* Interview bubbles: rendered from interview state, styled as chat but not
+   clickable/clamped like persisted messages (the recap runs long). */
+.msg.interviewMsg { cursor: default; }
+.messages .msg.interviewMsg:not(.expanded) { display: block; -webkit-line-clamp: unset; }
+.interviewHelper { display: block; margin-top: 6px; color: var(--scout-muted); font-weight: 500; font-size: .8rem; white-space: pre-wrap; }
+.interviewActions { display: flex; gap: 8px; align-items: center; padding-left: 2px; }
+.chatToolButtons { display: flex; gap: 6px; align-items: center; }
 .chat > textarea { height: 84px; resize: none; border-radius: 14px; border: 1px solid transparent; background: linear-gradient(#fff, #fff) padding-box, linear-gradient(110deg, #ff8acb, #73e3d4, #4f7dff) border-box; color: var(--scout-ink); box-shadow: color(srgb 0 0 0 / .06) 0 10px 28px; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .thinking { color: var(--scout-charcoal); background: #fff; border: 1px solid var(--scout-line); border-radius: 12px; padding: 9px 11px; font-size: .84rem; box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }

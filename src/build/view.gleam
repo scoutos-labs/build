@@ -82,6 +82,7 @@ pub fn view(app: model.Model) -> Element(msg.Msg) {
         chat_busy,
         app.agent.budget_exhausted,
         app.agent.budget_reset_at,
+        app.interview,
       ),
     ]),
     html.main(

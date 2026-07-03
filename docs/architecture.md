@@ -87,9 +87,11 @@ The preview actor owns a `LayoutMode` (`ChatMode` / `SplitMode` /
 deliberately not persisted, so every session replays chat-during-boot → the
 split reveal when the first preview URL arrives. `layout_is_manual` records a
 segmented-control choice; after that the auto reveal never moves the user.
-Project new/open/reset re-arms it and moves ChatMode users to SplitMode when
-a URL already exists (mid-session remounts never re-fire the URL, and a new
-project's starter app is the interview wizard). BuilderMode is the old code
+While the chat interview is active an arriving URL is recorded without the
+reveal; the reveal fires at interview end — when the agent starts building
+or the founder opts out. Project new/open/reset re-arms the manual flag and
+moves nobody (the interview lives in chat, so nothing needs the preview
+forced open). BuilderMode is the old code
 panel: the files/editor/terminal strip with the unread-dot semantics moved
 onto the Code segment. All modes render identical DOM — only the `.app`
 class changes — so the preview iframe and xterm shell survive switches.
@@ -104,9 +106,14 @@ with full replacement file contents (client-side additionally supports an
 full and the rest are stubbed to their first lines. Requests time out
 app-side after 5 minutes.
 
-The generated starter app's `main.tsx` contains the interview wizard; its plan
-summary is posted to the parent via `BUILD_APP_FROM_PLAN` and becomes the
-first user chat message.
+The onboarding interview lives natively in Build's chat panel
+(`src/build/actors/interview.gleam` — also the single source of truth for the
+plan-summary format). Its Q&A render as virtual bubbles derived from
+interview state, never persisted; only the final plan message
+(`BuildFromPlan`) enters chat history. The generated starter app is a calm
+placeholder page. The legacy `BUILD_APP_FROM_PLAN` postMessage route stays
+(guarded, one line in `main-gleam.ts`) because saved projects created before
+this change still carry the old iframe wizard in their files.
 
 ## Persistence
 

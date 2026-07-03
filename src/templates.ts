@@ -39,168 +39,20 @@ export const starterFiles: ProjectFile[] = [
   { path: 'index.html', content: '<div id="root"></div><script type="module" src="/src/main.tsx"></script>\n' },
   {
     path: 'src/main.tsx',
-    content: `import React, { useMemo, useState } from 'react'
+    content: `import React from 'react'
 import { createRoot } from 'react-dom/client'
 import './build-inspector'
 import './style.css'
 
-type Answers = {
-  idea: string
-  audience: string
-  problem: string
-  features: string
-  data: string
-  style: string
-  integrations: string
-}
-
-const questions: Array<{ key: keyof Answers; label: string; helper: string; placeholder: string }> = [
-  {
-    key: 'idea',
-    label: 'What do you want to build?',
-    helper: 'Name the app idea in one or two sentences.',
-    placeholder: 'A booking app for local yoga instructors, a client portal for my agency...',
-  },
-  {
-    key: 'audience',
-    label: 'Who is it for?',
-    helper: 'Describe the people who will use this app.',
-    placeholder: 'Busy parents, freelance designers, restaurant managers...',
-  },
-  {
-    key: 'problem',
-    label: 'What should it help them do?',
-    helper: 'Focus on the main job, frustration, or outcome — and why it matters to them.',
-    placeholder: 'Track leads, schedule appointments, organize tasks, learn a skill...',
-  },
-  {
-    key: 'features',
-    label: 'What are the must-have features?',
-    helper: 'List the screens, actions, or workflows you know you need.',
-    placeholder: 'Dashboard, profiles, search, comments, status filters, admin view...',
-  },
-  {
-    key: 'data',
-    label: 'What information should it save?',
-    helper: 'Mention important records, fields, or relationships.',
-    placeholder: 'Customers with name/email/status, projects with tasks and due dates...',
-  },
-  {
-    key: 'style',
-    label: 'How should it look and feel?',
-    helper: 'Pick a vibe or an app to resemble — and share a working name if you have one.',
-    placeholder: 'Clean and modern like Linear, playful and colorful, premium SaaS...',
-  },
-  {
-    key: 'integrations',
-    label: 'Any extras or constraints?',
-    helper: 'Auth, payments, uploads, charts, mobile-first, or anything to avoid.',
-    placeholder: 'Login later, no payments yet, mobile-first, local browser database is fine...',
-  },
-]
-
-const emptyAnswers: Answers = {
-  idea: '',
-  audience: '',
-  problem: '',
-  features: '',
-  data: '',
-  style: '',
-  integrations: '',
-}
-
-function compact(value: string, fallback: string) {
-  return value.trim() || fallback
-}
-
-function buildPlanSummary(answers: Answers) {
-  const plan = {
-    appIdea: compact(answers.idea, 'A useful web app based on the interview answers'),
-    targetUsers: compact(answers.audience, 'People who need a simpler workflow'),
-    primaryGoal: compact(answers.problem, 'Help users complete their core task quickly'),
-    coreFeatures: compact(answers.features, 'A polished dashboard, clear navigation, create/edit flows, and helpful empty states'),
-    dataToStore: compact(answers.data, 'Local app records with sensible fields and sample data'),
-    visualDirection: compact(answers.style, 'Modern, friendly, responsive, and production-quality'),
-    extrasAndConstraints: compact(answers.integrations, 'Keep it runnable in the browser with React, TypeScript, Vite, Tailwind CSS, shadcn/ui, and the hyper-zepto db helpers in src/db.ts when persistence is useful'),
-  }
-
-  const summary = \`Build an app for: \${plan.appIdea}\\n\\nTarget users: \${plan.targetUsers}\\n\\nMain goal: \${plan.primaryGoal}\\n\\nMust-have features: \${plan.coreFeatures}\\n\\nData model / persistence: \${plan.dataToStore}\\n\\nVisual direction: \${plan.visualDirection}\\n\\nExtras / constraints: \${plan.extrasAndConstraints}\`
-
-  return { plan, summary }
-}
-
 function App() {
-  const [step, setStep] = useState(0)
-  const [answers, setAnswers] = useState<Answers>(emptyAnswers)
-  const [sent, setSent] = useState(false)
-  const current = questions[step]
-  const progress = Math.round(((step + 1) / questions.length) * 100)
-  const { plan, summary } = useMemo(() => buildPlanSummary(answers), [answers])
-  const isReviewing = step >= questions.length
-
-  function updateAnswer(value: string) {
-    if (!current) return
-    setAnswers(previous => ({ ...previous, [current.key]: value }))
-  }
-
-  function next() {
-    setStep(value => Math.min(value + 1, questions.length))
-  }
-
-  function back() {
-    setStep(value => Math.max(value - 1, 0))
-  }
-
-  function buildApp() {
-    const message = { type: 'BUILD_APP_FROM_PLAN', plan, planSummary: summary }
-    window.parent.postMessage(message, '*')
-    setSent(true)
-  }
-
   return <main className="shell">
     <section className="intro">
       <div>
         <p className="eyebrow">Build starter</p>
         <h1>Welcome to Build.</h1>
-        <p className="lede">Let’s work through your idea and create an app for you today.</p>
+        <p className="lede">Your app will appear here.</p>
       </div>
-      <div className="hint">You can also jump into chat anytime and tell the agent exactly what to change.</div>
-    </section>
-
-    <section className="panel">
-      <div className="progress"><span style={{ width: \`\${isReviewing ? 100 : progress}%\` }} /></div>
-      {!isReviewing ? <>
-        <p className="step">Question {step + 1} of {questions.length}</p>
-        <h2>{current.label}</h2>
-        <p className="helper">{current.helper}</p>
-        <textarea
-          autoFocus
-          value={answers[current.key]}
-          onChange={event => updateAnswer(event.target.value)}
-          placeholder={current.placeholder}
-        />
-        <div className="actions">
-          <button className="secondary" onClick={back} disabled={step === 0}>Back</button>
-          <button onClick={next}>{step === questions.length - 1 ? 'Review app plan' : 'Next question'}</button>
-        </div>
-      </> : <>
-        <p className="step">Ready to build</p>
-        <h2>Here’s the app plan</h2>
-        <div className="summary">
-          <p><strong>App:</strong> {plan.appIdea}</p>
-          <p><strong>Users:</strong> {plan.targetUsers}</p>
-          <p><strong>Goal:</strong> {plan.primaryGoal}</p>
-          <p><strong>Features:</strong> {plan.coreFeatures}</p>
-          <p><strong>Data:</strong> {plan.dataToStore}</p>
-          <p><strong>Style:</strong> {plan.visualDirection}</p>
-          <p><strong>Extras:</strong> {plan.extrasAndConstraints}</p>
-        </div>
-        <div className="actions">
-          <button className="secondary" onClick={back}>Edit answers</button>
-          <button onClick={buildApp}>{sent ? 'Plan sent to Build' : 'Build this app'}</button>
-        </div>
-        <p className="footnote">This button sends the summarized plan to the model along with the current code so it can replace this interview with your new app.</p>
-      </>}
+      <div className="hint">Answer the interview in the chat — or just describe your idea — and the agent replaces this page with your app.</div>
     </section>
   </main>
 }

@@ -18,3 +18,8 @@ export function postInspectorMessage(message) {
   }
   send()
 }
+
+export function focusLayoutSegment() {
+  // after Lustre re-renders: the newly active segment is the tab stop
+  requestAnimationFrame(() => document.querySelector('.layoutSwitch .layoutSegment.active')?.focus())
+}

@@ -29,6 +29,25 @@ button, input, textarea, select { font: inherit; }
 .app.modeSplit .workspace, .app.modeBuilder .workspace { animation: workspaceReveal .24s ease both; }
 @keyframes workspaceReveal { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .app:not(.modeChat) .bootStatus { display: none; }
+/* Focus mode: full-bleed preview, the SAME chat panel docked as a companion
+   card. The entrance is opacity-only — any transform/filter here would make
+   this panel the containing block for the position:fixed modal backdrops
+   that render inside it, trapping modals in a 380px card. */
+.app.modeFocus { grid-template-columns: 1fr; }
+.app.modeFocus .panel.chat {
+  position: fixed; right: 18px; bottom: 18px; z-index: 10;
+  width: min(380px, calc(100vw - 36px)); height: min(62vh, 640px);
+  border: 1px solid var(--scout-line); border-right: 1px solid var(--scout-line);
+  border-radius: 18px; padding: 14px;
+  box-shadow: color(srgb 0 0 0 / .16) 0 24px 80px;
+  animation: focusCardIn .24s ease both;
+}
+@keyframes focusCardIn { from { opacity: 0; } to { opacity: 1; } }
+.app.modeFocus .panel.chat > header > p { display: none; }
+.app.modeFocus .projectControls { display: none; }
+/* Element picking in Focus: ghost the card so clicks pass through its
+   footprint to the iframe — never while a modal is open inside it. */
+.app.modeFocus.selecting .panel.chat:not(:has(.modalBackdrop)) { opacity: .25; pointer-events: none; }
 .bootStatus { color: var(--scout-muted); font-size: .84rem; margin-top: 6px; }
 .bootStatus.error { color: #c2421f; }
 .titleRowTools { display: flex; align-items: center; gap: 8px; }

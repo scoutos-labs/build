@@ -33,6 +33,9 @@ pub type Msg {
   Project(project.Msg)
   Agent(agent.Msg)
   Preview(preview.Msg)
+  // Keyboard-driven layout change: same as LayoutModeSelected plus a
+  // focus-follows-selection effect after re-render.
+  LayoutModeKeyed(preview.LayoutMode)
   WebContainer(webcontainer.Msg)
   Publish(publish.Msg)
 }

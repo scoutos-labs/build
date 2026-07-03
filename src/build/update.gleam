@@ -248,6 +248,16 @@ pub fn update(
       }
     }
     msg.Agent(agent_msg) -> update_agent(app, agent_msg)
+    msg.LayoutModeKeyed(mode) -> {
+      let #(state, effects) =
+        preview.update(app.preview, preview.LayoutModeSelected(mode))
+      #(
+        model.Model(..app, preview: state),
+        list.append(list.map(effects, effect.Preview), [
+          effect.FocusLayoutSegment,
+        ]),
+      )
+    }
     msg.Preview(preview_msg) -> {
       // While the interview is running, an arriving URL must not yank the
       // full-screen chat mid-question — the reveal moves to interview end.

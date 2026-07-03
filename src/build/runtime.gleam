@@ -21,11 +21,15 @@ pub fn interpret(effect: effect.Effect) -> Nil {
     effect.ConfirmNewProject -> confirm_new_project()
     effect.ConfirmRemoveProject(id) -> confirm_remove_project(id)
     effect.ScrollMessagesToBottom -> scroll_messages_to_bottom()
+    effect.FocusLayoutSegment -> focus_layout_segment()
   }
 }
 
 @external(javascript, "../gleam-externals/dom.mjs", "scrollMessagesToBottom")
 fn scroll_messages_to_bottom() -> Nil
+
+@external(javascript, "../gleam-externals/dom.mjs", "focusLayoutSegment")
+fn focus_layout_segment() -> Nil
 
 @external(javascript, "../gleam-externals/browser.mjs", "confirmNewProject")
 fn confirm_new_project() -> Nil

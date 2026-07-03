@@ -13,6 +13,9 @@ pub type InspectorMessage {
 pub type LayoutMode {
   ChatMode
   SplitMode
+  // Full-bleed preview with the chat as a docked companion card. Manual
+  // entry only; the journey logic never produces it.
+  FocusMode
   BuilderMode
 }
 

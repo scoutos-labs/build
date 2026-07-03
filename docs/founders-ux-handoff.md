@@ -14,3 +14,8 @@
   eligibility. Non-blocking notes folded (empty submit no-op, Improve
   defensive idle, record_url keeps inspector effect, legacy coexistence).
   Order A → C1/C2 → B → C3.
+- 2026-07-03 steps-1-8-done — commits 433449e/a73b4e7/2fb2883/+smoke: actor,
+  wiring, reveal rules, chat rendering, template swap, smokes (14/14 +
+  18/18), icon relocation, empty-state centering. Repairs: flex-shrink
+  bubble squeeze; skipped-question wall. Next: step 9 Focus mode, step 10
+  roving focus.

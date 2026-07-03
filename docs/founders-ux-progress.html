@@ -24,28 +24,28 @@
 <body>
 
 <h1>Progress — founders-ux</h1>
-<p><strong>Status:</strong> <span class="chip inprog">plan-review gate</span> · PRD: <a href="founders-ux-prd.html">founders-ux-prd.html</a> · Branch <code>founders-ux</code> · Baseline: 105 gleam + 109 vitest green, smoke 18/18.</p>
+<p><strong>Status:</strong> <span class="chip inprog">implementation-review gate</span> · PRD: <a href="founders-ux-prd.html">founders-ux-prd.html</a> · Branch <code>founders-ux</code> · Baseline: 105 gleam + 109 vitest green, smoke 18/18.</p>
 
 <h2>Step checklist</h2>
 <table>
 <tr><th>Step</th><th>Status</th><th>Evidence</th></tr>
-<tr><td>1 interview actor + golden</td><td><span class="chip pending">pending</span></td><td>—</td></tr>
-<tr><td>2 wiring: triggers + composer routing</td><td><span class="chip pending">pending</span></td><td>—</td></tr>
-<tr><td>3 reveal rules</td><td><span class="chip pending">pending</span></td><td>—</td></tr>
-<tr><td>4 chat view renders interview</td><td><span class="chip pending">pending</span></td><td>—</td></tr>
-<tr><td>5 template swap + compat</td><td><span class="chip pending">pending</span></td><td>—</td></tr>
-<tr><td>6 smoke updates + smoke-interview</td><td><span class="chip pending">pending</span></td><td>—</td></tr>
-<tr><td>7 C2 icon relocation</td><td><span class="chip pending">pending</span></td><td>—</td></tr>
-<tr><td>8 C1 empty-state centering</td><td><span class="chip pending">pending</span></td><td>—</td></tr>
-<tr><td>9 B Focus mode</td><td><span class="chip pending">pending</span></td><td>—</td></tr>
-<tr><td>10 C3 roving focus</td><td><span class="chip pending">pending</span></td><td>—</td></tr>
+<tr><td>1 interview actor + golden</td><td><span class="chip pass">pass</span></td><td><code>433449e</code>: 6 actor tests incl. the legacy-format golden.</td></tr>
+<tr><td>2 wiring: triggers + composer routing</td><td><span class="chip pass">pass</span></td><td><code>a73b4e7</code>: 15 wiring tests incl. gated_build_keeps_reviewing, open_project_discards_stale_answers, answer_during_remount_is_accepted.</td></tr>
+<tr><td>3 reveal rules</td><td><span class="chip pass">pass</span></td><td><code>a73b4e7</code>: record_url/reveal helpers; 2 intentionally inverted layout tests (commented); dismiss_before_url_keeps_auto_reveal.</td></tr>
+<tr><td>4 chat view renders interview</td><td><span class="chip pass">pass</span></td><td><code>2fb2883</code>; smoke screenshots. Repairs: flex squeeze crushed the recap (flex-shrink:0 on scroller children); skipped questions no longer pile up as empty bubbles.</td></tr>
+<tr><td>5 template swap + compat</td><td><span class="chip pass">pass</span></td><td><code>2fb2883</code>: placeholder byte-identical (drift test green); BUILD_APP_FROM_PLAN route kept; architecture.md updated.</td></tr>
+<tr><td>6 smoke updates + smoke-interview</td><td><span class="chip pass">pass</span></td><td>smoke-interview.mjs 14/14; layout smoke updated (opts out of interview) 18/18 → 25/25 after step 9.</td></tr>
+<tr><td>7 C2 icon relocation</td><td><span class="chip pass">pass</span></td><td><code>2fb2883</code>; actions row = Send/Cancel.</td></tr>
+<tr><td>8 C1 empty-state centering</td><td><span class="chip pass">pass</span></td><td><code>2fb2883</code>; :has-based centering in ChatMode.</td></tr>
+<tr><td>9 B Focus mode</td><td><span class="chip pass">pass</span></td><td>5 gleam tests; smoke: one .panel.chat, iframe identity, settings modal full-viewport from Focus (1440px backdrop), ghosting class from view.</td></tr>
+<tr><td>10 C3 roving focus</td><td><span class="chip pass">pass</span></td><td>Smoke keyboard assertions: ArrowRight App→Focus→Code, stops at end, activeElement follows.</td></tr>
 </table>
 
 <h2>Reviewer / judge findings</h2>
-<p class="muted">Plan review: running. Implementation review: pending.</p>
+<ul><li><strong>Plan review:</strong> REVISE → resolved (B1 Focus-modal containing-block rule, B2 gated-Build keeps Reviewing, B3 OpenProject rules; non-blocking notes folded).</li><li><strong>Implementation review:</strong> running.</li></ul>
 
 <h2>Repair loops</h2>
-<p class="muted">None yet.</p>
+<ul><li>Recap crushed by flex min-size zeroing (overflow:hidden) — flex-shrink:0 fix after screenshot review.</li><li>Skipped-question bubble wall — history now shows answered pairs only.</li></ul>
 
 <h2>Residual risks</h2>
 <ul>

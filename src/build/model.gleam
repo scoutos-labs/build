@@ -1,5 +1,6 @@
 import build/actors/agent
 import build/actors/chat
+import build/actors/interview
 import build/actors/preview
 import build/actors/project
 import build/actors/publish
@@ -12,6 +13,7 @@ pub type Model {
     managed: Bool,
     settings: settings.State,
     chat: chat.State,
+    interview: interview.State,
     project: project.State,
     agent: agent.State,
     preview: preview.State,
@@ -32,6 +34,7 @@ pub fn init() -> Model {
       False -> settings.init()
     },
     chat: chat.init(),
+    interview: interview.init(),
     project: project.init(),
     agent: agent.init(),
     preview: preview.init(),

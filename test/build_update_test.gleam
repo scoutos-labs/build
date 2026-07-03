@@ -1,5 +1,6 @@
 import build/actors/agent
 import build/actors/chat
+import build/actors/interview
 import build/actors/preview
 import build/actors/project
 import build/actors/settings
@@ -133,15 +134,18 @@ pub fn save_and_new_project_emit_effects_test() {
     ])
   assert update.update(app, msg.NewProject)
     == #(app, [effect.ConfirmNewProject])
-  assert update.update(app, msg.NewProjectConfirmed)
-    == #(app, [
+  // NewProjectConfirmed now also starts the chat interview
+  let #(created, create_effects) = update.update(app, msg.NewProjectConfirmed)
+  assert created.interview.stage == interview.Asking(0)
+  assert create_effects
+    == [
       effect.Project(project.CreateProject(
         name: "Untitled Project",
         files: app.project.files,
         messages: [],
         selected_path: "src/main.tsx",
       )),
-    ])
+    ]
 }
 
 pub fn open_remove_and_export_project_emit_effects_test() {

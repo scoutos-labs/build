@@ -145,9 +145,11 @@ fn app_with_preview(state: preview.State) -> model.Model {
   model.Model(..model.init(), preview: state)
 }
 
-pub fn new_project_exits_chat_mode_when_url_exists_test() {
-  // even a manual chat choice: creating a project is a navigation, and the
-  // new starter app IS the interview wizard — it must be visible
+pub fn new_project_stays_in_chat_mode_test() {
+  // INVERTED (interview-in-chat): the onboarding interview now lives in the
+  // chat panel, so creating a project no longer forces ChatMode users into
+  // the split — the old rule existed only because the wizard was in the
+  // iframe. Navigation still re-arms the auto reveal.
   let app =
     app_with_preview(preview.State(
       ..preview.init(),
@@ -156,7 +158,7 @@ pub fn new_project_exits_chat_mode_when_url_exists_test() {
       preview_url: "http://p",
     ))
   let #(next, _) = update.update(app, msg.NewProjectConfirmed)
-  assert next.preview.layout == preview.SplitMode
+  assert next.preview.layout == preview.ChatMode
   assert !next.preview.layout_is_manual
 }
 
@@ -190,7 +192,9 @@ pub fn open_project_rearms_auto_switch_test() {
   assert !next.preview.layout_is_manual
 }
 
-pub fn reset_project_exits_chat_when_url_exists_test() {
+pub fn reset_project_stays_in_chat_test() {
+  // INVERTED (interview-in-chat): same rationale as new_project — the
+  // interview restarts in chat, no forced move.
   let app =
     app_with_preview(preview.State(
       ..preview.init(),
@@ -199,7 +203,8 @@ pub fn reset_project_exits_chat_when_url_exists_test() {
       preview_url: "http://p",
     ))
   let #(next, _) = update.update(app, msg.ResetProject)
-  assert next.preview.layout == preview.SplitMode
+  assert next.preview.layout == preview.ChatMode
+  assert !next.preview.layout_is_manual
 }
 
 pub fn empty_url_does_not_reveal_test() {

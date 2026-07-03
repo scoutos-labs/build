@@ -1,5 +1,6 @@
 import build/actors/agent
 import build/actors/chat
+import build/actors/interview
 import build/actors/preview
 import build/actors/project
 import build/actors/publish
@@ -62,6 +63,10 @@ pub fn update(
           ..app,
           agent: agent_state,
           preview: preview.on_project_navigation(app.preview),
+          interview: interview.update(
+            interview.init(),
+            interview.InterviewStarted,
+          ),
         ),
         list.append(list.map(agent_effects, effect.Agent), [
           effect.Project(project.CreateProject(
@@ -73,7 +78,26 @@ pub fn update(
         ]),
       )
     }
-    msg.SubmitPrompt(request_id, now) -> submit_prompt(app, request_id, now)
+    msg.SubmitPrompt(request_id, now) ->
+      case app.interview.stage {
+        // Mid-interview the composer answers questions, not the agent.
+        // Deliberately not gated on remounting or budget: answering touches
+        // no container and no model. Empty submits are a no-op inside the
+        // interview actor.
+        interview.Asking(_) -> {
+          let interview_state =
+            interview.update(
+              app.interview,
+              interview.AnswerSubmitted(app.chat.prompt),
+            )
+          let chat_state = chat.update(app.chat, chat.PromptChanged(""))
+          #(
+            model.Model(..app, interview: interview_state, chat: chat_state),
+            [effect.ScrollMessagesToBottom],
+          )
+        }
+        _ -> submit_prompt(app, request_id, now)
+      }
     msg.BuildFromPlan(plan_summary, request_id, now) ->
       build_from_plan(app, plan_summary, request_id, now)
     msg.ImproveSelectedElement(request_id, now) ->
@@ -102,6 +126,10 @@ pub fn update(
           project: project_state,
           chat: chat_state,
           preview: preview.on_project_navigation(app.preview),
+          interview: interview.update(
+            interview.init(),
+            interview.InterviewStarted,
+          ),
         ), [
         effect.Agent(agent.AbortAgent),
         ..list.map(project_effects, effect.Project)
@@ -110,11 +138,15 @@ pub fn update(
     msg.OpenProject(id) -> {
       let #(agent_state, agent_effects) =
         agent.update(app.agent, agent.AgentRequestCanceled)
+      // Discard in-flight answers immediately: a mid-interview switch must
+      // never seed another project's plan. MessagesReplaced re-evaluates
+      // eligibility once the opened project's history hydrates.
       #(
         model.Model(
           ..app,
           agent: agent_state,
           preview: preview.on_project_navigation(app.preview),
+          interview: interview.init(),
         ),
         list.append(list.map(agent_effects, effect.Agent), [
           effect.Project(project.OpenProject(id)),
@@ -129,9 +161,45 @@ pub fn update(
       let #(state, effects) = settings.update(app.settings, settings_msg)
       #(model.Model(..app, settings: state), list.map(effects, effect.Settings))
     }
+    msg.Interview(interview_msg) -> {
+      let interview_state = interview.update(app.interview, interview_msg)
+      let next = model.Model(..app, interview: interview_state)
+      case interview_msg {
+        // Opting out is an interview end: reveal the app if it's ready.
+        interview.InterviewDismissed -> #(
+          model.Model(..next, preview: preview.reveal(next.preview)),
+          [effect.ScrollMessagesToBottom],
+        )
+        _ -> #(next, [effect.ScrollMessagesToBottom])
+      }
+    }
+    msg.InterviewBuild(request_id, now) ->
+      case app.interview.stage {
+        interview.Reviewing ->
+          build_from_plan(
+            app,
+            interview.plan_summary(app.interview.answers),
+            request_id,
+            now,
+          )
+        _ -> #(app, [])
+      }
     msg.Chat(chat_msg) -> {
       let chat_state = chat.update(app.chat, chat_msg)
       case chat_msg {
+        // A project's chat history just hydrated (boot or open): re-evaluate
+        // interview eligibility against the loaded project. build_log is
+        // already hydrated — ProjectLoaded dispatches before MessagesReplaced.
+        chat.MessagesReplaced(loaded) -> {
+          let interview_state = case loaded == [] && app.project.build_log == [] {
+            True -> interview.update(interview.init(), interview.InterviewStarted)
+            False -> interview.init()
+          }
+          #(
+            model.Model(..app, chat: chat_state, interview: interview_state),
+            [],
+          )
+        }
         chat.ChatCleared ->
           with_auto_save(
             model.Model(
@@ -151,10 +219,24 @@ pub fn update(
       let #(state, effects) = project.update(app.project, project_msg)
       let base_effects = list.map(effects, effect.Project)
       case project_msg {
-        project.ProjectReady -> #(model.Model(..app, project: state), [
-          effect.WebContainer(webcontainer.BootContainer(state.files)),
-          ..base_effects
-        ])
+        project.ProjectReady -> {
+          // Boot settled (messages hydrate before ProjectReady): a project
+          // that has never chatted or built gets the onboarding interview.
+          let interview_state = case
+            app.chat.messages == [] && state.build_log == []
+          {
+            True ->
+              interview.update(interview.init(), interview.InterviewStarted)
+            False -> app.interview
+          }
+          #(
+            model.Model(..app, project: state, interview: interview_state),
+            [
+              effect.WebContainer(webcontainer.BootContainer(state.files)),
+              ..base_effects
+            ],
+          )
+        }
         project.ProjectNameChanged(_)
         | project.FileApplied(_, _)
         | project.FileEdited(_, _)
@@ -167,7 +249,15 @@ pub fn update(
     }
     msg.Agent(agent_msg) -> update_agent(app, agent_msg)
     msg.Preview(preview_msg) -> {
-      let #(state, effects) = preview.update(app.preview, preview_msg)
+      // While the interview is running, an arriving URL must not yank the
+      // full-screen chat mid-question — the reveal moves to interview end.
+      let #(state, effects) = case preview_msg, app.interview.stage {
+        preview.PreviewUrlChanged(url), interview.Asking(_) ->
+          preview.record_url(app.preview, url)
+        preview.PreviewUrlChanged(url), interview.Reviewing ->
+          preview.record_url(app.preview, url)
+        _, _ -> preview.update(app.preview, preview_msg)
+      }
       #(model.Model(..app, preview: state), list.map(effects, effect.Preview))
     }
     msg.WebContainer(webcontainer_msg) -> {
@@ -408,8 +498,22 @@ fn improve_selected_element(
               selected_element: option.Some(selected),
               element_comment: comment,
             )
+          // Element improvement is agent-bound work: defensively end any
+          // active interview, same as call_agent_with_prompt.
+          let #(interview_state, preview_state) = case
+            interview.is_active(app.interview)
+          {
+            True -> #(interview.init(), preview.reveal(app.preview))
+            False -> #(app.interview, app.preview)
+          }
           #(
-            model.Model(..app, chat: chat_state, agent: agent_state),
+            model.Model(
+              ..app,
+              chat: chat_state,
+              agent: agent_state,
+              interview: interview_state,
+              preview: preview_state,
+            ),
             list.append(
               legacy_persist_effects(app),
               list.append(
@@ -497,8 +601,24 @@ fn call_agent_with_prompt(
           selected_element: option.None,
           element_comment: "",
         )
+      // The agent actually starting is the interview's end (from the Build
+      // button, the legacy wizard postMessage, or a free-form prompt at the
+      // recap) — idle it and fire the interview-end reveal. Gated dispatches
+      // never reach here, so a blocked Build keeps Reviewing and its answers.
+      let #(interview_state, preview_state) = case
+        interview.is_active(app.interview)
+      {
+        True -> #(interview.init(), preview.reveal(app.preview))
+        False -> #(app.interview, app.preview)
+      }
       #(
-        model.Model(..app, chat: chat_state, agent: agent_state),
+        model.Model(
+          ..app,
+          chat: chat_state,
+          agent: agent_state,
+          interview: interview_state,
+          preview: preview_state,
+        ),
         list.append(
           legacy_persist_effects(app),
           list.append(

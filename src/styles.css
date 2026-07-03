@@ -29,6 +29,25 @@ button, input, textarea, select { font: inherit; }
 .app.modeSplit .workspace, .app.modeBuilder .workspace { animation: workspaceReveal .24s ease both; }
 @keyframes workspaceReveal { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .app:not(.modeChat) .bootStatus { display: none; }
+/* Focus mode: full-bleed preview, the SAME chat panel docked as a companion
+   card. The entrance is opacity-only — any transform/filter here would make
+   this panel the containing block for the position:fixed modal backdrops
+   that render inside it, trapping modals in a 380px card. */
+.app.modeFocus { grid-template-columns: 1fr; }
+.app.modeFocus .panel.chat {
+  position: fixed; right: 18px; bottom: 18px; z-index: 10;
+  width: min(380px, calc(100vw - 36px)); height: min(62vh, 640px);
+  border: 1px solid var(--scout-line); border-right: 1px solid var(--scout-line);
+  border-radius: 18px; padding: 14px;
+  box-shadow: color(srgb 0 0 0 / .16) 0 24px 80px;
+  animation: focusCardIn .24s ease both;
+}
+@keyframes focusCardIn { from { opacity: 0; } to { opacity: 1; } }
+.app.modeFocus .panel.chat > header > p { display: none; }
+.app.modeFocus .projectControls { display: none; }
+/* Element picking in Focus: ghost the card so clicks pass through its
+   footprint to the iframe — never while a modal is open inside it. */
+.app.modeFocus.selecting .panel.chat:not(:has(.modalBackdrop)) { opacity: .25; pointer-events: none; }
 .bootStatus { color: var(--scout-muted); font-size: .84rem; margin-top: 6px; }
 .bootStatus.error { color: #c2421f; }
 .titleRowTools { display: flex; align-items: center; gap: 8px; }
@@ -48,6 +67,10 @@ input, textarea, select { width: 100%; border: 1px solid var(--scout-ring); back
 input:focus, textarea:focus, select:focus { border-color: transparent; box-shadow: 0 0 0 1px #74a5ff, 0 0 0 3px color(srgb 0.15 0.39 1 / .14); }
 .chatTools { display: flex; align-items: center; justify-content: space-between; color: #8b8d94; font-size: .78rem; margin-bottom: -4px; }
 .messages { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scroll-behavior: smooth; display: flex; flex-direction: column; gap: 8px; padding-right: 3px; }
+/* Never let the column squeeze tall bubbles: .msg has overflow:hidden, which
+   zeroes its automatic minimum size, so without this the recap (and long
+   expanded messages) get crushed instead of scrolling. */
+.messages > * { flex-shrink: 0; }
 .msg { display: block; width: fit-content; max-width: 92%; text-align: left; padding: 10px 12px 12px; border-radius: 14px; white-space: pre-wrap; line-height: 1.48; font-weight: 500; border: 0; color: inherit; overflow: hidden; cursor: pointer; font-size: .86rem; }
 .msg:not(.expanded) { display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; }
 .msg.expanded { overflow: visible; padding-bottom: 14px; }
@@ -55,6 +78,17 @@ input:focus, textarea:focus, select:focus { border-color: transparent; box-shado
 .msg.assistant { align-self: flex-start; background: #ffffff; color: var(--scout-ink); border: 1px solid var(--scout-line); box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
 .msg:hover { filter: brightness(.99); }
 .empty { padding: 13px; color: var(--scout-muted); border: 1px dashed #d9dadd; border-radius: 14px; background: #fff; }
+/* Chat-mode empty state: center the lone suggestion instead of letting it
+   float at the top of a tall dead column (the composer stays pinned). */
+.app.modeChat .messages:has(> .empty:only-child) { justify-content: center; }
+.app.modeChat .messages > .empty:only-child { text-align: center; max-width: 30rem; margin: 0 auto; }
+/* Interview bubbles: rendered from interview state, styled as chat but not
+   clickable/clamped like persisted messages (the recap runs long). */
+.msg.interviewMsg { cursor: default; }
+.messages .msg.interviewMsg:not(.expanded) { display: block; -webkit-line-clamp: unset; }
+.interviewHelper { display: block; margin-top: 6px; color: var(--scout-muted); font-weight: 500; font-size: .8rem; white-space: pre-wrap; }
+.interviewActions { display: flex; gap: 8px; align-items: center; padding-left: 2px; }
+.chatToolButtons { display: flex; gap: 6px; align-items: center; }
 .chat > textarea { height: 84px; resize: none; border-radius: 14px; border: 1px solid transparent; background: linear-gradient(#fff, #fff) padding-box, linear-gradient(110deg, #ff8acb, #73e3d4, #4f7dff) border-box; color: var(--scout-ink); box-shadow: color(srgb 0 0 0 / .06) 0 10px 28px; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .thinking { color: var(--scout-charcoal); background: #fff; border: 1px solid var(--scout-line); border-radius: 12px; padding: 9px 11px; font-size: .84rem; box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }

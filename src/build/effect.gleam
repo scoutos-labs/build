@@ -19,4 +19,5 @@ pub type Effect {
   ConfirmNewProject
   ConfirmRemoveProject(id: String)
   ScrollMessagesToBottom
+  FocusLayoutSegment
 }

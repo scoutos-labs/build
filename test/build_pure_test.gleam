@@ -31,8 +31,9 @@ pub fn starter_files_include_runnable_project_test() {
     |> string.contains("from './zepto-bridge.js'")
   assert file_content(files, "src/db.ts") |> string.contains("/api/db")
   assert file_content(files, "src/main.tsx") |> string.contains("./build-inspector")
-  assert file_content(files, "src/main.tsx") |> string.contains("BUILD_APP_FROM_PLAN")
+  // interview moved to Build's chat; the starter is a placeholder now
   assert file_content(files, "src/main.tsx") |> string.contains("Welcome to Build")
+  assert !{ file_content(files, "src/main.tsx") |> string.contains("BUILD_APP_FROM_PLAN") }
   assert file_content(files, "src/build-inspector.ts") |> string.contains("BUILD_ELEMENT_SELECTED")
 }
 

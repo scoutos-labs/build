@@ -19,18 +19,11 @@ describe('project templates', () => {
     expect(starterFiles.find(file => file.path === 'vite.config.ts')?.content).toContain('zepto-bridge.js')
     expect(starterFiles.find(file => file.path === 'src/db.ts')?.content).toContain('/api/db')
     expect(starterFiles.find(file => file.path === 'src/main.tsx')?.content).toContain("./build-inspector")
-    expect(starterFiles.find(file => file.path === 'src/main.tsx')?.content).toContain('BUILD_APP_FROM_PLAN')
+    // The onboarding interview lives in Build's chat panel now; the starter
+    // is a calm placeholder the agent replaces on the first build.
     expect(starterFiles.find(file => file.path === 'src/main.tsx')?.content).toContain('Welcome to Build')
+    expect(starterFiles.find(file => file.path === 'src/main.tsx')?.content).not.toContain('BUILD_APP_FROM_PLAN')
     expect(starterFiles.find(file => file.path === 'src/build-inspector.ts')?.content).toContain('BUILD_ELEMENT_SELECTED')
-  })
-
-  it('defaults to Vite, Tailwind CSS, shadcn/ui in interview fallback plan', () => {
-    const mainContent = starterFiles.find(f => f.path === 'src/main.tsx')?.content ?? ''
-    // The fallback strings use compact() which falls back to the second arg
-    // when the user leaves the field blank — these are the defaults for the plan summary
-    expect(mainContent).toContain('Vite')
-    expect(mainContent).toContain('Tailwind CSS')
-    expect(mainContent).toContain('shadcn/ui')
   })
 
   it('pre-bakes Tailwind + shadcn cn() helper so the agent need not bootstrap styling', () => {

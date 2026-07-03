@@ -47,6 +47,13 @@ await page.waitForSelector('.app', { timeout: 20000 })
 await bridge(`bridge.dispatchSettingsLoaded({ provider: 'openrouter', apiKey: 'sk-test', model: 'anthropic/claude-3.5-sonnet' })`)
 await page.waitForSelector('.modalBackdrop', { state: 'detached', timeout: 5000 })
 
+// A fresh project starts the chat interview (its own smoke covers it); this
+// script tests the layout journey, so opt out — which also re-arms the
+// normal URL-arrival reveal the assertions below depend on.
+await page.waitForSelector('.interviewMsg', { timeout: 5000 })
+await page.getByRole('button', { name: 'Just describe it instead' }).click()
+await page.waitForSelector('.interviewMsg', { state: 'detached', timeout: 5000 })
+
 // 1. Session boot: full-screen chat, workspace hidden, boot status visible.
 await snap('boot-chat-mode')
 note('starts in chat mode', await page.locator('.app.modeChat').count() === 1)
@@ -118,7 +125,48 @@ note('entering Code clears the badge', await page.locator('.layoutSwitch .unread
 note('iframe never remounted across all switches',
   await page.evaluate(() => document.querySelector('iframe[title="preview"]')?.dataset.smokeIdentity) === 'original')
 
-// 8. Small screen: chat mode is a single column.
+// 8. Focus mode: full-bleed preview, same chat node as a docked card.
+await page.getByRole('button', { name: 'Focus' }).click()
+await page.waitForSelector('.app.modeFocus', { timeout: 5000 })
+await page.waitForTimeout(400)
+await snap('focus-mode')
+note('Focus is a fourth mode', await page.locator('.app.modeFocus').count() === 1)
+note('still exactly one chat panel (identical DOM)', await page.locator('.panel.chat').count() === 1)
+note('iframe survived entering Focus',
+  await page.evaluate(() => document.querySelector('iframe[title="preview"]')?.dataset.smokeIdentity) === 'original')
+
+// Modals opened inside the Focus card must escape to full viewport — the
+// card carries no transform, so position:fixed stays viewport-relative.
+await page.getByRole('button', { name: 'Model settings' }).click()
+await page.waitForSelector('.modalBackdrop', { timeout: 5000 })
+const backdropBox = await page.locator('.modalBackdrop').boundingBox()
+note('settings modal in Focus is full-viewport',
+  backdropBox !== null && backdropBox.width > 1200 && backdropBox.x < 10,
+  `backdrop ${Math.round(backdropBox?.width ?? 0)}px wide at x=${Math.round(backdropBox?.x ?? -1)}`)
+await snap('focus-modal-fullscreen')
+await bridge(`bridge.dispatchSettingsLoaded({ provider: 'openrouter', apiKey: 'sk-test', model: 'anthropic/claude-3.5-sonnet' })`)
+await page.waitForSelector('.modalBackdrop', { state: 'detached', timeout: 5000 })
+
+// 9. Roving keyboard focus on the segmented control.
+await page.getByRole('button', { name: 'App', exact: true }).click()
+await page.waitForSelector('.app.modeSplit', { timeout: 5000 })
+await page.keyboard.press('ArrowRight')
+await page.waitForSelector('.app.modeFocus', { timeout: 5000 })
+note('ArrowRight moves selection to Focus', await page.locator('.app.modeFocus').count() === 1)
+await page.waitForFunction(() => document.activeElement?.textContent?.trim() === 'Focus', null, { timeout: 3000 })
+note('keyboard focus follows the active segment',
+  await page.evaluate(() => document.activeElement?.textContent?.trim()) === 'Focus')
+await page.keyboard.press('ArrowRight')
+await page.waitForSelector('.app.modeBuilder', { timeout: 5000 })
+await page.keyboard.press('ArrowRight')
+await page.waitForTimeout(200)
+note('roving stops at the end', await page.locator('.app.modeBuilder').count() === 1)
+await page.keyboard.press('ArrowLeft')
+await page.waitForSelector('.app.modeFocus', { timeout: 5000 })
+await page.getByRole('button', { name: 'App', exact: true }).click()
+await page.waitForSelector('.app.modeSplit', { timeout: 5000 })
+
+// 10. Small screen: chat mode is a single column.
 await page.setViewportSize({ width: 720, height: 900 })
 await page.getByRole('button', { name: 'Chat', exact: true }).click()
 await page.waitForTimeout(300)

@@ -33,10 +33,14 @@ pub fn view(app: model.Model) -> Element(msg.Msg) {
   let chat_busy = running || webcontainer.is_remounting(app.webcontainer)
   html.div(
     [
-      attribute.class(case app.preview.layout {
-        preview.ChatMode -> "app modeChat"
-        preview.SplitMode -> "app modeSplit"
-        preview.BuilderMode -> "app modeBuilder"
+      attribute.class(case app.preview.layout, app.preview.selecting_element {
+        preview.ChatMode, _ -> "app modeChat"
+        preview.SplitMode, _ -> "app modeSplit"
+        // `selecting` lets CSS ghost the companion card so clicks pass
+        // through to the preview while the element picker is armed.
+        preview.FocusMode, True -> "app modeFocus selecting"
+        preview.FocusMode, False -> "app modeFocus"
+        preview.BuilderMode, _ -> "app modeBuilder"
       }),
     ],
     [
@@ -82,6 +86,7 @@ pub fn view(app: model.Model) -> Element(msg.Msg) {
         chat_busy,
         app.agent.budget_exhausted,
         app.agent.budget_reset_at,
+        app.interview,
       ),
     ]),
     html.main(

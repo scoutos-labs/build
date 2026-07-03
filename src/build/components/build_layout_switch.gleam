@@ -4,6 +4,8 @@
 
 import build/actors/preview
 import build/msg
+import gleam/dynamic/decode
+import gleam/list
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
@@ -22,6 +24,7 @@ pub fn view(
     [
       segment("Chat", preview.ChatMode, layout, False),
       segment("App", preview.SplitMode, layout, False),
+      segment("Focus", preview.FocusMode, layout, False),
       segment("Code", preview.BuilderMode, layout, code_panel_unread),
     ],
   )
@@ -45,6 +48,13 @@ fn segment(
         True -> "true"
         False -> "false"
       }),
+      // Roving focus: only the active segment is tabbable; arrows move the
+      // selection (radio-group convention), stopping at the ends.
+      attribute.attribute("tabindex", case active {
+        True -> "0"
+        False -> "-1"
+      }),
+      event.on("keydown", rove_decoder(current)),
       event.on_click(msg.Preview(preview.LayoutModeSelected(mode))),
     ],
     [
@@ -61,4 +71,40 @@ fn segment(
       },
     ],
   )
+}
+
+const mode_order = [
+  preview.ChatMode,
+  preview.SplitMode,
+  preview.FocusMode,
+  preview.BuilderMode,
+]
+
+fn neighbor(current: preview.LayoutMode, step: Int) -> Result(preview.LayoutMode, Nil) {
+  let indexed = list.index_map(mode_order, fn(mode, index) { #(mode, index) })
+  case list.find(indexed, fn(pair) { pair.0 == current }) {
+    Ok(#(_, index)) ->
+      list.drop(mode_order, index + step)
+      |> list.first
+      |> fn(found) {
+        case index + step >= 0, found {
+          True, Ok(mode) -> Ok(mode)
+          _, _ -> Error(Nil)
+        }
+      }
+    Error(_) -> Error(Nil)
+  }
+}
+
+fn rove_decoder(current: preview.LayoutMode) -> decode.Decoder(msg.Msg) {
+  use key <- decode.field("key", decode.string)
+  let target = case key {
+    "ArrowRight" -> neighbor(current, 1)
+    "ArrowLeft" -> neighbor(current, -1)
+    _ -> Error(Nil)
+  }
+  case target {
+    Ok(mode) -> decode.success(msg.LayoutModeKeyed(mode))
+    Error(_) -> decode.success(msg.NoOp)
+  }
 }

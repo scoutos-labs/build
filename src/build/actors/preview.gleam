@@ -13,6 +13,9 @@ pub type InspectorMessage {
 pub type LayoutMode {
   ChatMode
   SplitMode
+  // Full-bleed preview with the chat as a docked companion card. Manual
+  // entry only; the journey logic never produces it.
+  FocusMode
   BuilderMode
 }
 
@@ -151,16 +154,30 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
 }
 
 /// Journey reset for user-initiated project navigation (new / open / reset):
-/// re-arm the auto reveal, and if the user is in ChatMode while a preview URL
-/// already exists, move to SplitMode — mid-session the URL may never re-fire
-/// (the dev server stays alive across remounts), and a new project's starter
-/// app IS the interview wizard, which must be visible. Users in Split or
-/// Builder are never moved.
+/// re-arm the auto reveal. Nobody is moved — the onboarding interview lives
+/// in the chat panel now, so ChatMode users no longer need the preview
+/// forced open to see it.
 pub fn on_project_navigation(state: State) -> State {
-  let layout = case state.layout, state.preview_url {
-    ChatMode, "" -> ChatMode
-    ChatMode, _ -> SplitMode
-    _, _ -> state.layout
+  State(..state, layout_is_manual: False)
+}
+
+/// Store a preview URL WITHOUT the reveal — used while the interview is
+/// active so vite booting mid-question never yanks the layout. Preserves
+/// the inspector re-enable side effect of the normal URL path.
+pub fn record_url(state: State, url: String) -> #(State, List(Effect)) {
+  #(State(..state, preview_url: url), case state.selecting_element {
+    True -> [PostInspectorMessage(BuildInspectorEnable)]
+    False -> []
+  })
+}
+
+/// The interview-end reveal: the moment the agent starts building (or the
+/// founder opts out of the interview), show the app — if they haven't
+/// manually chosen a layout and a preview URL exists. No-op otherwise;
+/// dismissing before any URL leaves the normal URL-arrival reveal armed.
+pub fn reveal(state: State) -> State {
+  case state.layout, state.layout_is_manual, state.preview_url {
+    ChatMode, False, url if url != "" -> State(..state, layout: SplitMode)
+    _, _, _ -> state
   }
-  State(..state, layout: layout, layout_is_manual: False)
 }

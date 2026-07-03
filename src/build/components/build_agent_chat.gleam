@@ -1,4 +1,5 @@
 import build/actors/chat
+import build/actors/interview
 import build/msg
 import build/runtime/ids
 import gleam/dynamic/decode
@@ -18,37 +19,71 @@ pub fn view(
   busy: Bool,
   budget_exhausted: Bool,
   budget_reset_at: String,
+  interview_state: interview.State,
 ) -> Element(msg.Msg) {
+  let interviewing = interview.is_active(interview_state)
   fragment([
     html.div([attribute.class("chatTools")], [
       html.span([], [
-        html.text(int.to_string(list.length(messages)) <> " messages"),
+        html.text(case interviewing {
+          True -> "Interview"
+          False -> int.to_string(list.length(messages)) <> " messages"
+        }),
       ]),
-      button(
-        [
-          attribute.class("ghost compact"),
-          attribute.disabled(messages == [] || busy),
-          event.on_click(msg.Chat(chat.ChatCleared)),
-        ],
-        "Clear chat",
-      ),
+      html.div([attribute.class("chatToolButtons")], [
+        button(
+          [
+            attribute.class("ghost compact"),
+            attribute.disabled(messages == [] || busy),
+            event.on_click(msg.Chat(chat.ChatCleared)),
+          ],
+          "Clear chat",
+        ),
+        button(
+          [
+            attribute.class("ghost compact"),
+            attribute.title("Export ZIP"),
+            attribute.aria_label("Export ZIP"),
+            event.on_click(msg.ExportZip),
+          ],
+          "⬇️",
+        ),
+        button(
+          [
+            attribute.class("ghost compact"),
+            attribute.title("Reset to default app"),
+            attribute.aria_label("Reset to default app"),
+            event.on_click(msg.ResetProject),
+          ],
+          "↺",
+        ),
+      ]),
     ]),
-    html.div([attribute.class("messages")], case messages {
-      [] -> [
+    html.div([attribute.class("messages")], case interviewing, messages {
+      True, _ -> interview_thread(interview_state)
+      False, [] -> [
         html.p([attribute.class("empty")], [
           html.text(
             "Try: “Turn this into a CRM with contacts and notes saved to the database.”",
           ),
         ]),
       ]
-      _ ->
+      False, _ ->
         list.index_map(messages, fn(message, index) {
           message_view(message, index, list.contains(expanded_messages, index))
         })
     }),
     html.textarea(
       [
-        attribute.placeholder("Describe the app change you want..."),
+        attribute.placeholder(case
+          interview.current_question(interview_state),
+          interview_state.stage
+        {
+          Ok(question), _ -> question.placeholder
+          Error(_), interview.Reviewing ->
+            "Want to add anything before I build?"
+          Error(_), _ -> "Describe the app change you want..."
+        }),
         event.on_input(fn(value) { msg.Chat(chat.PromptChanged(value)) }),
         event.on("keydown", submit_shortcut_decoder()),
       ],
@@ -71,10 +106,16 @@ pub fn view(
     html.div([attribute.class("actions")], [
       button(
         [
-          attribute.disabled(busy || budget_exhausted),
+          // Answering interview questions touches no container and no model:
+          // the button must stay live through remounts and budget exhaustion
+          // (the update layer already accepts answers then).
+          attribute.disabled(case interviewing {
+            True -> False
+            False -> busy || budget_exhausted
+          }),
           event.on("click", submit_click_decoder()),
         ],
-        case busy {
+        case busy && !interviewing {
           True -> "Working..."
           False -> "Send"
         },
@@ -87,26 +128,106 @@ pub fn view(
           )
         False -> html.text("")
       },
-      button(
-        [
-          attribute.class("secondary iconButton"),
-          attribute.title("Export ZIP"),
-          attribute.aria_label("Export ZIP"),
-          event.on_click(msg.ExportZip),
-        ],
-        "⬇️",
-      ),
-      button(
-        [
-          attribute.class("secondary iconButton"),
-          attribute.title("Reset to default app"),
-          attribute.aria_label("Reset to default app"),
-          event.on_click(msg.ResetProject),
-        ],
-        "↺",
-      ),
     ]),
   ])
+}
+
+// --- the onboarding interview, rendered as a conversation ---
+// Virtual bubbles derived from interview state: visually chat, never
+// persisted. One question at a time; helper text rides inside the bubble;
+// the composer (with the question's placeholder) is the answer box.
+
+fn interview_thread(state: interview.State) -> List(Element(msg.Msg)) {
+  // Skipped questions leave no trace — a stack of unanswered bubbles reads
+  // as a broken conversation, and the recap restates everything anyway.
+  let history =
+    list.flat_map(interview.asked_so_far(state), fn(pair) {
+      let #(question, answer) = pair
+      case answer {
+        "" -> []
+        _ -> [
+          question_bubble(question),
+          html.div([attribute.class("msg user interviewMsg")], [
+            html.text(answer),
+          ]),
+        ]
+      }
+    })
+  case state.stage {
+    interview.Asking(index) ->
+      list.append(history, [
+        case interview.current_question(state) {
+          Ok(question) -> question_bubble(question)
+          Error(_) -> html.text("")
+        },
+        html.div([attribute.class("interviewActions")], [
+          button(
+            [
+              attribute.class("ghost compact"),
+              event.on_click(msg.Interview(interview.QuestionSkipped)),
+            ],
+            "Skip",
+          ),
+          case index == 0 {
+            True ->
+              button(
+                [
+                  attribute.class("ghost compact"),
+                  event.on_click(msg.Interview(interview.InterviewDismissed)),
+                ],
+                "Just describe it instead",
+              )
+            False -> html.text("")
+          },
+        ]),
+      ])
+    interview.Reviewing ->
+      list.append(history, [
+        html.div([attribute.class("msg assistant interviewMsg")], [
+          html.text("Here's what I heard — I'll build from this plan:"),
+          html.span([attribute.class("interviewHelper")], [
+            html.text(interview.plan_summary(state.answers)),
+          ]),
+        ]),
+        html.div([attribute.class("interviewActions")], [
+          html.button(
+            [
+              attribute.type_("button"),
+              event.on("click", interview_build_decoder()),
+            ],
+            [html.text("Build my app")],
+          ),
+          button(
+            [
+              attribute.class("ghost compact"),
+              event.on_click(msg.Interview(interview.InterviewStarted)),
+            ],
+            "Start over",
+          ),
+        ]),
+      ])
+    interview.Idle -> history
+  }
+}
+
+fn question_bubble(question: interview.Question) -> Element(msg.Msg) {
+  html.div([attribute.class("msg assistant interviewMsg")], [
+    html.text(question.label),
+    html.span([attribute.class("interviewHelper")], [
+      html.text(question.helper),
+    ]),
+  ])
+}
+
+/// Built inside a decoder so the id and timestamp are generated when the
+/// event fires, not when the view renders.
+fn interview_build_msg() -> msg.Msg {
+  msg.InterviewBuild(ids.new_request_id(), ids.now_ms())
+}
+
+fn interview_build_decoder() -> decode.Decoder(msg.Msg) {
+  use _ <- decode.then(decode.success(Nil))
+  decode.success(interview_build_msg())
 }
 
 pub fn budget_exhausted_message(reset_at: String) -> String {

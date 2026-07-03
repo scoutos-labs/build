@@ -2,10 +2,12 @@ import build/actors/agent
 import build/actors/chat
 import build/actors/preview
 import build/actors/webcontainer
+import build/effect
 import build/actors/settings
 import build/model
 import build/msg
 import build/update
+import gleam/list
 import gleeunit
 
 pub fn main() -> Nil {
@@ -145,9 +147,11 @@ fn app_with_preview(state: preview.State) -> model.Model {
   model.Model(..model.init(), preview: state)
 }
 
-pub fn new_project_exits_chat_mode_when_url_exists_test() {
-  // even a manual chat choice: creating a project is a navigation, and the
-  // new starter app IS the interview wizard — it must be visible
+pub fn new_project_stays_in_chat_mode_test() {
+  // INVERTED (interview-in-chat): the onboarding interview now lives in the
+  // chat panel, so creating a project no longer forces ChatMode users into
+  // the split — the old rule existed only because the wizard was in the
+  // iframe. Navigation still re-arms the auto reveal.
   let app =
     app_with_preview(preview.State(
       ..preview.init(),
@@ -156,7 +160,7 @@ pub fn new_project_exits_chat_mode_when_url_exists_test() {
       preview_url: "http://p",
     ))
   let #(next, _) = update.update(app, msg.NewProjectConfirmed)
-  assert next.preview.layout == preview.SplitMode
+  assert next.preview.layout == preview.ChatMode
   assert !next.preview.layout_is_manual
 }
 
@@ -190,7 +194,9 @@ pub fn open_project_rearms_auto_switch_test() {
   assert !next.preview.layout_is_manual
 }
 
-pub fn reset_project_exits_chat_when_url_exists_test() {
+pub fn reset_project_stays_in_chat_test() {
+  // INVERTED (interview-in-chat): same rationale as new_project — the
+  // interview restarts in chat, no forced move.
   let app =
     app_with_preview(preview.State(
       ..preview.init(),
@@ -199,7 +205,8 @@ pub fn reset_project_exits_chat_when_url_exists_test() {
       preview_url: "http://p",
     ))
   let #(next, _) = update.update(app, msg.ResetProject)
-  assert next.preview.layout == preview.SplitMode
+  assert next.preview.layout == preview.ChatMode
+  assert !next.preview.layout_is_manual
 }
 
 pub fn empty_url_does_not_reveal_test() {
@@ -270,4 +277,59 @@ pub fn submit_prompt_blocked_during_remount_test() {
   // a project-switch remount is the one unsafe window
   assert !agent.is_running(next.agent)
   assert effects == []
+}
+
+// --- Focus mode ---
+
+pub fn focus_mode_is_manual_only_test() {
+  // the journey logic never produces Focus: the reveal targets Split
+  let #(revealed, _) =
+    preview.update(preview.init(), preview.PreviewUrlChanged("http://p"))
+  assert revealed.layout == preview.SplitMode
+
+  // entering Focus is a manual act and arms the no-yank flag
+  let #(state, _) =
+    preview.update(preview.init(), preview.LayoutModeSelected(preview.FocusMode))
+  assert state.layout == preview.FocusMode
+  assert state.layout_is_manual
+}
+
+pub fn navigation_never_moves_focus_test() {
+  let focus =
+    preview.State(
+      ..preview.init(),
+      layout: preview.FocusMode,
+      layout_is_manual: True,
+      preview_url: "http://p",
+    )
+  let after = preview.on_project_navigation(focus)
+  assert after.layout == preview.FocusMode
+  assert !after.layout_is_manual
+}
+
+pub fn focus_keeps_element_selection_test() {
+  let selecting =
+    preview.State(
+      ..preview.init(),
+      layout: preview.SplitMode,
+      selecting_element: True,
+    )
+  let #(state, effects) =
+    preview.update(selecting, preview.LayoutModeSelected(preview.FocusMode))
+  assert state.selecting_element
+  assert effects == []
+}
+
+pub fn error_in_focus_badges_code_test() {
+  let focus = preview.State(..preview.init(), layout: preview.FocusMode)
+  let #(state, _) = preview.update(focus, preview.CodePanelErrorSignaled)
+  assert state.code_panel_unread
+}
+
+pub fn keyed_layout_change_requests_segment_focus_test() {
+  let #(next, effects) =
+    update.update(model.init(), msg.LayoutModeKeyed(preview.SplitMode))
+  assert next.preview.layout == preview.SplitMode
+  assert next.preview.layout_is_manual
+  assert list.contains(effects, effect.FocusLayoutSegment)
 }

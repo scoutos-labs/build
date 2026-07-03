@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Progress — founders-ux</title>
+<style>
+  :root { --ink:#172033; --muted:#5b6579; --line:#e3e7ef; --accent:#d97757; }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color:var(--ink); max-width: 60rem; margin: 2rem auto; padding: 0 1.25rem; line-height:1.5; }
+  h1 { font-size:1.5rem; border-bottom:2px solid var(--accent); padding-bottom:.4rem; }
+  h2 { font-size:1.15rem; margin-top:2rem; border-bottom:1px solid var(--line); padding-bottom:.25rem; }
+  table { border-collapse: collapse; width:100%; font-size:.9rem; }
+  th, td { border:1px solid var(--line); padding:.4rem .55rem; text-align:left; vertical-align:top; }
+  th { background:#f6f8fc; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.88em; background:#f4f5f8; border-radius:4px; padding:.08em .35em; }
+  .chip { display:inline-block; font-size:.72rem; font-weight:700; padding:.12rem .55rem; border-radius:999px; }
+  .pending { background:#eef1f7; color:#5b6579; }
+  .inprog { background:#fff3e0; color:#b26a00; }
+  .pass { background:#e8f5e9; color:#2e7d32; }
+  .manual { background:#e3f2fd; color:#1565c0; }
+  .muted { color:var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>Progress — founders-ux</h1>
+<p><strong>Status:</strong> <span class="chip pass">complete</span> · PRD: <a href="founders-ux-prd.html">founders-ux-prd.html</a> · Branch <code>founders-ux</code> · Baseline: 105 gleam + 109 vitest green, smoke 18/18.</p>
+
+<h2>Step checklist</h2>
+<table>
+<tr><th>Step</th><th>Status</th><th>Evidence</th></tr>
+<tr><td>1 interview actor + golden</td><td><span class="chip pass">pass</span></td><td><code>433449e</code>: 6 actor tests incl. the legacy-format golden.</td></tr>
+<tr><td>2 wiring: triggers + composer routing</td><td><span class="chip pass">pass</span></td><td><code>a73b4e7</code>: 15 wiring tests incl. gated_build_keeps_reviewing, open_project_discards_stale_answers, answer_during_remount_is_accepted.</td></tr>
+<tr><td>3 reveal rules</td><td><span class="chip pass">pass</span></td><td><code>a73b4e7</code>: record_url/reveal helpers; 2 intentionally inverted layout tests (commented); dismiss_before_url_keeps_auto_reveal.</td></tr>
+<tr><td>4 chat view renders interview</td><td><span class="chip pass">pass</span></td><td><code>2fb2883</code>; smoke screenshots. Repairs: flex squeeze crushed the recap (flex-shrink:0 on scroller children); skipped questions no longer pile up as empty bubbles.</td></tr>
+<tr><td>5 template swap + compat</td><td><span class="chip pass">pass</span></td><td><code>2fb2883</code>: placeholder byte-identical (drift test green); BUILD_APP_FROM_PLAN route kept; architecture.md updated.</td></tr>
+<tr><td>6 smoke updates + smoke-interview</td><td><span class="chip pass">pass</span></td><td>smoke-interview.mjs 14/14; layout smoke updated (opts out of interview) 18/18 → 25/25 after step 9.</td></tr>
+<tr><td>7 C2 icon relocation</td><td><span class="chip pass">pass</span></td><td><code>2fb2883</code>; actions row = Send/Cancel.</td></tr>
+<tr><td>8 C1 empty-state centering</td><td><span class="chip pass">pass</span></td><td><code>2fb2883</code>; :has-based centering in ChatMode.</td></tr>
+<tr><td>9 B Focus mode</td><td><span class="chip pass">pass</span></td><td>5 gleam tests; smoke: one .panel.chat, iframe identity, settings modal full-viewport from Focus (1440px backdrop), ghosting class from view.</td></tr>
+<tr><td>10 C3 roving focus</td><td><span class="chip pass">pass</span></td><td>Smoke keyboard assertions: ArrowRight App→Focus→Code, stops at end, activeElement follows.</td></tr>
+</table>
+
+<h2>Reviewer / judge findings</h2>
+<ul><li><strong>Plan review:</strong> REVISE → resolved (B1 Focus-modal containing-block rule, B2 gated-Build keeps Reviewing, B3 OpenProject rules; non-blocking notes folded).</li><li><strong>Implementation review:</strong> PASS with fixes, both applied: Finding 1 — the Send button read disabled "Working…" through the whole post-New-Project remount (exactly when the interview asks Q1; only Ctrl+Enter worked) → Send stays live while interviewing. Finding 2 — build_from_plan now gates on budget_exhausted like every other dispatch, so a doomed Build can't idle the interview (new test). Polish from nice-to-haves: counter says "Interview" during one, Reviewing composer placeholder invites additions. Judge verified safe: MessagesReplaced only fires from load/open (auto-save can't kill an interview), reveal state-trace clean, story unpolluted, z-index/:has/flex audits pass. Taste: interview 4/5, recap 4/5, reveal beat 4/5, Focus card 4/5. Post-fix: interview smoke 14/14 (fresh, post-Focus), layout smoke 25/25 ×2 (keyboard-focus flake fixed with double-rAF refocus).</li></ul>
+
+<h2>Repair loops</h2>
+<ul><li>Recap crushed by flex min-size zeroing (overflow:hidden) — flex-shrink:0 fix after screenshot review.</li><li>Skipped-question bubble wall — history now shows answered pairs only.</li></ul>
+
+<h2>Residual risks</h2>
+<ul>
+  <li>Two shipped layout rules intentionally invert (reveal timing; navigation force-move) — commented in tests, recorded here so review doesn't read them as regressions.</li>
+  <li>Focus fixed-position card over the live iframe is the riskiest CSS; smoke must verify click-through with the real inspector.</li>
+</ul>
+
+</body>
+</html>

@@ -47,6 +47,13 @@ await page.waitForSelector('.app', { timeout: 20000 })
 await bridge(`bridge.dispatchSettingsLoaded({ provider: 'openrouter', apiKey: 'sk-test', model: 'anthropic/claude-3.5-sonnet' })`)
 await page.waitForSelector('.modalBackdrop', { state: 'detached', timeout: 5000 })
 
+// A fresh project starts the chat interview (its own smoke covers it); this
+// script tests the layout journey, so opt out — which also re-arms the
+// normal URL-arrival reveal the assertions below depend on.
+await page.waitForSelector('.interviewMsg', { timeout: 5000 })
+await page.getByRole('button', { name: 'Just describe it instead' }).click()
+await page.waitForSelector('.interviewMsg', { state: 'detached', timeout: 5000 })
+
 // 1. Session boot: full-screen chat, workspace hidden, boot status visible.
 await snap('boot-chat-mode')
 note('starts in chat mode', await page.locator('.app.modeChat').count() === 1)

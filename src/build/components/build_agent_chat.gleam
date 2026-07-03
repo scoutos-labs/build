@@ -124,11 +124,13 @@ pub fn view(
 // the composer (with the question's placeholder) is the answer box.
 
 fn interview_thread(state: interview.State) -> List(Element(msg.Msg)) {
+  // Skipped questions leave no trace — a stack of unanswered bubbles reads
+  // as a broken conversation, and the recap restates everything anyway.
   let history =
     list.flat_map(interview.asked_so_far(state), fn(pair) {
       let #(question, answer) = pair
       case answer {
-        "" -> [question_bubble(question)]
+        "" -> []
         _ -> [
           question_bubble(question),
           html.div([attribute.class("msg user interviewMsg")], [

@@ -48,6 +48,10 @@ input, textarea, select { width: 100%; border: 1px solid var(--scout-ring); back
 input:focus, textarea:focus, select:focus { border-color: transparent; box-shadow: 0 0 0 1px #74a5ff, 0 0 0 3px color(srgb 0.15 0.39 1 / .14); }
 .chatTools { display: flex; align-items: center; justify-content: space-between; color: #8b8d94; font-size: .78rem; margin-bottom: -4px; }
 .messages { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scroll-behavior: smooth; display: flex; flex-direction: column; gap: 8px; padding-right: 3px; }
+/* Never let the column squeeze tall bubbles: .msg has overflow:hidden, which
+   zeroes its automatic minimum size, so without this the recap (and long
+   expanded messages) get crushed instead of scrolling. */
+.messages > * { flex-shrink: 0; }
 .msg { display: block; width: fit-content; max-width: 92%; text-align: left; padding: 10px 12px 12px; border-radius: 14px; white-space: pre-wrap; line-height: 1.48; font-weight: 500; border: 0; color: inherit; overflow: hidden; cursor: pointer; font-size: .86rem; }
 .msg:not(.expanded) { display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; }
 .msg.expanded { overflow: visible; padding-bottom: 14px; }

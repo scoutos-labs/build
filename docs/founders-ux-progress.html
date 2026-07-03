@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Progress — founders-ux</title>
+<style>
+  :root { --ink:#172033; --muted:#5b6579; --line:#e3e7ef; --accent:#d97757; }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color:var(--ink); max-width: 60rem; margin: 2rem auto; padding: 0 1.25rem; line-height:1.5; }
+  h1 { font-size:1.5rem; border-bottom:2px solid var(--accent); padding-bottom:.4rem; }
+  h2 { font-size:1.15rem; margin-top:2rem; border-bottom:1px solid var(--line); padding-bottom:.25rem; }
+  table { border-collapse: collapse; width:100%; font-size:.9rem; }
+  th, td { border:1px solid var(--line); padding:.4rem .55rem; text-align:left; vertical-align:top; }
+  th { background:#f6f8fc; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.88em; background:#f4f5f8; border-radius:4px; padding:.08em .35em; }
+  .chip { display:inline-block; font-size:.72rem; font-weight:700; padding:.12rem .55rem; border-radius:999px; }
+  .pending { background:#eef1f7; color:#5b6579; }
+  .inprog { background:#fff3e0; color:#b26a00; }
+  .pass { background:#e8f5e9; color:#2e7d32; }
+  .manual { background:#e3f2fd; color:#1565c0; }
+  .muted { color:var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>Progress — founders-ux</h1>
+<p><strong>Status:</strong> <span class="chip inprog">plan-review gate</span> · PRD: <a href="founders-ux-prd.html">founders-ux-prd.html</a> · Branch <code>founders-ux</code> · Baseline: 105 gleam + 109 vitest green, smoke 18/18.</p>
+
+<h2>Step checklist</h2>
+<table>
+<tr><th>Step</th><th>Status</th><th>Evidence</th></tr>
+<tr><td>1 interview actor + golden</td><td><span class="chip pending">pending</span></td><td>—</td></tr>
+<tr><td>2 wiring: triggers + composer routing</td><td><span class="chip pending">pending</span></td><td>—</td></tr>
+<tr><td>3 reveal rules</td><td><span class="chip pending">pending</span></td><td>—</td></tr>
+<tr><td>4 chat view renders interview</td><td><span class="chip pending">pending</span></td><td>—</td></tr>
+<tr><td>5 template swap + compat</td><td><span class="chip pending">pending</span></td><td>—</td></tr>
+<tr><td>6 smoke updates + smoke-interview</td><td><span class="chip pending">pending</span></td><td>—</td></tr>
+<tr><td>7 C2 icon relocation</td><td><span class="chip pending">pending</span></td><td>—</td></tr>
+<tr><td>8 C1 empty-state centering</td><td><span class="chip pending">pending</span></td><td>—</td></tr>
+<tr><td>9 B Focus mode</td><td><span class="chip pending">pending</span></td><td>—</td></tr>
+<tr><td>10 C3 roving focus</td><td><span class="chip pending">pending</span></td><td>—</td></tr>
+</table>
+
+<h2>Reviewer / judge findings</h2>
+<p class="muted">Plan review: running. Implementation review: pending.</p>
+
+<h2>Repair loops</h2>
+<p class="muted">None yet.</p>
+
+<h2>Residual risks</h2>
+<ul>
+  <li>Two shipped layout rules intentionally invert (reveal timing; navigation force-move) — commented in tests, recorded here so review doesn't read them as regressions.</li>
+  <li>Focus fixed-position card over the live iframe is the riskiest CSS; smoke must verify click-through with the real inspector.</li>
+</ul>
+
+</body>
+</html>

@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PRD — Founder-first UX: interview-in-chat, Focus mode, chat polish</title>
+<style>
+  :root { --ink:#172033; --muted:#5b6579; --line:#e3e7ef; --accent:#d97757; }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color:var(--ink); max-width: 62rem; margin: 2rem auto; padding: 0 1.25rem; line-height:1.55; }
+  h1 { font-size:1.6rem; border-bottom:2px solid var(--accent); padding-bottom:.4rem; }
+  h2 { font-size:1.2rem; margin-top:2.2rem; border-bottom:1px solid var(--line); padding-bottom:.25rem; }
+  h3 { font-size:1rem; margin-top:1.4rem; }
+  table { border-collapse: collapse; width:100%; font-size:.92rem; }
+  th, td { border:1px solid var(--line); padding:.45rem .6rem; text-align:left; vertical-align:top; }
+  th { background:#f6f8fc; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.88em; background:#f4f5f8; border-radius:4px; }
+  code { padding:.08em .35em; }
+  pre { padding:.7rem .9rem; overflow-x:auto; }
+  .chip { display:inline-block; font-size:.75rem; font-weight:600; padding:.1rem .55rem; border-radius:999px; background:#eef1f7; color:var(--muted); margin-right:.3rem; }
+  .step { border:1px solid var(--line); border-radius:8px; padding:.8rem 1rem; margin:.8rem 0; }
+  .step h3 { margin:.1rem 0 .5rem; }
+  ul { margin:.3rem 0 .3rem 1.2rem; }
+  .muted { color:var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>PRD — Founder-first UX: interview-in-chat, Focus mode, chat polish</h1>
+<p class="muted">Slug <code>founders-ux</code> · 2026-07-03 · Branch <code>founders-ux</code> · <a href="founders-ux-progress.html">progress</a> · <code>docs/founders-ux-handoff.md</code> · Order: <strong>A → C1/C2 → B → C3</strong>; cut line if time-boxed: A + C ship, B follows.</p>
+
+<h2>Definitions</h2>
+<p><strong>Interview-in-chat</strong> is the 7-question onboarding conversation rendered natively in the chat panel's messages scroller, answered through the existing composer, producing the byte-identical plan summary <code>msg.BuildFromPlan</code> already consumes. It is <em>not</em> a form transplanted into bubbles (no progress bar, no "Question 3 of 7", no review grid), not AI-driven (canonical constant questions), not persisted state, not a second chat surface.</p>
+<p><strong>Focus mode</strong> is a fourth <code>LayoutMode</code>: full-bleed preview with the <em>same</em> <code>.panel.chat</code> node restyled by CSS into a docked bottom-right companion card. It is <em>not</em> a second chat node, not draggable/resizable, not a modal, never auto-entered, not persisted.</p>
+
+<h2>Goals / Non-goals</h2>
+<ul>
+  <li>Chat mode is the true front door — a new founder never needs the iframe to start.</li>
+  <li>Plan-summary format, BuildFromPlan handling, BRAIN.md seeding, Build Story derivation byte-for-byte unchanged downstream.</li>
+  <li>Invariants hold: identical DOM (iframe + xterm never remount), chat during boot, no yanks, drift test green.</li>
+  <li><strong>Non-goals:</strong> resizable split; persisted layout; interview branching/AI questions; persisted mid-interview answers; migrating legacy project files; Focus drag/collapse.</li>
+</ul>
+
+<h2>A — Interview-in-chat</h2>
+<h3>Actor (new <code>src/build/actors/interview.gleam</code>)</h3>
+<pre>Stage = Idle | Asking(index: Int) | Reviewing
+State(stage, answers: List(String))   // "" = skipped
+Msgs: InterviewStarted, AnswerSubmitted(String), QuestionSkipped, InterviewDismissed, InterviewCompleted</pre>
+<p>Holds the canonical 7 questions (idea/audience/problem/features/data/style/integrations: key, label, helper, placeholder) and <code>plan_summary(answers)</code> replicating the wizard's <code>compact()</code> fallbacks and exact output format — the single source of truth once the wizard is deleted; a golden test pins the legacy strings.</p>
+
+<h3>Rendering: virtual bubbles (key decision)</h3>
+<p>Q&amp;A render from interview state into the same <code>.messages</code> scroller (assistant-styled questions, user-styled answer echoes) but are <strong>never appended to <code>chat.messages</code></strong>. Build fires the existing <code>BuildFromPlan</code>, which appends the standard plan message. Wins: Build Story derivation untouched (no junk chapters from Q→A pairing), persistence/agent-context shapes untouched, reload semantics free. Composer placeholder becomes the current question's placeholder; submit routes to the interview.</p>
+
+<h3>Lifecycle</h3>
+<p>Eligibility (evaluated at project-navigation events only): <code>chat.messages == [] &amp;&amp; project.build_log == []</code> — Clear-chat can never re-trigger; any ever-built project is excluded.</p>
+<table>
+<tr><th>Event</th><th>Rule</th></tr>
+<tr><td><code>ProjectReady</code> at boot</td><td>eligible → <code>Asking(0)</code></td></tr>
+<tr><td><code>NewProjectConfirmed</code> / <code>ResetProject</code></td><td>→ <code>Asking(0)</code></td></tr>
+<tr><td><code>OpenProject</code> dispatched</td><td>Discard in-flight answers immediately (→ <code>Idle</code>, answers cleared) — a mid-interview switch must never seed another project's plan with stale answers.</td></tr>
+<tr><td><code>MessagesReplaced</code> after a project loads</td><td>Re-evaluate eligibility against the loaded project: empty messages ∧ empty build_log → fresh <code>Asking(0)</code>; otherwise <code>Idle</code>. (Load order is ProjectLoaded → MessagesReplaced, so build_log is hydrated when this fires.)</td></tr>
+<tr><td><code>ChatCleared</code></td><td>no change</td></tr>
+<tr><td>Composer submit while <code>Asking(i)</code></td><td>record answer; advance; <code>i==6 → Reviewing</code>. Not gated on remounting or budget — the interview touches no container or model.</td></tr>
+<tr><td>Skip (ghost, current question) / "Just describe it instead" (first question only)</td><td>record ""; advance / → <code>Idle</code></td></tr>
+<tr><td>Build button in <code>Reviewing</code></td><td>dispatch <code>BuildFromPlan(plan_summary(answers))</code>; the interview idles <strong>only on successful dispatch</strong> (agent actually started). If the dispatch is gated — agent running, remounting, or BYOK settings missing (which auto-opens the settings modal) — the interview <strong>stays in Reviewing</strong> with all answers intact, and the interview-end reveal does not fire. Test: <code>gated_build_keeps_reviewing</code>.</td></tr>
+<tr><td>Any agent-bound <code>SubmitPrompt</code>, <code>ImproveSelectedElement</code>, or successfully-dispatched <code>BuildFromPlan</code> (incl. legacy iframe postMessage)</td><td>→ <code>Idle</code> (defensive; a gated/no-op dispatch never idles — see Build row)</td></tr>
+<tr><td>Empty composer submit while <code>Asking</code></td><td>No-op — Enter-happy founders must not skip questions silently; Skip is the explicit affordance.</td></tr>
+</table>
+<p>Reload mid-interview: session-only, restart from Q1 (virtual bubbles aren't persisted; predicate re-fires). A saved project with messages structurally cannot re-interview. Known acceptable edge: a legacy never-built project still carries the old iframe wizard in its files — if the user manually reveals the preview mid-interview, both onboarding surfaces are visible; the suppressed reveal plus the defensive idle on the wizard's postMessage keep them from conflicting.</p>
+
+<h3>Layout-journey changes (intentional inversions of shipped rules)</h3>
+<ol>
+  <li><strong>Auto-reveal suppressed while interviewing:</strong> URL during <code>stage != Idle</code> goes through new pure <code>preview.record_url</code> (stores URL, no reveal, <strong>preserves the inspector re-enable side effect</strong>). The reveal moves to <strong>interview end</strong> (<code>BuildFromPlan</code> or dismissal): if <code>ChatMode ∧ !manual ∧ url≠""</code> → Split via <code>preview.reveal</code>. The moment now lands when the agent starts building — a better beat than "vite booted".</li>
+  <li><strong><code>on_project_navigation</code> no longer moves ChatMode→Split</strong> (the wizard-visibility rationale is gone). Still re-arms <code>layout_is_manual = False</code>. Two layout tests invert with explanatory comments; architecture.md updated.</li>
+</ol>
+
+<h3>Template swap + compat</h3>
+<p>Wizard <code>main.tsx</code> → welcoming placeholder in <strong>both</strong> copies, byte-identical (keeps <code>./build-inspector</code> + <code>./style.css</code> imports, "Welcome to Build." voice, one calm line). <strong>Keep</strong> the <code>BUILD_APP_FROM_PLAN</code> postMessage route (legacy local projects embed the old wizard forever; the handler is the interview's completion path and now also idles the interview). <code>templates.test.ts</code> assertions updated; fallback-string assertions move to interview tests.</p>
+
+<h3>Interview taste criteria</h3>
+<ul>
+  <li>Talking, not form-filling: one assistant bubble per question (label + quieter helper line inside the bubble); composer placeholder carries the example; no counters or progress chrome.</li>
+  <li>Recap is a message ("Here's what I heard — …") + primary "Build my app" + ghost "Start over"; no editable grid.</li>
+  <li>Answers echo as the founder's own user-styled bubbles; each question auto-scrolls; composer keeps focus.</li>
+</ul>
+
+<h2>B — Focus mode</h2>
+<ul>
+  <li><code>FocusMode</code> variant; control order Chat / App / Focus / Code; manual entry only; never auto-entered; navigation never moves Focus users; unread-dot semantics unchanged; element selection stays armed (only ChatMode disarms).</li>
+  <li>CSS only: <code>.app.modeFocus</code> → single-column grid; the same <code>.panel.chat</code> becomes <code>position:fixed</code> bottom-right card (≈380px, max-height ≈62vh, house tokens, 240ms rise-in). Header description, bootStatus, projectControls hidden in Focus; <strong>titleRow stays</strong> (it holds the only exit). While selecting an element: card fades to .25 opacity + <code>pointer-events:none</code> (explicit class from view) so clicks pass through; restores on selection.</li>
+  <li><strong>Modals-in-Focus rule (required):</strong> all four modals and the element picker render inside <code>.panel.chat</code>, and <code>position:fixed</code> resolves against any transformed ancestor — so the Focus card must have <strong>no resting or animating transform/filter on <code>.panel.chat</code> itself</strong> (the enter animation uses opacity only, or animates an inner wrapper), keeping <code>.modalBackdrop</code> full-viewport. The selection-ghosting class (<code>opacity:.25; pointer-events:none</code>) must not apply while a modal is open. Step 9 acceptance includes: open the settings modal in Focus → full-viewport interactive overlay (smoke-asserted). Note the settings modal IS reachable in Focus (missing-BYOK auto-open) even with projectControls hidden.</li>
+  <li>Taste: companion, not popup ad — house material, never pulses; messages naturally clamp to the last few bubbles; composer keeps the gradient ring.</li>
+</ul>
+
+<h2>C — Chat polish</h2>
+<ol>
+  <li>Empty-state void: center the lone <code>.empty</code> suggestion vertically in ChatMode (<code>:has</code> selector); composer stays pinned.</li>
+  <li>Export/Reset icons move from <code>.actions</code> to the <code>.chatTools</code> row; actions become Send/Cancel only.</li>
+  <li>Roving focus on the segmented control (after B: 4 segments): active segment tabindex 0, others −1; ArrowLeft/Right select-follows-focus; stop at ends; <code>FocusLayoutSegment</code> effect refocuses after re-render.</li>
+</ol>
+
+<h2>Steps</h2>
+<div class="step"><h3>1 — interview actor + plan-summary golden</h3><ul><li><span class="chip">accept</span> Transitions per lifecycle table; <code>plan_summary</code> matches legacy strings for empty + mixed answers (goldens copied from templates.ts before deletion).</li><li><span class="chip">evidence</span> <code>test/build_interview_test.gleam</code>: interview_plan_summary_matches_legacy_format, skip_records_fallback_answer, seventh_answer_moves_to_reviewing, dismiss_returns_to_idle.</li></ul></div>
+<div class="step"><h3>2 — model/msg/update wiring: triggers + composer routing</h3><ul><li><span class="chip">accept</span> Eligibility fires per table; submit-while-Asking records answer, clears prompt, no agent call, works during remount + budget exhausted; Build from Reviewing produces byte-identical BRAIN seed + agent prompt.</li><li><span class="chip">evidence</span> saved_project_with_messages_never_reinterviews, clear_chat_does_not_reinterview, answer_during_remount_is_accepted, interview_build_seeds_brain, gated_build_keeps_reviewing, open_project_discards_stale_answers, open_empty_project_restarts_interview, empty_submit_while_asking_is_noop.</li></ul></div>
+<div class="step"><h3>3 — reveal rules</h3><ul><li><span class="chip">accept</span> URL mid-interview never changes layout; interview end reveals iff ChatMode ∧ !manual ∧ url≠""; manual wins; navigation no longer force-moves ChatMode; dismissal before any URL re-arms the normal URL-arrival reveal.</li><li><span class="chip">evidence</span> 2 inverted layout tests (commented) + url_during_interview_does_not_reveal, interview_end_reveals_split, interview_end_respects_manual_chat, dismiss_before_url_keeps_auto_reveal.</li></ul></div>
+<div class="step"><h3>4 — chat view renders the interview</h3><ul><li><span class="chip">accept</span> Virtual bubbles per taste criteria; composer placeholder = current question's; skip/dismiss/recap affordances; empty-state hidden while interviewing.</li><li><span class="chip">evidence</span> Smoke screenshots (step 6); actor tests carry the logic.</li></ul></div>
+<div class="step"><h3>5 — template swap (both copies) + compat</h3><ul><li><span class="chip">accept</span> Placeholder byte-identical in both copies; keeps build-inspector import; BUILD_APP_FROM_PLAN route intact and idles the interview; templates.test.ts updated; architecture.md updated.</li><li><span class="chip">evidence</span> <code>npm test</code> (drift test is the guard).</li></ul></div>
+<div class="step"><h3>6 — smoke: update layout script + new smoke-interview.mjs</h3><ul><li><span class="chip">accept</span> Layout smoke passes with the two intentional behavior swaps (dismisses interview first). Interview smoke: Q1 bubble on fresh boot; two answers echo; skip-through to recap; Build appends plan message ("Build an app for:" in DOM) and flips to Split; saved built project shows no interview.</li><li><span class="chip">evidence</span> Script outputs N/N + PNGs.</li></ul></div>
+<div class="step"><h3>7 — C2 icon relocation</h3><ul><li><span class="chip">accept</span> .actions = Send/Cancel; icons in .chatTools as ghost compact.</li><li><span class="chip">evidence</span> Smoke screenshot.</li></ul></div>
+<div class="step"><h3>8 — C1 empty-state centering</h3><ul><li><span class="chip">accept</span> 1440×900 ChatMode-empty: suggestion vertically centered, composer pinned.</li><li><span class="chip">evidence</span> Smoke screenshot.</li></ul></div>
+<div class="step"><h3>9 — B Focus mode</h3><ul><li><span class="chip">accept</span> All B rules; identical-DOM (iframe identity + one .panel.chat across Chat↔Focus↔Code); selection ghosting works with the real inspector; settings modal opened in Focus renders as a full-viewport interactive overlay (no transform-containing-block clipping), and ghosting never applies while a modal is open.</li><li><span class="chip">evidence</span> focus_mode_is_manual_only, navigation_never_moves_focus, focus_keeps_element_selection, error_in_focus_badges_code; smoke additions + screenshots.</li></ul></div>
+<div class="step"><h3>10 — C3 roving focus</h3><ul><li><span class="chip">accept</span> Tab lands on active segment; arrows move selection+focus; stops at ends.</li><li><span class="chip">evidence</span> Smoke keyboard assertions (ArrowRight → mode class + activeElement).</li></ul></div>
+
+<h2>Validation</h2>
+<pre>npm test          # gleam + vitest (drift test needs the gleam build npm test runs first)
+npm run build
+VITE_MANAGED_AUTH=false npx vite --port 5199 &amp;
+node scripts/smoke-layout-modes.mjs
+node scripts/smoke-interview.mjs</pre>
+
+<h2>Judge rubric</h2>
+<p>Standard LFG rubric. Taste/originality ≥4 required for: the interview conversation (talking, not form-filling), the recap moment, the relocated reveal beat, and the Focus card (companion, not popup ad). Regression focus: drift test, iframe/xterm identity, plan-summary byte-parity, no-yank rules, legacy BUILD_APP_FROM_PLAN compat.</p>
+
+<h2>Risks</h2>
+<ul>
+  <li>Intentional test/smoke inversions must not read as regressions — each flipped assertion carries a comment naming the interview.</li>
+  <li>Drift-test trap on the template swap — single step, validated only via <code>npm test</code>.</li>
+  <li>Reveal edges: dismissal-before-URL must re-arm the URL-arrival reveal.</li>
+  <li>Legacy wizard postMessage race — handler idles the interview defensively.</li>
+  <li>Focus fixed-position card over live iframe + pointer-events pass-through — verify with the real inspector in smoke.</li>
+</ul>
+
+<h2>Definition of done</h2>
+<p>Steps 1–8 pass with evidence (A + C1/C2); steps 9–10 (B + C3) pass or are explicitly handed off as the follow-up per the cut line; suites/build/smokes green; judge pass with taste ≥4 on the named surfaces.</p>
+
+</body>
+</html>

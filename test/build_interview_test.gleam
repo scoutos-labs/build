@@ -305,3 +305,17 @@ pub fn dismiss_before_url_keeps_auto_reveal_test() {
     )
   assert next.preview.layout == preview.SplitMode
 }
+
+pub fn budget_exhausted_build_keeps_reviewing_test() {
+  // pressing Build with the budget gone must not fire a doomed request or
+  // destroy the recap — same rule as the other gated dispatches
+  let app =
+    model.Model(
+      ..reviewing_app(),
+      agent: agent.State(..agent.init(), budget_exhausted: True),
+    )
+  let #(next, effects) = update.update(app, msg.InterviewBuild("req", 1000))
+  assert next.interview.stage == interview.Reviewing
+  assert !agent.is_running(next.agent)
+  assert effects == []
+}

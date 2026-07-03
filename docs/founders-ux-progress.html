@@ -24,7 +24,7 @@
 <body>
 
 <h1>Progress — founders-ux</h1>
-<p><strong>Status:</strong> <span class="chip inprog">implementation-review gate</span> · PRD: <a href="founders-ux-prd.html">founders-ux-prd.html</a> · Branch <code>founders-ux</code> · Baseline: 105 gleam + 109 vitest green, smoke 18/18.</p>
+<p><strong>Status:</strong> <span class="chip pass">complete</span> · PRD: <a href="founders-ux-prd.html">founders-ux-prd.html</a> · Branch <code>founders-ux</code> · Baseline: 105 gleam + 109 vitest green, smoke 18/18.</p>
 
 <h2>Step checklist</h2>
 <table>
@@ -42,7 +42,7 @@
 </table>
 
 <h2>Reviewer / judge findings</h2>
-<ul><li><strong>Plan review:</strong> REVISE → resolved (B1 Focus-modal containing-block rule, B2 gated-Build keeps Reviewing, B3 OpenProject rules; non-blocking notes folded).</li><li><strong>Implementation review:</strong> running.</li></ul>
+<ul><li><strong>Plan review:</strong> REVISE → resolved (B1 Focus-modal containing-block rule, B2 gated-Build keeps Reviewing, B3 OpenProject rules; non-blocking notes folded).</li><li><strong>Implementation review:</strong> PASS with fixes, both applied: Finding 1 — the Send button read disabled "Working…" through the whole post-New-Project remount (exactly when the interview asks Q1; only Ctrl+Enter worked) → Send stays live while interviewing. Finding 2 — build_from_plan now gates on budget_exhausted like every other dispatch, so a doomed Build can't idle the interview (new test). Polish from nice-to-haves: counter says "Interview" during one, Reviewing composer placeholder invites additions. Judge verified safe: MessagesReplaced only fires from load/open (auto-save can't kill an interview), reveal state-trace clean, story unpolluted, z-index/:has/flex audits pass. Taste: interview 4/5, recap 4/5, reveal beat 4/5, Focus card 4/5. Post-fix: interview smoke 14/14 (fresh, post-Focus), layout smoke 25/25 ×2 (keyboard-focus flake fixed with double-rAF refocus).</li></ul>
 
 <h2>Repair loops</h2>
 <ul><li>Recap crushed by flex min-size zeroing (overflow:hidden) — flex-shrink:0 fix after screenshot review.</li><li>Skipped-question bubble wall — history now shows answered pairs only.</li></ul>

@@ -561,6 +561,7 @@ fn build_from_plan(
   case
     !agent.is_running(app.agent)
     && !webcontainer.is_remounting(app.webcontainer)
+    && !app.agent.budget_exhausted
   {
     False -> #(app, [])
     True -> {

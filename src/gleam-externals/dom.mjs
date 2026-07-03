@@ -20,6 +20,9 @@ export function postInspectorMessage(message) {
 }
 
 export function focusLayoutSegment() {
-  // after Lustre re-renders: the newly active segment is the tab stop
-  requestAnimationFrame(() => document.querySelector('.layoutSwitch .layoutSegment.active')?.focus())
+  // after Lustre re-renders: the newly active segment is the tab stop.
+  // Double rAF — a single frame can fire before the re-render commits.
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() =>
+      document.querySelector('.layoutSwitch .layoutSegment.active')?.focus()))
 }

@@ -25,7 +25,10 @@ pub fn view(
   fragment([
     html.div([attribute.class("chatTools")], [
       html.span([], [
-        html.text(int.to_string(list.length(messages)) <> " messages"),
+        html.text(case interviewing {
+          True -> "Interview"
+          False -> int.to_string(list.length(messages)) <> " messages"
+        }),
       ]),
       html.div([attribute.class("chatToolButtons")], [
         button(
@@ -72,9 +75,14 @@ pub fn view(
     }),
     html.textarea(
       [
-        attribute.placeholder(case interview.current_question(interview_state) {
-          Ok(question) -> question.placeholder
-          Error(_) -> "Describe the app change you want..."
+        attribute.placeholder(case
+          interview.current_question(interview_state),
+          interview_state.stage
+        {
+          Ok(question), _ -> question.placeholder
+          Error(_), interview.Reviewing ->
+            "Want to add anything before I build?"
+          Error(_), _ -> "Describe the app change you want..."
         }),
         event.on_input(fn(value) { msg.Chat(chat.PromptChanged(value)) }),
         event.on("keydown", submit_shortcut_decoder()),
@@ -98,10 +106,16 @@ pub fn view(
     html.div([attribute.class("actions")], [
       button(
         [
-          attribute.disabled(busy || budget_exhausted),
+          // Answering interview questions touches no container and no model:
+          // the button must stay live through remounts and budget exhaustion
+          // (the update layer already accepts answers then).
+          attribute.disabled(case interviewing {
+            True -> False
+            False -> busy || budget_exhausted
+          }),
           event.on("click", submit_click_decoder()),
         ],
-        case busy {
+        case busy && !interviewing {
           True -> "Working..."
           False -> "Send"
         },

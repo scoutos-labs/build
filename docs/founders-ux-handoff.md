@@ -19,3 +19,8 @@
   18/18), icon relocation, empty-state centering. Repairs: flex-shrink
   bubble squeeze; skipped-question wall. Next: step 9 Focus mode, step 10
   roving focus.
+- 2026-07-03 complete — impl judge PASS w/ fixes (interview-aware Send;
+  budget gate on build_from_plan), both applied + polish. Final: 132 gleam
+  + 108 vitest + build green; interview smoke 14/14; layout smoke 25/25 x2.
+  Judge nice-to-haves deferred: defaulted-lines treatment in recap,
+  ProjectReady/MessagesReplaced boot micro-race, rove preventDefault.

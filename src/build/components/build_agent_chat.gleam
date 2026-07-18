@@ -76,6 +76,27 @@ pub fn view(
           message_view(message, index, list.contains(expanded_messages, index))
         })
     }),
+    // Preview-error card: the scariest moment becomes a one-click ritual.
+    // Sits above the composer, in the reading path from messages to input.
+    // Never shown mid-interview (no app of yours is running yet).
+    case preview_error, interviewing {
+      option.Some(error_text), False ->
+        html.div([attribute.class("previewErrorCard")], [
+          html.strong([], [html.text("The preview hit an error")]),
+          html.pre([], [html.text(error_text)]),
+          html.div([attribute.class("actions")], [
+            button(
+              [
+                attribute.class("compact"),
+                attribute.disabled(busy || budget_exhausted),
+                event.on("click", fix_click_decoder()),
+              ],
+              "Try to fix",
+            ),
+          ]),
+        ])
+      _, _ -> html.text("")
+    },
     html.textarea(
       [
         attribute.placeholder(case
@@ -106,26 +127,6 @@ pub fn view(
           html.text(budget_exhausted_message(budget_reset_at)),
         ])
       False -> html.text("")
-    },
-    // Preview-error card: the scariest moment becomes a one-click ritual.
-    // Never shown mid-interview (no app of yours is running yet).
-    case preview_error, interviewing {
-      option.Some(error_text), False ->
-        html.div([attribute.class("previewErrorCard")], [
-          html.strong([], [html.text("The preview hit an error")]),
-          html.pre([], [html.text(error_text)]),
-          html.div([attribute.class("actions")], [
-            button(
-              [
-                attribute.class("compact"),
-                attribute.disabled(busy || budget_exhausted),
-                event.on("click", fix_click_decoder()),
-              ],
-              "Try to fix",
-            ),
-          ]),
-        ])
-      _, _ -> html.text("")
     },
     html.div([attribute.class("actions")], [
       button(

@@ -211,7 +211,7 @@ iframe { flex: 1; width: 100%; border: 0; background: white; transition: filter 
 .terminalToolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 8px; color: #c5d2ee; border-bottom: 1px solid #202538; font-size: .78rem; }
 .terminal { min-width: 0; min-height: 0; overflow: hidden; padding: 8px; background: #050915; }
 .terminal .xterm { height: 100%; }
-@media (max-width: 980px) { .app { grid-template-columns: 1fr; grid-template-rows: 460px 1fr; } .app.modeChat { grid-template-rows: 1fr; } .app.modeChat .panel.chat { padding-top: 24px; } .workspace { grid-template-rows: 1fr 260px; } .bottom { grid-template-columns: 160px 1fr; } .terminalPane { display: none; } }
+@media (max-width: 980px) { .app { grid-template-columns: 1fr; grid-template-rows: 460px 1fr; } .app.modeChat { grid-template-rows: 1fr; } .app.modeChat .panel.chat { padding-top: 24px; } .workspace { grid-template-rows: 1fr 260px; } .bottom { grid-template-columns: 160px 1fr; } .terminalPane { display: none; } .layoutSwitch .layoutSegment { padding: 5px 9px; font-size: .74rem; } h1.wordmark { font-size: 1.1rem; } .wordmarkBolt { width: 22px; height: 22px; } }
 
 /* Build story: editorial narrative view, tinted by the app's own brand
    accent (--story-accent, set inline from BRAIN.md's palette). */
@@ -243,17 +243,15 @@ iframe { flex: 1; width: 100%; border: 0; background: white; transition: filter 
 .landingWordmark svg { width: 27px; height: 27px; }
 .landingByline { font-family: var(--hyper-mono); font-size: .72rem; color: var(--hyper-slate); }
 .landingMain { display: grid; grid-template-columns: 1.1fr 1fr; gap: 56px; align-items: center; max-width: 1080px; margin: 0 auto; padding: 64px 28px 48px; min-height: calc(100vh - 80px); }
-.landingHero > * { animation: landingRise .5s ease both; }
-.landingHero > *:nth-child(2) { animation-delay: .06s; }
-.landingHero > *:nth-child(3) { animation-delay: .12s; }
-.landingHero > *:nth-child(4) { animation-delay: .18s; }
+/* One orchestrated entrance: hero, then panel — not scattered staggering. */
+.landingHero { animation: landingRise .5s ease both; }
 @keyframes landingRise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 .landingEyebrow { font-family: var(--hyper-mono); font-size: .72rem; letter-spacing: .18em; color: var(--hyper-slate); }
 .landingTitle { margin: 14px 0 18px; font-size: clamp(44px, 6.4vw, 76px); line-height: 1.02; letter-spacing: -.035em; font-weight: 300; color: var(--hyper-ink); }
 .landingLede { max-width: 36ch; font-size: 1.05rem; }
 .landingSteps { list-style: none; margin: 26px 0 0; padding: 0; display: grid; gap: 8px; font-family: var(--hyper-mono); font-size: .78rem; color: var(--hyper-muted); }
 .landingSteps span { color: var(--hyper-azure); margin-right: 8px; }
-.landingPanel { display: grid; gap: 14px; animation: landingRise .5s ease both; animation-delay: .22s; }
+.landingPanel { display: grid; gap: 14px; animation: landingRise .5s ease both; animation-delay: .14s; }
 .landingPrompt { display: grid; gap: 10px; padding: 18px; background: #fff; border: 1px solid var(--hyper-line); border-radius: 18px; box-shadow: color(srgb 0 0 0 / .05) 0 14px 40px; }
 .landingPrompt label { color: var(--hyper-ink); font-weight: 600; font-size: .95rem; }
 .landingPrompt textarea { resize: none; }

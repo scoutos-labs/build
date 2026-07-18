@@ -43,6 +43,7 @@ export function toGleamMessages(messages = []) {
   return toList(messages.map(message => Chat.Message$Message(
     message.role === 'user' ? Chat.Role$User() : Chat.Role$Assistant(),
     message.content,
+    toList(message.paths ?? []),
   )))
 }
 

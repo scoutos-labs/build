@@ -111,6 +111,9 @@ input:focus, textarea:focus, select:focus { border-color: transparent; box-shado
 /* Interview bubbles: rendered from interview state, styled as chat but not
    clickable/clamped like persisted messages (the recap runs long). */
 .msg.interviewMsg { cursor: default; }
+/* Files an assistant turn touched — PT Mono chips under the bubble. */
+.msgChips { display: flex; flex-wrap: wrap; gap: 5px; max-width: 92%; margin-top: -2px; align-self: flex-start; }
+.msgChip { font-family: var(--hyper-mono); font-size: .68rem; padding: 2px 8px; border-radius: 999px; color: var(--hyper-slate); background: #fff; border: 1px solid var(--hyper-line); }
 .messages .msg.interviewMsg:not(.expanded) { display: block; -webkit-line-clamp: unset; }
 .interviewHelper { display: block; margin-top: 6px; color: var(--hyper-muted); font-weight: 500; font-size: .8rem; white-space: pre-wrap; }
 .interviewActions { display: flex; gap: 8px; align-items: center; padding-left: 2px; }

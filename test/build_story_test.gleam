@@ -58,10 +58,10 @@ pub fn story_from_full_data_test() {
 
 pub fn story_falls_back_to_chat_pairs_without_build_log_test() {
   let messages = [
-    chat.Message(chat.User, "build a crm"),
-    chat.Message(chat.Assistant, "Done: a simple CRM"),
-    chat.Message(chat.User, "add tags"),
-    chat.Message(chat.Assistant, "Tags added"),
+    chat.Message(chat.User, "build a crm", []),
+    chat.Message(chat.Assistant, "Done: a simple CRM", []),
+    chat.Message(chat.User, "add tags", []),
+    chat.Message(chat.Assistant, "Tags added", []),
   ]
   let derived = story.from_project("CRM", messages, [], [])
 
@@ -88,7 +88,7 @@ pub fn story_tolerates_malformed_brain_test() {
   let derived =
     story.from_project(
       "App",
-      [chat.Message(chat.User, "hello world")],
+      [chat.Message(chat.User, "hello world", [])],
       [],
       [brain("just some prose without any sections")],
     )

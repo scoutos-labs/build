@@ -34,3 +34,6 @@
   from guard-checked [preview error] log line; FixPreviewError msg →
   call_agent_with_prompt embedding error; clears on success/reload. 4 new
   gleam tests; smokes green; card visible in smoke screenshot.
+- 2026-07-18 step-5-done — narration chips: chat.Message gained paths
+  (patch paths ride the message; error bubbles can't desync). Persistence
+  round-trip; chips outside the clamp. 140 gleam + 108 vitest green.

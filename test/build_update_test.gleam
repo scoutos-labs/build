@@ -252,7 +252,8 @@ pub fn agent_success_applies_patches_and_replies_test() {
     )
 
   assert next.agent.lifecycle == agent.Idle
-  assert next.chat.messages == [chat.Message(chat.Assistant, "Done")]
+  assert next.chat.messages
+    == [chat.Message(chat.Assistant, "Done", ["src/main.tsx"])]
   assert next.project.save_status == "Saving..."
   assert effects
     == [
@@ -294,7 +295,7 @@ pub fn submit_prompt_appends_user_and_starts_agent_test() {
     )
   let #(next, effects) = update.update(app, msg.SubmitPrompt("req", 1000))
 
-  assert next.chat.messages == [chat.Message(chat.User, "make app")]
+  assert next.chat.messages == [chat.Message(chat.User, "make app", [])]
   assert next.agent.lifecycle == agent.Running("req", 1000)
   assert effects
     == [
@@ -367,7 +368,7 @@ pub fn agent_success_appends_build_log_entry_test() {
         lifecycle: agent.Running("req", 1234),
       ),
       chat: chat.State(
-        messages: [chat.Message(chat.User, "make a todo app")],
+        messages: [chat.Message(chat.User, "make a todo app", [])],
         prompt: "",
         expanded_messages: [],
       ),
@@ -435,7 +436,7 @@ pub fn landing_idea_answers_first_interview_question_test() {
 
 pub fn landing_idea_falls_back_to_composer_with_history_test() {
   // A project with chat history hydrates: no interview, idea must not vanish.
-  let loaded = [chat.Message(chat.User, "hi"), chat.Message(chat.Assistant, "yo")]
+  let loaded = [chat.Message(chat.User, "hi", []), chat.Message(chat.Assistant, "yo", [])]
   let #(booted, _) =
     update.update(model.init(), msg.Chat(chat.MessagesReplaced(loaded)))
   assert booted.interview.stage == interview.Idle
@@ -545,4 +546,43 @@ pub fn agent_success_clears_preview_error_test() {
     )
 
   assert next.preview.last_preview_error == option.None
+}
+
+// --- Narration chips: paths ride the message, so error bubbles can't shift them ---
+
+pub fn narration_paths_survive_interleaved_error_turns_test() {
+  let running = fn(app: model.Model, id: String) {
+    model.Model(
+      ..app,
+      agent: agent.State(..agent.init(), lifecycle: agent.Running(id, 1000)),
+    )
+  }
+  let app = model.init()
+  let #(app, _) =
+    update.update(
+      running(app, "a"),
+      msg.Agent(agent.AgentRequestSucceeded("a", "First", [
+        agent.Patch("src/a.tsx", "x"),
+      ])),
+    )
+  let #(app, _) =
+    update.update(
+      running(app, "b"),
+      msg.Agent(agent.AgentRequestFailed("b", "model exploded")),
+    )
+  let #(app, _) =
+    update.update(
+      running(app, "c"),
+      msg.Agent(agent.AgentRequestSucceeded("c", "Second", [
+        agent.Patch("src/b.tsx", "y"),
+        agent.Patch("src/c.css", "z"),
+      ])),
+    )
+
+  assert app.chat.messages
+    == [
+      chat.Message(chat.Assistant, "First", ["src/a.tsx"]),
+      chat.Message(chat.Assistant, "Error: model exploded", []),
+      chat.Message(chat.Assistant, "Second", ["src/b.tsx", "src/c.css"]),
+    ]
 }

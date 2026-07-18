@@ -299,14 +299,30 @@ fn message_view(
     chat.Assistant, True -> "msg assistant expanded"
     chat.Assistant, False -> "msg assistant"
   }
-  html.button(
-    [
-      attribute.type_("button"),
-      attribute.class(role_class),
-      event.on_click(msg.Chat(chat.MessageToggled(index))),
-    ],
-    [html.text(message.content)],
-  )
+  let bubble =
+    html.button(
+      [
+        attribute.type_("button"),
+        attribute.class(role_class),
+        event.on_click(msg.Chat(chat.MessageToggled(index))),
+      ],
+      [html.text(message.content)],
+    )
+  // Narration chips: the files this turn touched, as a quiet sibling row —
+  // outside the bubble so the 5-line clamp never hides or stretches them.
+  case message.paths {
+    [] -> bubble
+    paths ->
+      fragment([
+        bubble,
+        html.div(
+          [attribute.class("msgChips")],
+          list.map(paths, fn(path) {
+            html.span([attribute.class("msgChip")], [html.text(path)])
+          }),
+        ),
+      ])
+  }
 }
 
 fn button(attrs, label: String) {

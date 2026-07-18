@@ -379,7 +379,14 @@ fn update_agent(
     agent.AgentRequestSucceeded(request_id, reply, patches) ->
       case request_matches(app.agent, request_id) {
         True -> {
-          let chat_state = chat.update(app.chat, chat.AssistantReplied(reply))
+          let chat_state =
+            chat.update(
+              app.chat,
+              chat.AssistantReplied(
+                reply,
+                list.map(patches, fn(patch) { patch.path }),
+              ),
+            )
           let #(project_state, project_effects) =
             apply_patches(app.project, patches)
           // Record the turn for the Build Story: request-start timestamp,

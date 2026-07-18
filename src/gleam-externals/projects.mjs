@@ -1,4 +1,4 @@
-import { dispatchChatCleared, dispatchChatMessagesReplaced, dispatchProjectCreated, dispatchProjectListRefreshed, dispatchProjectLoaded, dispatchProjectReady, dispatchProjectsDialogClosed, dispatchProjectSaveStatus, dispatchWebContainerLog, dispatchWebContainerRemountRequested } from './runtime_bridge.mjs'
+import { dispatchChatCleared, dispatchChatMessagesReplaced, dispatchLandingIdea, dispatchProjectCreated, dispatchProjectListRefreshed, dispatchProjectLoaded, dispatchProjectReady, dispatchProjectsDialogClosed, dispatchProjectSaveStatus, dispatchWebContainerLog, dispatchWebContainerRemountRequested } from './runtime_bridge.mjs'
 
 let saveTimer = null
 let lastSavePayload = null
@@ -51,12 +51,20 @@ export async function loadInitialProject() {
     dispatchWebContainerLog(error instanceof Error ? error.message : String(error))
   } finally {
     dispatchProjectReady()
+    // One-shot landing seed (key written by src/landing.ts pre-auth):
+    // consumed strictly after ProjectReady, so interview eligibility has
+    // already been decided when the idea arrives. Same key both sides.
+    try {
+      const idea = globalThis.sessionStorage?.getItem('build.landing-prompt') ?? ''
+      globalThis.sessionStorage?.removeItem('build.landing-prompt')
+      if (idea.trim()) dispatchLandingIdea(idea)
+    } catch { /* storage unavailable (tests, privacy modes) — no seed */ }
   }
 }
 
 function gleamListToArray(list) { return typeof list?.toArray === 'function' ? list.toArray() : [] }
 function normalizeFiles(files) { return gleamListToArray(files).map(file => ({ path: file.path, content: file.content })) }
-function normalizeMessages(messages) { return gleamListToArray(messages).map(message => ({ role: message.role.constructor.name === 'User' ? 'user' : 'assistant', content: message.content })) }
+function normalizeMessages(messages) { return gleamListToArray(messages).map(message => ({ role: message.role.constructor.name === 'User' ? 'user' : 'assistant', content: message.content, paths: gleamListToArray(message.paths) })) }
 function normalizeBuildLog(buildLog) {
   return gleamListToArray(buildLog).map(entry => ({
     at: entry.at,

@@ -111,7 +111,7 @@ pub fn project_ready_skips_interview_for_built_project_test() {
     model.Model(
       ..model.init(),
       chat: chat.State(
-        messages: [chat.Message(chat.User, "hi")],
+        messages: [chat.Message(chat.User, "hi", [])],
         prompt: "",
         expanded_messages: [],
       ),
@@ -125,7 +125,7 @@ pub fn saved_project_with_messages_never_reinterviews_test() {
   let #(next, _) =
     update.update(
       mid_interview,
-      msg.Chat(chat.MessagesReplaced([chat.Message(chat.User, "old chat")])),
+      msg.Chat(chat.MessagesReplaced([chat.Message(chat.User, "old chat", [])])),
     )
   assert next.interview.stage == interview.Idle
 }
@@ -153,7 +153,7 @@ pub fn clear_chat_does_not_reinterview_test() {
     model.Model(
       ..model.init(),
       chat: chat.State(
-        messages: [chat.Message(chat.User, "hi")],
+        messages: [chat.Message(chat.User, "hi", [])],
         prompt: "",
         expanded_messages: [],
       ),

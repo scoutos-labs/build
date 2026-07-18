@@ -4,7 +4,9 @@ import type { ProjectFile } from './templates'
 import { FetchLLMClient } from './llm-client'
 import type { LLMCallParams, ModelMessage as PortMessage } from './llm-port'
 
-export type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string }
+// `paths`: files the turn touched (assistant turns with patches); rides the
+// saved message so the chat's narration chips survive reloads.
+export type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string; paths?: string[] }
 export type AgentProvider = 'ollama' | 'openrouter'
 export type AgentPatch = { path: string; content: string }
 export type AgentResult = { reply: string; patches: AgentPatch[]; envVars?: Record<string, string> }

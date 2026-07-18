@@ -162,7 +162,7 @@ fn header(state: settings.State) {
   html.div([attribute.class("modalHeader")], [
     html.div([], [
       html.h2([attribute.id("settings-title")], [html.text("Model settings")]),
-      html.p([], [html.text("Choose how Build connects to an LLM.")]),
+      html.p([], [html.text("Choose how build connects to an LLM.")]),
     ]),
     html.button(
       [

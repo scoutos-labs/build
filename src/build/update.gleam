@@ -100,6 +100,25 @@ pub fn update(
       }
     msg.BuildFromPlan(plan_summary, request_id, now) ->
       build_from_plan(app, plan_summary, request_id, now)
+    msg.FixPreviewError(request_id, now) ->
+      case
+        app.preview.last_preview_error,
+        app.interview.stage,
+        !agent.is_running(app.agent)
+          && !webcontainer.is_remounting(app.webcontainer)
+          && !app.agent.budget_exhausted
+      {
+        option.Some(error_text), interview.Idle, True ->
+          call_agent_with_prompt(
+            app,
+            "Fix the preview error.",
+            "The live preview is showing an error. Diagnose the root cause and fix it so the app runs cleanly.\n\nPreview error:\n"
+              <> error_text,
+            request_id,
+            now,
+          )
+        _, _, _ -> #(app, [])
+      }
     msg.ImproveSelectedElement(request_id, now) ->
       improve_selected_element(app, request_id, now)
     msg.ExportZip -> #(app, [effect.ExportZip(app.project.files)])
@@ -183,6 +202,27 @@ pub fn update(
             now,
           )
         _ -> #(app, [])
+      }
+    msg.LandingIdeaArrived(idea) ->
+      case app.interview.stage {
+        // Fresh interview: the landing idea IS the answer to "What do you
+        // want to build?" — the founder arrives with question one done.
+        interview.Asking(0) -> #(
+          model.Model(
+            ..app,
+            interview: interview.update(
+              app.interview,
+              interview.AnswerSubmitted(idea),
+            ),
+          ),
+          [],
+        )
+        // Returning project with history: no interview, so the idea waits
+        // in the composer instead of vanishing.
+        _ -> #(
+          model.Model(..app, chat: chat.State(..app.chat, prompt: idea)),
+          [],
+        )
       }
     msg.Chat(chat_msg) -> {
       let chat_state = chat.update(app.chat, chat_msg)
@@ -283,6 +323,19 @@ pub fn update(
             True -> {
               let #(preview_state, _) =
                 preview.update(next.preview, preview.CodePanelErrorSignaled)
+              // Same line also backs the chat's "Try to fix" card, minus the
+              // terminal tag. An empty message would make an empty card —
+              // keep the badge, skip the card.
+              let error_text =
+                string.trim(string.replace(line, "[preview error] ", ""))
+              let #(preview_state, _) = case error_text {
+                "" -> #(preview_state, [])
+                _ ->
+                  preview.update(
+                    preview_state,
+                    preview.PreviewErrorReported(error_text),
+                  )
+              }
               model.Model(..next, preview: preview_state)
             }
             False -> next
@@ -328,7 +381,14 @@ fn update_agent(
     agent.AgentRequestSucceeded(request_id, reply, patches) ->
       case request_matches(app.agent, request_id) {
         True -> {
-          let chat_state = chat.update(app.chat, chat.AssistantReplied(reply))
+          let chat_state =
+            chat.update(
+              app.chat,
+              chat.AssistantReplied(
+                reply,
+                list.map(patches, fn(patch) { patch.path }),
+              ),
+            )
           let #(project_state, project_effects) =
             apply_patches(app.project, patches)
           // Record the turn for the Build Story: request-start timestamp,
@@ -346,12 +406,17 @@ fn update_agent(
             )
           let #(project_state, _) =
             project.update(project_state, project.BuildLogAppended(log_entry))
+          // A successful turn supersedes any recorded preview error: the
+          // page is about to reload with new code.
+          let #(preview_state, _) =
+            preview.update(app.preview, preview.PreviewErrorCleared)
           with_auto_save(
             model.Model(
               ..app,
               agent: agent_state,
               chat: chat_state,
               project: project_state,
+              preview: preview_state,
             ),
             list.append(
               mapped_agent_effects,

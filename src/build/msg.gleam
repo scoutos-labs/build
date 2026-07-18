@@ -38,4 +38,12 @@ pub type Msg {
   LayoutModeKeyed(preview.LayoutMode)
   WebContainer(webcontainer.Msg)
   Publish(publish.Msg)
+  // "Try to fix" on the chat's preview-error card; id/now generated
+  // event-side like SubmitPrompt so replays are idempotent.
+  FixPreviewError(request_id: String, now: Int)
+  // An app idea typed on the pre-auth landing page, dispatched once right
+  // after boot hydration settles (after ProjectReady). If the onboarding
+  // interview just started it answers the first question; otherwise the
+  // idea lands in the composer so it is never lost.
+  LandingIdeaArrived(String)
 }

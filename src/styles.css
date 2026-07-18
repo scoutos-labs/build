@@ -1,15 +1,38 @@
+/* hyper brand type — self-hosted (COEP require-corp forbids cross-origin
+   fonts); latin subsets only, OFL licenses vendored in public/fonts/. */
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("/fonts/space-grotesk-latin.woff2") format("woff2");
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "PT Mono";
+  src: url("/fonts/pt-mono-latin.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 :root {
-  font-family: GeistSans, "GeistSans Fallback", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: rgb(33 33 38);
+  font-family: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--hyper-ink);
   background: #ffffff;
-  --scout-blue: #2563ff;
-  --scout-ink: rgb(33 33 38);
-  --scout-charcoal: rgb(47 48 55);
-  --scout-muted: color(srgb 0.129412 0.129412 0.14902 / 0.65);
-  --scout-line: oklch(0.9219 0 0);
-  --scout-sidebar: #f7f7f6;
-  --scout-soft: #f4f5f7;
-  --scout-ring: color(srgb 0 0 0 / 0.11);
+  /* hyper brandkit (docs/hyper-brandkit.md). Amber #FABA00 is reserved for
+     the working-state signature + logo — never decoration. */
+  --hyper-azure: #1286F6;
+  --hyper-purple: #A340E0;
+  --hyper-green: #2AB62F;
+  --hyper-amber: #FABA00;
+  --hyper-ink: #252C37;
+  --hyper-charcoal: #2F3947;
+  --hyper-slate: #5B7FA6;
+  --hyper-muted: color(srgb 0.145 0.173 0.216 / 0.68);
+  --hyper-line: #E0E1E1;
+  --hyper-base: #F7F8F8;
+  --hyper-soft: #F1F3F4;
+  --hyper-ring: color(srgb 0.145 0.173 0.216 / 0.14);
+  --hyper-mono: "PT Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 * { box-sizing: border-box; }
 body { margin: 0; }
@@ -20,7 +43,7 @@ button, input, textarea, select { font: inherit; }
    mounted but hidden so the iframe and xterm survive). Split/Builder: chat
    ~1/3, preview ~2/3; Builder additionally reveals the .bottom strip via the
    codeHidden rules below. */
-.app.modeChat { grid-template-columns: 1fr; background: var(--scout-sidebar); }
+.app.modeChat { grid-template-columns: 1fr; background: var(--hyper-base); }
 .app.modeChat .workspace { display: none; }
 .app.modeChat .panel.chat { max-width: 720px; width: 100%; margin: 0 auto; border-right: 0; padding-top: 48px; }
 .app.modeSplit, .app.modeBuilder { grid-template-columns: minmax(314px, 1fr) 2.2fr; }
@@ -37,7 +60,7 @@ button, input, textarea, select { font: inherit; }
 .app.modeFocus .panel.chat {
   position: fixed; right: 18px; bottom: 18px; z-index: 10;
   width: min(380px, calc(100vw - 36px)); height: min(62vh, 640px);
-  border: 1px solid var(--scout-line); border-right: 1px solid var(--scout-line);
+  border: 1px solid var(--hyper-line); border-right: 1px solid var(--hyper-line);
   border-radius: 18px; padding: 14px;
   box-shadow: color(srgb 0 0 0 / .16) 0 24px 80px;
   animation: focusCardIn .24s ease both;
@@ -48,23 +71,26 @@ button, input, textarea, select { font: inherit; }
 /* Element picking in Focus: ghost the card so clicks pass through its
    footprint to the iframe — never while a modal is open inside it. */
 .app.modeFocus.selecting .panel.chat:not(:has(.modalBackdrop)) { opacity: .25; pointer-events: none; }
-.bootStatus { color: var(--scout-muted); font-size: .84rem; margin-top: 6px; }
+.bootStatus { color: var(--hyper-muted); font-size: .84rem; margin-top: 6px; }
 .bootStatus.error { color: #c2421f; }
 .titleRowTools { display: flex; align-items: center; gap: 8px; }
-.layoutSwitch { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--scout-line); border-radius: 999px; background: #fff; }
+.layoutSwitch { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--hyper-line); border-radius: 999px; background: #fff; }
 .layoutSwitch .layoutSegment { display: inline-flex; align-items: center; background: transparent; box-shadow: none; color: #6f7279; padding: 5px 12px; border-radius: 999px; font-size: .78rem; font-weight: 600; }
-.layoutSwitch .layoutSegment.active { color: var(--scout-ink); background: #eceef3; }
-.panel { min-width: 0; border-right: 1px solid var(--scout-line); background: var(--scout-sidebar); color: var(--scout-ink); padding: 16px 14px; display: flex; flex-direction: column; gap: 14px; }
+.layoutSwitch .layoutSegment.active { color: var(--hyper-ink); background: #eceef3; }
+.panel { min-width: 0; border-right: 1px solid var(--hyper-line); background: var(--hyper-base); color: var(--hyper-ink); padding: 16px 14px; display: flex; flex-direction: column; gap: 14px; }
 .panel.chat { height: 100vh; min-height: 0; overflow: hidden; }
 .panel.chat > * { flex-shrink: 0; }
 .panel.chat > .messages { flex: 1 1 0; }
 h1 { margin: 0; font-size: 1.25rem; letter-spacing: -.03em; font-weight: 650; }
+/* Lowercase wordmark lockup: amber square + white bolt, then "build". */
+h1.wordmark { display: flex; align-items: center; gap: 9px; font-weight: 600; letter-spacing: -.02em; }
+.wordmarkBolt { width: 25px; height: 25px; flex: 0 0 auto; }
 h2 { margin: 0; font-size: 1.05rem; letter-spacing: -.02em; }
-p { margin: 0; color: var(--scout-muted); line-height: 1.45; }
+p { margin: 0; color: var(--hyper-muted); line-height: 1.45; }
 .titleRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-label { display: grid; gap: 6px; color: var(--scout-muted); font-size: .82rem; }
-input, textarea, select { width: 100%; border: 1px solid var(--scout-ring); background: #fff; color: rgb(19 19 22); border-radius: 10px; padding: 9px 11px; outline: none; box-shadow: color(srgb 0 0 0 / 0.04) 0 1px 1px; }
-input:focus, textarea:focus, select:focus { border-color: transparent; box-shadow: 0 0 0 1px #74a5ff, 0 0 0 3px color(srgb 0.15 0.39 1 / .14); }
+label { display: grid; gap: 6px; color: var(--hyper-muted); font-size: .82rem; }
+input, textarea, select { width: 100%; border: 1px solid var(--hyper-ring); background: #fff; color: var(--hyper-ink); border-radius: 10px; padding: 9px 11px; outline: none; box-shadow: color(srgb 0 0 0 / 0.04) 0 1px 1px; }
+input:focus, textarea:focus, select:focus { border-color: transparent; box-shadow: 0 0 0 1px #66adf9, 0 0 0 3px color(srgb 0.07 0.53 0.96 / .14); }
 .chatTools { display: flex; align-items: center; justify-content: space-between; color: #8b8d94; font-size: .78rem; margin-bottom: -4px; }
 .messages { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scroll-behavior: smooth; display: flex; flex-direction: column; gap: 8px; padding-right: 3px; }
 /* Never let the column squeeze tall bubbles: .msg has overflow:hidden, which
@@ -74,10 +100,10 @@ input:focus, textarea:focus, select:focus { border-color: transparent; box-shado
 .msg { display: block; width: fit-content; max-width: 92%; text-align: left; padding: 10px 12px 12px; border-radius: 14px; white-space: pre-wrap; line-height: 1.48; font-weight: 500; border: 0; color: inherit; overflow: hidden; cursor: pointer; font-size: .86rem; }
 .msg:not(.expanded) { display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; }
 .msg.expanded { overflow: visible; padding-bottom: 14px; }
-.msg.user { align-self: flex-end; background: var(--scout-blue); color: white; box-shadow: color(srgb 0.15 0.39 1 / .18) 0 8px 22px; }
-.msg.assistant { align-self: flex-start; background: #ffffff; color: var(--scout-ink); border: 1px solid var(--scout-line); box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
+.msg.user { align-self: flex-end; background: var(--hyper-azure); color: white; box-shadow: color(srgb 0.07 0.53 0.96 / .18) 0 8px 22px; }
+.msg.assistant { align-self: flex-start; background: #ffffff; color: var(--hyper-ink); border: 1px solid var(--hyper-line); box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
 .msg:hover { filter: brightness(.99); }
-.empty { padding: 13px; color: var(--scout-muted); border: 1px dashed #d9dadd; border-radius: 14px; background: #fff; }
+.empty { padding: 13px; color: var(--hyper-muted); border: 1px dashed #d9dadd; border-radius: 14px; background: #fff; }
 /* Chat-mode empty state: center the lone suggestion instead of letting it
    float at the top of a tall dead column (the composer stays pinned). */
 .app.modeChat .messages:has(> .empty:only-child) { justify-content: center; }
@@ -85,29 +111,48 @@ input:focus, textarea:focus, select:focus { border-color: transparent; box-shado
 /* Interview bubbles: rendered from interview state, styled as chat but not
    clickable/clamped like persisted messages (the recap runs long). */
 .msg.interviewMsg { cursor: default; }
+/* Files an assistant turn touched — PT Mono chips under the bubble. */
+.msgChips { display: flex; flex-wrap: wrap; gap: 5px; max-width: 92%; margin-top: -2px; align-self: flex-start; }
+.msgChip { font-family: var(--hyper-mono); font-size: .68rem; padding: 2px 8px; border-radius: 999px; color: var(--hyper-slate); background: #fff; border: 1px solid var(--hyper-line); }
 .messages .msg.interviewMsg:not(.expanded) { display: block; -webkit-line-clamp: unset; }
-.interviewHelper { display: block; margin-top: 6px; color: var(--scout-muted); font-weight: 500; font-size: .8rem; white-space: pre-wrap; }
+.interviewHelper { display: block; margin-top: 6px; color: var(--hyper-muted); font-weight: 500; font-size: .8rem; white-space: pre-wrap; }
 .interviewActions { display: flex; gap: 8px; align-items: center; padding-left: 2px; }
 .chatToolButtons { display: flex; gap: 6px; align-items: center; }
-.chat > textarea { height: 84px; resize: none; border-radius: 14px; border: 1px solid transparent; background: linear-gradient(#fff, #fff) padding-box, linear-gradient(110deg, #ff8acb, #73e3d4, #4f7dff) border-box; color: var(--scout-ink); box-shadow: color(srgb 0 0 0 / .06) 0 10px 28px; }
+.chat > textarea { height: 84px; resize: none; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--hyper-azure) 32%, white); background: #fff; color: var(--hyper-ink); box-shadow: color(srgb 0 0 0 / .06) 0 10px 28px; }
+/* The composer answers focus in purple — hyper's primary-focus — so the one
+   place you type intent reads distinctly from ordinary inputs. */
+.chat > textarea:focus { border-color: transparent; box-shadow: 0 0 0 1px #c68ae8, 0 0 0 3px color(srgb 0.639 0.251 0.878 / .14); }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.thinking { color: var(--scout-charcoal); background: #fff; border: 1px solid var(--scout-line); border-radius: 12px; padding: 9px 11px; font-size: .84rem; box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
+.thinking { display: flex; align-items: center; gap: 8px; color: var(--hyper-charcoal); background: #fff; border: 1px solid var(--hyper-line); border-radius: 12px; padding: 9px 11px; font-size: .84rem; box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
+/* The signature: the amber bolt is the working state. It appears only while
+   hyper is doing work (thinking pill, preview overlay) and throbs gently. */
+.boltPulse { width: 16px; height: 16px; flex: 0 0 auto; animation: boltThrob 1.15s ease-in-out infinite; }
+.boltPulse.boltLarge { width: 52px; height: 52px; }
+@keyframes boltThrob { 50% { opacity: .45; transform: scale(.9); } }
 .budgetExhausted { color: #8a4b00; background: #fff7ed; border: 1px solid #f5c98a; border-radius: 12px; padding: 9px 11px; font-size: .84rem; box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
-.selectedElementPanel { display: grid; gap: 10px; padding: 12px; border: 1px solid color(srgb 0.15 0.39 1 / .25); border-radius: 16px; background: #fff; box-shadow: color(srgb 0.15 0.39 1 / .08) 0 8px 24px; }
-.selectedElementPanel small { color: #8b8d94; text-transform: uppercase; letter-spacing: .08em; font-size: .66rem; font-weight: 750; }
-.selectedElementPanel strong { display: block; margin: 3px 0; color: var(--scout-ink); }
+/* Preview-error card: quiet ink-on-white with the amber rule — the bolt's
+   "needs work" cousin, not a red alarm. */
+.previewErrorCard { display: grid; gap: 8px; padding: 10px 12px; background: #fff; border: 1px solid var(--hyper-line); border-left: 3px solid var(--hyper-amber); border-radius: 12px; font-size: .84rem; color: var(--hyper-ink); box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
+.previewErrorCard pre { margin: 0; padding: 8px 10px; max-height: 96px; overflow: auto; font-family: var(--hyper-mono); font-size: .72rem; line-height: 1.45; white-space: pre-wrap; word-break: break-word; background: var(--hyper-soft); border-radius: 8px; }
+.previewErrorCard .actions { margin: 0; }
+.selectedElementPanel { display: grid; gap: 10px; padding: 12px; border: 1px solid color(srgb 0.07 0.53 0.96 / .25); border-radius: 16px; background: #fff; box-shadow: color(srgb 0.07 0.53 0.96 / .08) 0 8px 24px; }
+.selectedElementPanel small { color: #8b8d94; text-transform: uppercase; letter-spacing: .08em; font-size: .66rem; font-weight: 400; font-family: var(--hyper-mono); }
+.selectedElementPanel strong { display: block; margin: 3px 0; color: var(--hyper-ink); }
 .selectedElementPanel p { max-height: 48px; overflow: hidden; font-size: .82rem; }
 .selectedElementPanel textarea { height: 78px; resize: none; }
-button { border: 0; border-radius: 10px; padding: 9px 12px; font-size: .84rem; font-weight: 600; background: var(--scout-charcoal); color: #fff; cursor: pointer; box-shadow: rgb(47 48 55) 0 0 0 1px, rgba(255,255,255,.07) 0 1px 1px inset, rgba(34,42,53,.14) 0 2px 3px; }
+button { border: 0; border-radius: 10px; padding: 9px 12px; font-size: .84rem; font-weight: 600; background: var(--hyper-azure); color: #fff; cursor: pointer; box-shadow: #0b65c2 0 0 0 1px, rgba(255,255,255,.12) 0 1px 1px inset, rgba(11,60,110,.16) 0 2px 3px; transition: background .15s ease; }
+/* hyper's primary-focus: azure buttons answer hover in purple. :where keeps
+   specificity at element level so every classed variant wins untouched. */
+button:where(:hover:not(:disabled)) { background: var(--hyper-purple); box-shadow: #8430ba 0 0 0 1px, rgba(255,255,255,.12) 0 1px 1px inset, rgba(70,20,110,.16) 0 2px 3px; }
 button:disabled { opacity: .48; cursor: wait; }
-button.secondary { background: #fff; color: var(--scout-charcoal); box-shadow: color(srgb 0 0 0 / .09) 0 0 0 1px, color(srgb 0 0 0 / .05) 0 2px 3px -1px; }
+button.secondary { background: #fff; color: var(--hyper-charcoal); box-shadow: color(srgb 0 0 0 / .09) 0 0 0 1px, color(srgb 0 0 0 / .05) 0 2px 3px -1px; }
 button.ghost { background: transparent; color: #6f7279; border: 1px solid #dedfe3; box-shadow: none; }
 button.compact { padding: 7px 10px; font-size: .78rem; }
 button.iconButton { width: 36px; height: 36px; padding: 0; display: grid; place-items: center; font-size: 1rem; }
 .status { color: #8b8d94; line-height: 1.35; font-size: .78rem; }
-.projectControls { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--scout-line); border-radius: 16px; background: #fff; box-shadow: color(srgb 0 0 0 / .03) 0 1px 2px; }
+.projectControls { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--hyper-line); border-radius: 16px; background: #fff; box-shadow: color(srgb 0 0 0 / .03) 0 1px 2px; }
 .projectMeta { min-width: 0; display: grid; gap: 5px; }
-.projectMeta > small:first-child { color: #8b8d94; text-transform: uppercase; letter-spacing: .08em; font-size: .66rem; font-weight: 800; }
+.projectMeta > small:first-child { color: #8b8d94; text-transform: uppercase; letter-spacing: .08em; font-size: .66rem; font-weight: 400; font-family: var(--hyper-mono); }
 .projectNameRow { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .projectNameRow strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .projectNameInput { padding: 7px 9px; border-radius: 10px; }
@@ -115,11 +160,11 @@ button.iconButton { width: 36px; height: 36px; padding: 0; display: grid; place-
 button.miniIcon { width: 28px; height: 28px; flex: 0 0 auto; padding: 0; border-radius: 9px; display: grid; place-items: center; }
 .projectModal { width: min(640px, 100%); max-height: min(720px, 90vh); overflow: auto; }
 .projectList { display: grid; gap: 10px; }
-.projectCard { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px; border: 1px solid var(--scout-line); border-radius: 14px; background: #fff; }
+.projectCard { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px; border: 1px solid var(--hyper-line); border-radius: 14px; background: #fff; }
 .projectCard small { display: block; margin-top: 4px; color: #8b8d94; }
 .projectActions { display: flex; gap: 8px; flex-wrap: wrap; }
 .modalBackdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 20px; background: color(srgb 1 1 1 / .72); backdrop-filter: blur(8px); animation: fadeIn .18s ease both; }
-.modal { width: min(460px, 100%); display: grid; gap: 16px; padding: 20px; border: 1px solid var(--scout-line); border-radius: 22px; background: #fff; color: var(--scout-ink); box-shadow: color(srgb 0 0 0 / .14) 0 30px 100px; }
+.modal { width: min(460px, 100%); display: grid; gap: 16px; padding: 20px; border: 1px solid var(--hyper-line); border-radius: 22px; background: #fff; color: var(--hyper-ink); box-shadow: color(srgb 0 0 0 / .14) 0 30px 100px; }
 .modalHeader { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; }
 .modalActions { display: flex; justify-content: flex-end; gap: 10px; }
 .publishPanel { display: grid; gap: 12px; }
@@ -127,8 +172,8 @@ button.miniIcon { width: 28px; height: 28px; flex: 0 0 auto; padding: 0; border-
 .subdomainRow { display: flex; align-items: center; gap: 8px; }
 .subdomainRow input { flex: 1; min-width: 0; }
 .subdomainSuffix { color: #8b8d94; font-size: .85rem; white-space: nowrap; }
-.publishedUrl { color: var(--scout-blue); font-weight: 700; word-break: break-all; }
-.publishLogs { max-height: 220px; overflow: auto; margin: 0; padding: 10px; font-size: .72rem; line-height: 1.4; border: 1px solid var(--scout-line); border-radius: 12px; background: #fafafa; }
+.publishedUrl { color: var(--hyper-azure); font-weight: 700; word-break: break-all; }
+.publishLogs { max-height: 220px; overflow: auto; margin: 0; padding: 10px; font-size: .72rem; line-height: 1.4; border: 1px solid var(--hyper-line); border-radius: 12px; background: #fafafa; }
 .scoutosKey { display: grid; gap: 7px; }
 .keyEntryRow, .keySavedRow { display: flex; align-items: center; gap: 8px; }
 .keyEntryRow input { flex: 1; min-width: 0; }
@@ -138,34 +183,35 @@ button.miniIcon { width: 28px; height: 28px; flex: 0 0 auto; padding: 0; border-
    survive toggling — the terminal re-fits when revealed. */
 .workspace.codeHidden { grid-template-rows: 1fr; }
 .workspace.codeHidden .bottom { display: none; }
-.unreadDot { width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: #c2421f; }
+/* Amber, not red: the dot means "work happened over there", the same thing
+   the bolt means — not an error. */
+.unreadDot { width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: var(--hyper-amber); }
 .preview { min-height: 0; display: flex; flex-direction: column; background: #fff; }
-.bar { height: 42px; display: flex; align-items: center; gap: 12px; padding: 0 12px; color: var(--scout-ink); background: #fff; border-bottom: 1px solid var(--scout-line); }
-.bar span { flex: 1; color: #8b8d94; font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.selectingButton { background: var(--scout-blue); color: #fff; padding: 7px 10px; font-size: .78rem; animation: softPulse 1.2s ease-in-out infinite; }
+.bar { height: 42px; display: flex; align-items: center; gap: 12px; padding: 0 12px; color: var(--hyper-ink); background: #fff; border-bottom: 1px solid var(--hyper-line); }
+.bar span { flex: 1; color: #8b8d94; font-size: .75rem; font-family: var(--hyper-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.selectingButton { background: var(--hyper-azure); color: #fff; padding: 7px 10px; font-size: .78rem; animation: softPulse 1.2s ease-in-out infinite; }
 @keyframes softPulse { 50% { filter: brightness(1.12); } }
 .previewFrame { position: relative; flex: 1; min-height: 0; display: flex; background: #fff; overflow: hidden; }
 iframe { flex: 1; width: 100%; border: 0; background: white; transition: filter .25s ease, transform .25s ease; }
 .previewFrame:has(.previewOverlay) iframe { filter: saturate(.86) brightness(.9); transform: scale(.995); }
 .loading { flex: 1; display: grid; place-items: center; color: #8b8d94; background: #fff; }
-.previewOverlay { position: absolute; inset: 0; display: grid; place-items: center; align-content: center; gap: 12px; color: var(--scout-ink); background: radial-gradient(circle at center, color(srgb 0.15 0.39 1 / .14), color(srgb 1 1 1 / .86) 58%, color(srgb 1 1 1 / .94)); backdrop-filter: blur(3px); animation: fadeIn .25s ease both; }
+/* Working state glows amber — the signature's home. */
+.previewOverlay { position: absolute; inset: 0; display: grid; place-items: center; align-content: center; gap: 12px; color: var(--hyper-ink); background: radial-gradient(circle at center, color(srgb 0.98 0.729 0 / .13), color(srgb 1 1 1 / .86) 58%, color(srgb 1 1 1 / .94)); backdrop-filter: blur(3px); animation: fadeIn .25s ease both; }
 .previewOverlay span { color: #6f7279; }
-.pulseOrb { width: 54px; height: 54px; border-radius: 999px; background: linear-gradient(135deg, #ff8acb, #70e1d4, #4f7dff); box-shadow: 0 0 0 0 color(srgb 0.15 0.39 1 / .25); animation: pulse 1.3s ease-out infinite; }
-@keyframes pulse { 70% { box-shadow: 0 0 0 26px color(srgb 0.15 0.39 1 / 0); transform: scale(1.05); } 100% { box-shadow: 0 0 0 0 color(srgb 0.15 0.39 1 / 0); transform: scale(1); } }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-.bottom { min-height: 0; display: grid; grid-template-columns: 220px 1fr 360px; border-top: 1px solid var(--scout-line); }
-.files { overflow: auto; padding: 10px; background: #fafafa; border-right: 1px solid var(--scout-line); display: flex; flex-direction: column; gap: 5px; }
+.bottom { min-height: 0; display: grid; grid-template-columns: 220px 1fr 360px; border-top: 1px solid var(--hyper-line); }
+.files { overflow: auto; padding: 10px; background: #fafafa; border-right: 1px solid var(--hyper-line); display: flex; flex-direction: column; gap: 5px; }
 .files button { text-align: left; color: #6f7279; background: transparent; padding: 8px 10px; font-weight: 600; box-shadow: none; }
-.files button.active { color: var(--scout-ink); background: #eceef3; }
+.files button.active { color: var(--hyper-ink); background: #eceef3; }
 .editor { min-width: 0; min-height: 0; overflow: hidden; background: #282c34; }
 .editor .cm-editor { height: 100%; font-size: 13px; }
-.editor .cm-scroller { height: 100%; overflow: auto !important; overscroll-behavior: contain; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.editor .cm-scroller { height: 100%; overflow: auto !important; overscroll-behavior: contain; font-family: var(--hyper-mono); }
 .editor .cm-content { min-height: 100%; }
 .terminalPane { min-width: 0; min-height: 0; display: grid; grid-template-rows: 38px 1fr; background: #050915; border-left: 1px solid #202538; }
 .terminalToolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 8px; color: #c5d2ee; border-bottom: 1px solid #202538; font-size: .78rem; }
 .terminal { min-width: 0; min-height: 0; overflow: hidden; padding: 8px; background: #050915; }
 .terminal .xterm { height: 100%; }
-@media (max-width: 980px) { .app { grid-template-columns: 1fr; grid-template-rows: 460px 1fr; } .app.modeChat { grid-template-rows: 1fr; } .app.modeChat .panel.chat { padding-top: 24px; } .workspace { grid-template-rows: 1fr 260px; } .bottom { grid-template-columns: 160px 1fr; } .terminalPane { display: none; } }
+@media (max-width: 980px) { .app { grid-template-columns: 1fr; grid-template-rows: 460px 1fr; } .app.modeChat { grid-template-rows: 1fr; } .app.modeChat .panel.chat { padding-top: 24px; } .workspace { grid-template-rows: 1fr 260px; } .bottom { grid-template-columns: 160px 1fr; } .terminalPane { display: none; } .layoutSwitch .layoutSegment { padding: 5px 9px; font-size: .74rem; } h1.wordmark { font-size: 1.1rem; } .wordmarkBolt { width: 22px; height: 22px; } }
 
 /* Build story: editorial narrative view, tinted by the app's own brand
    accent (--story-accent, set inline from BRAIN.md's palette). */
@@ -175,15 +221,55 @@ iframe { flex: 1; width: 100%; border: 0; background: white; transition: filter 
 .storyKicker { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--story-accent, #d97757); }
 .storyHeader h2 { margin: 2px 0 0; font-size: 26px; letter-spacing: -.01em; }
 .storyBody { font-family: Charter, 'Iowan Old Style', 'Palatino Linotype', Georgia, serif; font-size: 16px; line-height: 1.65; padding-top: 4px; }
-.storyBody h3 { margin: 28px 0 10px; font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: color(srgb 0 0 0 / .45); font-family: ui-sans-serif, system-ui, sans-serif; }
+.storyBody h3 { margin: 28px 0 10px; font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: color(srgb 0 0 0 / .45); font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif; }
 .storyOrigin { border-left: 3px solid var(--story-accent, #d97757); padding-left: 14px; }
 .storyOrigin p, .storyOutcome p { margin: 6px 0; }
 .storyChapter { margin-top: 18px; }
-.storyChapterRule { border-top: 1px solid var(--scout-line); padding-top: 10px; }
-.storyChapterNumber { font-family: ui-sans-serif, system-ui, sans-serif; font-weight: 800; font-size: 13px; color: var(--story-accent, #d97757); }
+.storyChapterRule { border-top: 1px solid var(--hyper-line); padding-top: 10px; }
+.storyChapterNumber { font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif; font-weight: 800; font-size: 13px; color: var(--story-accent, #d97757); }
 .storyAsk { margin: 8px 0 4px; font-style: italic; font-size: 17px; }
 .storyChips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.storyChip { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: color-mix(in srgb, var(--story-accent, #d97757) 12%, white); border: 1px solid color-mix(in srgb, var(--story-accent, #d97757) 30%, white); }
+.storyChip { font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: color-mix(in srgb, var(--story-accent, #d97757) 12%, white); border: 1px solid color-mix(in srgb, var(--story-accent, #d97757) 30%, white); }
 .storyDecisions { margin: 0; padding-left: 18px; }
 .storyDecisions li { margin: 5px 0; }
 .storyEmpty { color: color(srgb 0 0 0 / .5); font-style: italic; }
+
+/* Pre-auth landing (src/landing.ts, managed auth only). Shares the token
+   system; the type stack is the hero — the only amber on the page is the
+   wordmark bolt. */
+.landingShell { position: fixed; inset: 0; z-index: 9999; background: var(--hyper-base); overflow: auto; }
+.landingHeader { display: flex; align-items: center; justify-content: space-between; max-width: 1080px; margin: 0 auto; padding: 26px 28px 0; }
+.landingWordmark { display: inline-flex; align-items: center; gap: 9px; font-size: 1.2rem; font-weight: 600; letter-spacing: -.02em; color: var(--hyper-ink); }
+.landingWordmark svg { width: 27px; height: 27px; }
+.landingByline { font-family: var(--hyper-mono); font-size: .72rem; color: var(--hyper-slate); }
+.landingMain { display: grid; grid-template-columns: 1.1fr 1fr; gap: 56px; align-items: center; max-width: 1080px; margin: 0 auto; padding: 64px 28px 48px; min-height: calc(100vh - 80px); }
+/* One orchestrated entrance: hero, then panel — not scattered staggering. */
+.landingHero { animation: landingRise .5s ease both; }
+@keyframes landingRise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.landingEyebrow { font-family: var(--hyper-mono); font-size: .72rem; letter-spacing: .18em; color: var(--hyper-slate); }
+.landingTitle { margin: 14px 0 18px; font-size: clamp(44px, 6.4vw, 76px); line-height: 1.02; letter-spacing: -.035em; font-weight: 300; color: var(--hyper-ink); }
+.landingLede { max-width: 36ch; font-size: 1.05rem; }
+.landingSteps { list-style: none; margin: 26px 0 0; padding: 0; display: grid; gap: 8px; font-family: var(--hyper-mono); font-size: .78rem; color: var(--hyper-muted); }
+.landingSteps span { color: var(--hyper-azure); margin-right: 8px; }
+.landingPanel { display: grid; gap: 14px; animation: landingRise .5s ease both; animation-delay: .14s; }
+.landingPrompt { display: grid; gap: 10px; padding: 18px; background: #fff; border: 1px solid var(--hyper-line); border-radius: 18px; box-shadow: color(srgb 0 0 0 / .05) 0 14px 40px; }
+.landingPrompt label { color: var(--hyper-ink); font-weight: 600; font-size: .95rem; }
+.landingPrompt textarea { resize: none; }
+.landingChips { display: flex; flex-wrap: wrap; gap: 6px; }
+.landingChip { background: #fff; color: var(--hyper-muted); border: 1px solid var(--hyper-line); box-shadow: none; border-radius: 999px; padding: 5px 11px; font-size: .76rem; font-weight: 500; }
+.landingChip:hover { border-color: var(--hyper-azure); color: var(--hyper-azure); background: #fff; }
+.landingHint { font-size: .8rem; }
+.landingSignIn { display: grid; }
+@media (max-width: 980px) {
+  .landingMain { grid-template-columns: 1fr; gap: 34px; padding-top: 40px; align-items: start; min-height: 0; }
+  .landingTitle { font-size: clamp(40px, 11vw, 56px); }
+}
+
+/* Quality floor. Keyboard focus is always visible and always azure; the one
+   azure-on-azure case (user bubbles) flips to ink. */
+:focus-visible { outline: 2px solid var(--hyper-azure); outline-offset: 2px; }
+.msg.user:focus-visible { outline-color: var(--hyper-ink); }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .messages { scroll-behavior: auto; }
+}

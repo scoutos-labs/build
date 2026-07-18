@@ -72,7 +72,7 @@ fn origin(brain: String, messages: List(chat.Message)) -> String {
 fn first_user_message(messages: List(chat.Message)) -> Option(String) {
   case messages {
     [] -> None
-    [chat.Message(chat.User, content), ..] -> Some(content)
+    [chat.Message(chat.User, content, _), ..] -> Some(content)
     [_, ..rest] -> first_user_message(rest)
   }
 }
@@ -152,7 +152,7 @@ fn clean_ask(prompt: String) -> String {
 
 fn chapters_from_messages(messages: List(chat.Message)) -> List(Chapter) {
   case messages {
-    [chat.Message(chat.User, ask), chat.Message(chat.Assistant, outcome), ..rest] ->
+    [chat.Message(chat.User, ask, _), chat.Message(chat.Assistant, outcome, _), ..rest] ->
       [Chapter(at: 0, ask: ask, outcome: outcome, areas: []), ..chapters_from_messages(rest)]
     [_, ..rest] -> chapters_from_messages(rest)
     [] -> []

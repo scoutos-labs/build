@@ -1,10 +1,12 @@
 import build/actors/chat
 import build/actors/interview
+import build/components/build_bolt
 import build/msg
 import build/runtime/ids
 import gleam/dynamic/decode
 import gleam/int
 import gleam/list
+import gleam/option.{type Option}
 import gleam/string
 import lustre/attribute
 import lustre/element.{type Element, fragment}
@@ -20,6 +22,7 @@ pub fn view(
   budget_exhausted: Bool,
   budget_reset_at: String,
   interview_state: interview.State,
+  preview_error: Option(String),
 ) -> Element(msg.Msg) {
   let interviewing = interview.is_active(interview_state)
   fragment([
@@ -73,6 +76,27 @@ pub fn view(
           message_view(message, index, list.contains(expanded_messages, index))
         })
     }),
+    // Preview-error card: the scariest moment becomes a one-click ritual.
+    // Sits above the composer, in the reading path from messages to input.
+    // Never shown mid-interview (no app of yours is running yet).
+    case preview_error, interviewing {
+      option.Some(error_text), False ->
+        html.div([attribute.class("previewErrorCard")], [
+          html.strong([], [html.text("The preview hit an error")]),
+          html.pre([], [html.text(error_text)]),
+          html.div([attribute.class("actions")], [
+            button(
+              [
+                attribute.class("compact"),
+                attribute.disabled(busy || budget_exhausted),
+                event.on("click", fix_click_decoder()),
+              ],
+              "Try to fix",
+            ),
+          ]),
+        ])
+      _, _ -> html.text("")
+    },
     html.textarea(
       [
         attribute.placeholder(case
@@ -92,7 +116,8 @@ pub fn view(
     case running {
       True ->
         html.div([attribute.class("thinking")], [
-          html.text("Model is thinking…"),
+          build_bolt.glyph("boltPulse"),
+          html.text("hyper is thinking…"),
         ])
       False -> html.text("")
     },
@@ -249,6 +274,11 @@ pub fn submit_click_decoder() -> decode.Decoder(msg.Msg) {
   decode.success(submit_prompt_msg())
 }
 
+pub fn fix_click_decoder() -> decode.Decoder(msg.Msg) {
+  use _ <- decode.then(decode.success(Nil))
+  decode.success(msg.FixPreviewError(ids.new_request_id(), ids.now_ms()))
+}
+
 pub fn submit_shortcut_decoder() -> decode.Decoder(msg.Msg) {
   use key <- decode.field("key", decode.string)
   use ctrl <- decode.field("ctrlKey", decode.bool)
@@ -270,14 +300,30 @@ fn message_view(
     chat.Assistant, True -> "msg assistant expanded"
     chat.Assistant, False -> "msg assistant"
   }
-  html.button(
-    [
-      attribute.type_("button"),
-      attribute.class(role_class),
-      event.on_click(msg.Chat(chat.MessageToggled(index))),
-    ],
-    [html.text(message.content)],
-  )
+  let bubble =
+    html.button(
+      [
+        attribute.type_("button"),
+        attribute.class(role_class),
+        event.on_click(msg.Chat(chat.MessageToggled(index))),
+      ],
+      [html.text(message.content)],
+    )
+  // Narration chips: the files this turn touched, as a quiet sibling row —
+  // outside the bubble so the 5-line clamp never hides or stretches them.
+  case message.paths {
+    [] -> bubble
+    paths ->
+      fragment([
+        bubble,
+        html.div(
+          [attribute.class("msgChips")],
+          list.map(paths, fn(path) {
+            html.span([attribute.class("msgChip")], [html.text(path)])
+          }),
+        ),
+      ])
+  }
 }
 
 fn button(attrs, label: String) {

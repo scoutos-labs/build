@@ -6,7 +6,11 @@ pub type Role {
 }
 
 pub type Message {
-  Message(role: Role, content: String)
+  // `paths` are the files the agent touched in the turn that produced this
+  // message (assistant turns with patches only; [] otherwise). Riding on the
+  // message itself keeps chips correct across error bubbles and reloads —
+  // no index correlation with the build log.
+  Message(role: Role, content: String, paths: List(String))
 }
 
 pub type State {
@@ -15,7 +19,7 @@ pub type State {
 
 pub type Msg {
   UserSentMessage(String)
-  AssistantReplied(String)
+  AssistantReplied(content: String, paths: List(String))
   AssistantError(String)
   PromptChanged(String)
   MessageToggled(Int)
@@ -30,11 +34,11 @@ pub fn init() -> State {
 pub fn update(state: State, msg: Msg) -> State {
   case msg {
     UserSentMessage(content) ->
-      State(..state, messages: list.append(state.messages, [Message(User, content)]), prompt: "")
-    AssistantReplied(content) ->
-      State(..state, messages: list.append(state.messages, [Message(Assistant, content)]))
+      State(..state, messages: list.append(state.messages, [Message(User, content, [])]), prompt: "")
+    AssistantReplied(content, paths) ->
+      State(..state, messages: list.append(state.messages, [Message(Assistant, content, paths)]))
     AssistantError(message) ->
-      State(..state, messages: list.append(state.messages, [Message(Assistant, "Error: " <> message)]))
+      State(..state, messages: list.append(state.messages, [Message(Assistant, "Error: " <> message, [])]))
     PromptChanged(value) -> State(..state, prompt: value)
     MessageToggled(index) -> {
       let expanded = case list.contains(state.expanded_messages, index) {

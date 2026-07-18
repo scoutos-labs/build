@@ -81,18 +81,15 @@ export function registerManagedAgentAuth(): void {
  * later sign-out reloads the page so the gate runs again.
  */
 export async function ensureSignedIn(): Promise<void> {
+  // Branded shell first: it covers the app instantly, so signed-in reloads
+  // see a quiet base-color surface (never the landing) and signed-out
+  // visitors never see an unstyled flash while Clerk loads.
+  const { createLandingShell } = await import('./landing')
+  const shell = createLandingShell()
   const clerk = await loadClerk()
 
   if (!clerk.user) {
-    const overlay = document.createElement('div')
-    overlay.id = 'signInGate'
-    overlay.setAttribute(
-      'style',
-      'position:fixed;inset:0;display:grid;place-items:center;background:#faf9f5;z-index:9999;',
-    )
-    const mount = document.createElement('div')
-    overlay.appendChild(mount)
-    document.body.appendChild(overlay)
+    const { signInSlot: mount } = shell.expandToLanding()
     // COOP: same-origin (required for WebContainers) severs window.opener, so
     // popup OAuth can never report back — force the full-page redirect flow.
     // withSignUp keeps sign-up inside this embedded component instead of
@@ -112,8 +109,8 @@ export async function ensureSignedIn(): Promise<void> {
     })
 
     clerk.unmountSignIn(mount)
-    overlay.remove()
   }
+  shell.remove()
 
   // @ts-ignore — listener callback type may vary by Clerk version
   clerk.addListener(({ user }) => {

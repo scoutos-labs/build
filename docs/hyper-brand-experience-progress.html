@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Progress — hyper-brand-experience</title>
+<style>
+  :root { --ink:#252C37; --azure:#1286F6; --amber:#FABA00; --base:#F7F8F8; --line:#C4C5C4; --muted:#5B7FA6; }
+  body { font: 15px/1.55 -apple-system, "Segoe UI", sans-serif; color: var(--ink); background:#fff; max-width: 60rem; margin: 2rem auto; padding: 0 1.25rem; }
+  h1 { font-size: 1.5rem; border-bottom: 3px solid var(--amber); padding-bottom:.4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; color: var(--azure); }
+  code, pre { font-family: ui-monospace, Menlo, monospace; font-size:.86em; background: var(--base); }
+  pre { padding:.6rem; overflow-x:auto; border:1px solid var(--line); border-radius:6px; }
+  table { border-collapse: collapse; width:100%; }
+  th, td { border:1px solid var(--line); padding:.4rem .6rem; text-align:left; font-size:.92em; vertical-align: top; }
+  th { background: var(--base); }
+  .st { display:inline-block; padding:.05rem .55rem; border-radius:99px; font-size:.8em; font-weight:700; }
+  .planned { background:#eef1f4; color:#5B7FA6; }
+  .inprog { background:#fff4d6; color:#8a6400; }
+  .pass { background:#e2f6e3; color:#187a1c; }
+  .fail { background:#fdeeee; color:#a33; }
+  .muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>Progress — hyper-brand-experience</h1>
+<p>Overall status: <span class="st pass">complete</span> · PRD: <code>hyper-brand-experience-prd.html</code> · handoff: <code>hyper-brand-experience-handoff.md</code> · branch <code>hyper-brand-experience</code> (7 commits on top of <code>31c5ab6</code>)</p>
+
+<h2>Step checklist</h2>
+<table>
+<tr><th>Step</th><th>Status</th><th>Evidence</th><th>Notes</th></tr>
+<tr><td>1 · Brand foundation (fonts + tokens)</td><td><span class="st pass">pass</span></td><td><code>npm test</code> 132 gleam + 108 vitest green; <code>smoke-layout-modes</code> 25/25 (incl. Focus-modal full-viewport check); playwright probe: <code>document.fonts</code> = Space Grotesk:loaded, PT Mono:loaded; font requests only <code>localhost:5199/fonts/*.woff2</code> (same-origin); grep: 0 <code>GeistSans</code>/<code>--scout-</code> remnants; screenshots <code>scripts/.smoke/layout-modes/*.png</code></td><td>Changed: <code>src/styles.css</code> (tokens → <code>--hyper-*</code>, @font-face), <code>src/gleam-externals/terminal.mjs</code> (xterm font), <code>public/fonts/</code> (2 woff2 + 2 OFL). design_guidance untouched.</td></tr>
+<tr><td>2 · Signature, voice, quality floor</td><td><span class="st pass">pass</span></td><td><code>npm test</code> green; smoke layout 25/25 + interview 14/14; reduced-motion probe: <code>animationName=none</code>; tab-focus probe: 2px azure outline on button; amber grep: favicon + token def (unreadDot) + bolt component only — all working-state/logo; screenshots <code>step2-working-state.png</code>, <code>step2-overlay.png</code> (bolt + amber radial + "hyper is building")</td><td>New <code>build_bolt.gleam</code> (glyph + lockup); pulseOrb + rainbow composer gradient removed; wordmark lockup in h1 (lowercase "build"); favicon = hyper logo; buttons azure w/ purple hover (:where keeps variants safe); eyebrows PT Mono; unreadDot amber; title "build · hyper". Boot-journey copy already conformed to register — left as-is.</td></tr>
+<tr><td>3 · Pre-auth landing + prompt carry-through</td><td><span class="st pass">pass</span></td><td>gleam tests 135 (3 new seed tests) + vitest 108 green; <code>npm run build</code> green (tsc incl.); dist secret grep: only Clerk/UI literal prefix strings, no secrets; smokes 25/25 + 14/14 (flag-off unchanged); playwright probes: idea stored on keystroke, Enter → focus lands on sign-in card, chip fills + stores, no 375px overflow; seed E2E: sessionStorage idea → answered Q1 bubble + interview at Q2 + key consumed (null). Screenshots <code>step3-landing.png</code>, <code>step3-landing-375.png</code>, <code>step3-seeded-interview.png</code></td><td>New <code>src/landing.ts</code> (shell + landing, pure DOM); <code>managed-auth.ts</code> mounts Clerk into landing slot (await/listener/unmount logic unchanged); seed = <code>LandingIdeaArrived</code> msg dispatched after ProjectReady in <code>projects.mjs</code>, handled purely in <code>update.gleam</code> (answers Q1 or falls back to composer). Open Q1 resolved: default Clerk widget inside branded panel (first-class); appearance vars deferrable. Residual: full Clerk round-trip untested locally (no publishable key).</td></tr>
+<tr><td>4 · Try-to-fix on preview errors</td><td><span class="st pass">pass</span></td><td>139 gleam tests (4 new: log-line→card, fix-dispatch embeds error text in CallAgent, inert without error / mid-interview, success clears) + 108 vitest; smokes 25/25 + 14/14; smoke screenshot <code>05-error-badge-on-code-segment.png</code> shows live card (amber rule, PT Mono error, Try to fix)</td><td>Error text rides the existing guard-checked <code>[preview error]</code> log line — no new postMessage surface. <code>preview.last_preview_error</code> cleared on URL change + agent success. Card hidden mid-interview; button disabled while busy/budget-exhausted. Deferred (PRD §11): server-side free-fix accounting.</td></tr>
+<tr><td>5 · Build-narration chips</td><td><span class="st pass">pass</span></td><td>140 gleam (new: interleaved error turns keep chips on the right bubbles — desync impossible by construction) + 108 vitest incl. story + templates guards; chips screenshot <code>step5-chips.png</code> (PT Mono pills under bubble, outside the clamp)</td><td>Chose the robust PRD option: <code>chat.Message</code> gained <code>paths</code> (assistant turns with patches). Persistence round-trips via projects.mjs (old saves lack the field → default []). Chips render as a sibling row so the 5-line clamp never hides/stretches them. Build Story untouched (derives from build_log).</td></tr>
+<tr><td>6 · Polish + validation + judge</td><td><span class="st pass">pass</span></td><td>Full battery green (see Validation results); judge re-ran it independently and scored all six rubric axes ≥4 (verdict APPROVE-WITH-FIXES; fixes applied — see Reviewer findings)</td><td>Polish: error card above composer; narrow-mode segment/wordmark sizing (Code segment no longer clips); lowercase "build" in settings copy; landing staggering → one hero+panel entrance (the removed accessory). Post-judge: ChatMessage type gained <code>paths?</code>; empty preview-error guard; brandkit note for derived neutrals.</td></tr>
+</table>
+
+<h2>Research log</h2>
+<ul>
+<li>2026-07-18 — brandkit extracted from hyper.io → <code>docs/hyper-brandkit.md</code> (Space Grotesk + PT Mono; azure/amber/ink palette; "Create. Connect. Build." voice).</li>
+<li>2026-07-18 — codebase map (Explore agent): styling entirely in <code>src/styles.css</code> (189 lines, tokens :1-13); GeistSans declared, never loaded; no landing page — Clerk overlay mounts pre-Gleam (<code>managed-auth.ts:83-116</code>); modes share DOM; building UX = thinking pill + pulse orb + xterm.</li>
+<li>2026-07-18 — competitor research (v0/Lovable/Bolt/Replit/Figma Make): top picks for this loop = Try-to-fix (S), narration chips (S); deferred = checkpoints, scoped element edits, diff view, progressive preview.</li>
+</ul>
+
+<h2>Reviewer / judge findings</h2>
+<ul>
+<li><strong>Plan gate</strong> (pre-implementation): APPROVED-WITH-CHANGES. Blocker (unsatisfiable "zero cross-origin pre-auth" — Clerk's own frontend-API calls) reworded in PRD §5/Step 3/DoD before implementation. Advisories (seed handshake timing, chip↔message association, amber standardization, no-flash shell, Clerk-fallback-as-first-class) folded into Steps 3/5 and honored in implementation.</li>
+<li><strong>Implementation judge</strong>: APPROVE-WITH-FIXES. Rubric: Correctness 5, Brand fidelity 4, Taste 4, Originality 4, Quality floor 4, Cohesion 5 — all ≥4, no repair loop triggered. Zero code blockers; verified boot-gate contract, Focus no-transform, flag-off byte-identity, Message.paths sites ×7, :where() hover specificity, guarded-surface diff emptiness, security/privacy. Fixes applied post-judge: progress/handoff completion (this doc), <code>ChatMessage.paths?</code> type, empty-error guard, brandkit neutral-provenance note. Not fixed (accepted): silent Enter handoff if Clerk widget still rendering (idea is stored regardless).</li>
+</ul>
+
+<h2>Validation results</h2>
+<pre>npm test                        → gleam 140 passed, vitest 108 passed (15 files)   [re-run after judge fixes]
+npm run build                   → gleam build + tsc -b + vite build ✓ (dist secret grep: only Clerk prefix literals)
+node scripts/smoke-layout-modes.mjs → 25/25 (incl. Focus-modal full-viewport, identical-DOM, iframe survival)
+node scripts/smoke-interview.mjs    → 14/14
+cd server &amp;&amp; npm test           → 103 passed (server diff: none)</pre>
+
+<h2>Residual risks</h2>
+<ul>
+<li>Full Clerk OAuth redirect round-trip untested locally (no publishable key in this checkout) — needs one staging pass: landing → Google sign-in → return → seeded interview.</li>
+<li>Clerk widget visual theming inside the landing panel unverified for the same reason; the branded-frame design does not depend on it, appearance vars can be added later.</li>
+<li>"Try to fix" charges the budget normally; free-fix server accounting is deferred (PRD §11).</li>
+<li>Space Grotesk ships latin subset only; non-latin project names fall back to system-ui.</li>
+</ul>
+</body>
+</html>

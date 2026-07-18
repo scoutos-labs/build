@@ -1,4 +1,5 @@
 import build/actors/preview
+import build/components/build_bolt
 import build/msg
 import lustre/attribute
 import lustre/element.{type Element}
@@ -46,9 +47,9 @@ pub fn view(
 
 fn overlay() {
   html.div([attribute.class("previewOverlay")], [
-    html.div([attribute.class("pulseOrb")], []),
-    html.strong([], [html.text("Agent is updating your app")]),
-    html.span([], [html.text("Waiting for model response…")]),
+    build_bolt.glyph("boltPulse boltLarge"),
+    html.strong([], [html.text("hyper is building")]),
+    html.span([], [html.text("The preview refreshes when it's ready")]),
   ])
 }
 

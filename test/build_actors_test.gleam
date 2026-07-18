@@ -54,7 +54,7 @@ pub fn chat_user_message_clears_prompt_test() {
   let next = chat.update(state, chat.UserSentMessage("hello"))
 
   assert next.prompt == ""
-  assert next.messages == [chat.Message(chat.User, "hello")]
+  assert next.messages == [chat.Message(chat.User, "hello", [])]
 }
 
 pub fn agent_ignores_stale_success_test() {

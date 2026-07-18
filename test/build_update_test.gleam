@@ -416,3 +416,44 @@ pub fn export_story_emits_derived_story_test() {
       )),
     ]
 }
+
+// --- Landing idea seeding (pre-auth landing → post-boot dispatch) ---
+
+pub fn landing_idea_answers_first_interview_question_test() {
+  // Empty project hydrates: interview starts at question one.
+  let #(booted, _) =
+    update.update(model.init(), msg.Chat(chat.MessagesReplaced([])))
+  assert booted.interview.stage == interview.Asking(0)
+
+  let #(next, effects) =
+    update.update(booted, msg.LandingIdeaArrived("A yoga booking app"))
+
+  assert next.interview.stage == interview.Asking(1)
+  assert list.first(next.interview.answers) == Ok("A yoga booking app")
+  assert effects == []
+}
+
+pub fn landing_idea_falls_back_to_composer_with_history_test() {
+  // A project with chat history hydrates: no interview, idea must not vanish.
+  let loaded = [chat.Message(chat.User, "hi"), chat.Message(chat.Assistant, "yo")]
+  let #(booted, _) =
+    update.update(model.init(), msg.Chat(chat.MessagesReplaced(loaded)))
+  assert booted.interview.stage == interview.Idle
+
+  let #(next, effects) =
+    update.update(booted, msg.LandingIdeaArrived("A yoga booking app"))
+
+  assert next.interview.stage == interview.Idle
+  assert next.chat.prompt == "A yoga booking app"
+  assert effects == []
+}
+
+pub fn landing_idea_whitespace_does_not_advance_interview_test() {
+  let #(booted, _) =
+    update.update(model.init(), msg.Chat(chat.MessagesReplaced([])))
+
+  let #(next, _) = update.update(booted, msg.LandingIdeaArrived("   "))
+
+  // AnswerSubmitted trims: a blank idea must not skip the first question.
+  assert next.interview.stage == interview.Asking(0)
+}

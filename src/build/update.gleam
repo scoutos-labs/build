@@ -184,6 +184,27 @@ pub fn update(
           )
         _ -> #(app, [])
       }
+    msg.LandingIdeaArrived(idea) ->
+      case app.interview.stage {
+        // Fresh interview: the landing idea IS the answer to "What do you
+        // want to build?" — the founder arrives with question one done.
+        interview.Asking(0) -> #(
+          model.Model(
+            ..app,
+            interview: interview.update(
+              app.interview,
+              interview.AnswerSubmitted(idea),
+            ),
+          ),
+          [],
+        )
+        // Returning project with history: no interview, so the idea waits
+        // in the composer instead of vanishing.
+        _ -> #(
+          model.Model(..app, chat: chat.State(..app.chat, prompt: idea)),
+          [],
+        )
+      }
     msg.Chat(chat_msg) -> {
       let chat_state = chat.update(app.chat, chat_msg)
       case chat_msg {

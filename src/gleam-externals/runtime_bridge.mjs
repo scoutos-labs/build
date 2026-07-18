@@ -106,6 +106,7 @@ export function dispatchAgentFailed(requestId, message) { sendMsg(Msg.Msg$Agent(
 export function dispatchAgentBudgetExhausted(requestId, resetAt) { sendMsg(Msg.Msg$Agent(Agent.Msg$AgentBudgetExhausted(requestId, String(resetAt ?? '')))) }
 export function dispatchAccountLoaded(plan, budget) { sendMsg(Msg.Msg$Settings(Settings.Msg$AccountLoaded(String(plan ?? ''), String(budget ?? '')))) }
 export function dispatchAgentTick(now) { sendMsg(Msg.Msg$Agent(Agent.Msg$AgentElapsedTick(now))) }
+export function dispatchLandingIdea(idea) { sendMsg(Msg.Msg$LandingIdeaArrived(String(idea ?? ''))) }
 export function dispatchBuildFromPlan(planSummary) {
   const requestId = `plan-${Date.now()}-${Math.random().toString(36).slice(2)}`
   sendMsg(Msg.Msg$BuildFromPlan(String(planSummary ?? ''), requestId, Date.now()))

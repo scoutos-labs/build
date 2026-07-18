@@ -226,6 +226,39 @@ iframe { flex: 1; width: 100%; border: 0; background: white; transition: filter 
 .storyDecisions li { margin: 5px 0; }
 .storyEmpty { color: color(srgb 0 0 0 / .5); font-style: italic; }
 
+/* Pre-auth landing (src/landing.ts, managed auth only). Shares the token
+   system; the type stack is the hero — the only amber on the page is the
+   wordmark bolt. */
+.landingShell { position: fixed; inset: 0; z-index: 9999; background: var(--hyper-base); overflow: auto; }
+.landingHeader { display: flex; align-items: center; justify-content: space-between; max-width: 1080px; margin: 0 auto; padding: 26px 28px 0; }
+.landingWordmark { display: inline-flex; align-items: center; gap: 9px; font-size: 1.2rem; font-weight: 600; letter-spacing: -.02em; color: var(--hyper-ink); }
+.landingWordmark svg { width: 27px; height: 27px; }
+.landingByline { font-family: var(--hyper-mono); font-size: .72rem; color: var(--hyper-slate); }
+.landingMain { display: grid; grid-template-columns: 1.1fr 1fr; gap: 56px; align-items: center; max-width: 1080px; margin: 0 auto; padding: 64px 28px 48px; min-height: calc(100vh - 80px); }
+.landingHero > * { animation: landingRise .5s ease both; }
+.landingHero > *:nth-child(2) { animation-delay: .06s; }
+.landingHero > *:nth-child(3) { animation-delay: .12s; }
+.landingHero > *:nth-child(4) { animation-delay: .18s; }
+@keyframes landingRise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.landingEyebrow { font-family: var(--hyper-mono); font-size: .72rem; letter-spacing: .18em; color: var(--hyper-slate); }
+.landingTitle { margin: 14px 0 18px; font-size: clamp(44px, 6.4vw, 76px); line-height: 1.02; letter-spacing: -.035em; font-weight: 300; color: var(--hyper-ink); }
+.landingLede { max-width: 36ch; font-size: 1.05rem; }
+.landingSteps { list-style: none; margin: 26px 0 0; padding: 0; display: grid; gap: 8px; font-family: var(--hyper-mono); font-size: .78rem; color: var(--hyper-muted); }
+.landingSteps span { color: var(--hyper-azure); margin-right: 8px; }
+.landingPanel { display: grid; gap: 14px; animation: landingRise .5s ease both; animation-delay: .22s; }
+.landingPrompt { display: grid; gap: 10px; padding: 18px; background: #fff; border: 1px solid var(--hyper-line); border-radius: 18px; box-shadow: color(srgb 0 0 0 / .05) 0 14px 40px; }
+.landingPrompt label { color: var(--hyper-ink); font-weight: 600; font-size: .95rem; }
+.landingPrompt textarea { resize: none; }
+.landingChips { display: flex; flex-wrap: wrap; gap: 6px; }
+.landingChip { background: #fff; color: var(--hyper-muted); border: 1px solid var(--hyper-line); box-shadow: none; border-radius: 999px; padding: 5px 11px; font-size: .76rem; font-weight: 500; }
+.landingChip:hover { border-color: var(--hyper-azure); color: var(--hyper-azure); background: #fff; }
+.landingHint { font-size: .8rem; }
+.landingSignIn { display: grid; }
+@media (max-width: 980px) {
+  .landingMain { grid-template-columns: 1fr; gap: 34px; padding-top: 40px; align-items: start; min-height: 0; }
+  .landingTitle { font-size: clamp(40px, 11vw, 56px); }
+}
+
 /* Quality floor. Keyboard focus is always visible and always azure; the one
    azure-on-azure case (user bubbles) flips to ink. */
 :focus-visible { outline: 2px solid var(--hyper-azure); outline-offset: 2px; }

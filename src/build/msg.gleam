@@ -38,4 +38,9 @@ pub type Msg {
   LayoutModeKeyed(preview.LayoutMode)
   WebContainer(webcontainer.Msg)
   Publish(publish.Msg)
+  // An app idea typed on the pre-auth landing page, dispatched once right
+  // after boot hydration settles (after ProjectReady). If the onboarding
+  // interview just started it answers the first question; otherwise the
+  // idea lands in the composer so it is never lost.
+  LandingIdeaArrived(String)
 }

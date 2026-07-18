@@ -24,3 +24,9 @@
   lockup, favicon, azure/purple buttons, PT Mono eyebrows, reduced-motion +
   focus-visible floor. Evidence: tests green, both smokes green, playwright
   probes, step2-*.png.
+- 2026-07-18 step-3-done — pre-auth landing (src/landing.ts) with prompt
+  carry-through: sessionStorage 'build.landing-prompt' → LandingIdeaArrived
+  after ProjectReady → answers interview Q1 (or composer fallback). Clerk
+  mounts into landing slot; auth logic unchanged. 3 new gleam tests; build +
+  smokes green; dist secret grep clean. Residual: no local Clerk key, full
+  OAuth round-trip untested.

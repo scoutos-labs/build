@@ -19,3 +19,8 @@
   PT Mono latin, OFL vendored), tokens renamed --hyper-* with brandkit values,
   xterm font → PT Mono. Evidence: npm test green, smoke 25/25, playwright
   fonts-loaded probe, same-origin-only font requests.
+- 2026-07-18 step-2-done — bolt signature (build_bolt.gleam glyph/lockup),
+  working states amber (thinking pill, preview overlay, unreadDot), wordmark
+  lockup, favicon, azure/purple buttons, PT Mono eyebrows, reduced-motion +
+  focus-visible floor. Evidence: tests green, both smokes green, playwright
+  probes, step2-*.png.

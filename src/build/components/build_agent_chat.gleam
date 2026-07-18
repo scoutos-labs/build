@@ -1,5 +1,6 @@
 import build/actors/chat
 import build/actors/interview
+import build/components/build_bolt
 import build/msg
 import build/runtime/ids
 import gleam/dynamic/decode
@@ -92,7 +93,8 @@ pub fn view(
     case running {
       True ->
         html.div([attribute.class("thinking")], [
-          html.text("Model is thinking…"),
+          build_bolt.glyph("boltPulse"),
+          html.text("hyper is thinking…"),
         ])
       False -> html.text("")
     },

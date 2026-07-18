@@ -82,6 +82,9 @@ button, input, textarea, select { font: inherit; }
 .panel.chat > * { flex-shrink: 0; }
 .panel.chat > .messages { flex: 1 1 0; }
 h1 { margin: 0; font-size: 1.25rem; letter-spacing: -.03em; font-weight: 650; }
+/* Lowercase wordmark lockup: amber square + white bolt, then "build". */
+h1.wordmark { display: flex; align-items: center; gap: 9px; font-weight: 600; letter-spacing: -.02em; }
+.wordmarkBolt { width: 25px; height: 25px; flex: 0 0 auto; }
 h2 { margin: 0; font-size: 1.05rem; letter-spacing: -.02em; }
 p { margin: 0; color: var(--hyper-muted); line-height: 1.45; }
 .titleRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
@@ -112,16 +115,27 @@ input:focus, textarea:focus, select:focus { border-color: transparent; box-shado
 .interviewHelper { display: block; margin-top: 6px; color: var(--hyper-muted); font-weight: 500; font-size: .8rem; white-space: pre-wrap; }
 .interviewActions { display: flex; gap: 8px; align-items: center; padding-left: 2px; }
 .chatToolButtons { display: flex; gap: 6px; align-items: center; }
-.chat > textarea { height: 84px; resize: none; border-radius: 14px; border: 1px solid transparent; background: linear-gradient(#fff, #fff) padding-box, linear-gradient(110deg, #ff8acb, #73e3d4, #4f7dff) border-box; color: var(--hyper-ink); box-shadow: color(srgb 0 0 0 / .06) 0 10px 28px; }
+.chat > textarea { height: 84px; resize: none; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--hyper-azure) 32%, white); background: #fff; color: var(--hyper-ink); box-shadow: color(srgb 0 0 0 / .06) 0 10px 28px; }
+/* The composer answers focus in purple — hyper's primary-focus — so the one
+   place you type intent reads distinctly from ordinary inputs. */
+.chat > textarea:focus { border-color: transparent; box-shadow: 0 0 0 1px #c68ae8, 0 0 0 3px color(srgb 0.639 0.251 0.878 / .14); }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.thinking { color: var(--hyper-charcoal); background: #fff; border: 1px solid var(--hyper-line); border-radius: 12px; padding: 9px 11px; font-size: .84rem; box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
+.thinking { display: flex; align-items: center; gap: 8px; color: var(--hyper-charcoal); background: #fff; border: 1px solid var(--hyper-line); border-radius: 12px; padding: 9px 11px; font-size: .84rem; box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
+/* The signature: the amber bolt is the working state. It appears only while
+   hyper is doing work (thinking pill, preview overlay) and throbs gently. */
+.boltPulse { width: 16px; height: 16px; flex: 0 0 auto; animation: boltThrob 1.15s ease-in-out infinite; }
+.boltPulse.boltLarge { width: 52px; height: 52px; }
+@keyframes boltThrob { 50% { opacity: .45; transform: scale(.9); } }
 .budgetExhausted { color: #8a4b00; background: #fff7ed; border: 1px solid #f5c98a; border-radius: 12px; padding: 9px 11px; font-size: .84rem; box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
 .selectedElementPanel { display: grid; gap: 10px; padding: 12px; border: 1px solid color(srgb 0.07 0.53 0.96 / .25); border-radius: 16px; background: #fff; box-shadow: color(srgb 0.07 0.53 0.96 / .08) 0 8px 24px; }
-.selectedElementPanel small { color: #8b8d94; text-transform: uppercase; letter-spacing: .08em; font-size: .66rem; font-weight: 750; }
+.selectedElementPanel small { color: #8b8d94; text-transform: uppercase; letter-spacing: .08em; font-size: .66rem; font-weight: 400; font-family: var(--hyper-mono); }
 .selectedElementPanel strong { display: block; margin: 3px 0; color: var(--hyper-ink); }
 .selectedElementPanel p { max-height: 48px; overflow: hidden; font-size: .82rem; }
 .selectedElementPanel textarea { height: 78px; resize: none; }
-button { border: 0; border-radius: 10px; padding: 9px 12px; font-size: .84rem; font-weight: 600; background: var(--hyper-charcoal); color: #fff; cursor: pointer; box-shadow: #2f3947 0 0 0 1px, rgba(255,255,255,.07) 0 1px 1px inset, rgba(34,42,53,.14) 0 2px 3px; }
+button { border: 0; border-radius: 10px; padding: 9px 12px; font-size: .84rem; font-weight: 600; background: var(--hyper-azure); color: #fff; cursor: pointer; box-shadow: #0b65c2 0 0 0 1px, rgba(255,255,255,.12) 0 1px 1px inset, rgba(11,60,110,.16) 0 2px 3px; transition: background .15s ease; }
+/* hyper's primary-focus: azure buttons answer hover in purple. :where keeps
+   specificity at element level so every classed variant wins untouched. */
+button:where(:hover:not(:disabled)) { background: var(--hyper-purple); box-shadow: #8430ba 0 0 0 1px, rgba(255,255,255,.12) 0 1px 1px inset, rgba(70,20,110,.16) 0 2px 3px; }
 button:disabled { opacity: .48; cursor: wait; }
 button.secondary { background: #fff; color: var(--hyper-charcoal); box-shadow: color(srgb 0 0 0 / .09) 0 0 0 1px, color(srgb 0 0 0 / .05) 0 2px 3px -1px; }
 button.ghost { background: transparent; color: #6f7279; border: 1px solid #dedfe3; box-shadow: none; }
@@ -130,7 +144,7 @@ button.iconButton { width: 36px; height: 36px; padding: 0; display: grid; place-
 .status { color: #8b8d94; line-height: 1.35; font-size: .78rem; }
 .projectControls { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--hyper-line); border-radius: 16px; background: #fff; box-shadow: color(srgb 0 0 0 / .03) 0 1px 2px; }
 .projectMeta { min-width: 0; display: grid; gap: 5px; }
-.projectMeta > small:first-child { color: #8b8d94; text-transform: uppercase; letter-spacing: .08em; font-size: .66rem; font-weight: 800; }
+.projectMeta > small:first-child { color: #8b8d94; text-transform: uppercase; letter-spacing: .08em; font-size: .66rem; font-weight: 400; font-family: var(--hyper-mono); }
 .projectNameRow { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .projectNameRow strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .projectNameInput { padding: 7px 9px; border-radius: 10px; }
@@ -161,20 +175,21 @@ button.miniIcon { width: 28px; height: 28px; flex: 0 0 auto; padding: 0; border-
    survive toggling — the terminal re-fits when revealed. */
 .workspace.codeHidden { grid-template-rows: 1fr; }
 .workspace.codeHidden .bottom { display: none; }
-.unreadDot { width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: #c2421f; }
+/* Amber, not red: the dot means "work happened over there", the same thing
+   the bolt means — not an error. */
+.unreadDot { width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: var(--hyper-amber); }
 .preview { min-height: 0; display: flex; flex-direction: column; background: #fff; }
 .bar { height: 42px; display: flex; align-items: center; gap: 12px; padding: 0 12px; color: var(--hyper-ink); background: #fff; border-bottom: 1px solid var(--hyper-line); }
-.bar span { flex: 1; color: #8b8d94; font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar span { flex: 1; color: #8b8d94; font-size: .75rem; font-family: var(--hyper-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .selectingButton { background: var(--hyper-azure); color: #fff; padding: 7px 10px; font-size: .78rem; animation: softPulse 1.2s ease-in-out infinite; }
 @keyframes softPulse { 50% { filter: brightness(1.12); } }
 .previewFrame { position: relative; flex: 1; min-height: 0; display: flex; background: #fff; overflow: hidden; }
 iframe { flex: 1; width: 100%; border: 0; background: white; transition: filter .25s ease, transform .25s ease; }
 .previewFrame:has(.previewOverlay) iframe { filter: saturate(.86) brightness(.9); transform: scale(.995); }
 .loading { flex: 1; display: grid; place-items: center; color: #8b8d94; background: #fff; }
-.previewOverlay { position: absolute; inset: 0; display: grid; place-items: center; align-content: center; gap: 12px; color: var(--hyper-ink); background: radial-gradient(circle at center, color(srgb 0.07 0.53 0.96 / .14), color(srgb 1 1 1 / .86) 58%, color(srgb 1 1 1 / .94)); backdrop-filter: blur(3px); animation: fadeIn .25s ease both; }
+/* Working state glows amber — the signature's home. */
+.previewOverlay { position: absolute; inset: 0; display: grid; place-items: center; align-content: center; gap: 12px; color: var(--hyper-ink); background: radial-gradient(circle at center, color(srgb 0.98 0.729 0 / .13), color(srgb 1 1 1 / .86) 58%, color(srgb 1 1 1 / .94)); backdrop-filter: blur(3px); animation: fadeIn .25s ease both; }
 .previewOverlay span { color: #6f7279; }
-.pulseOrb { width: 54px; height: 54px; border-radius: 999px; background: linear-gradient(135deg, #ff8acb, #70e1d4, #4f7dff); box-shadow: 0 0 0 0 color(srgb 0.07 0.53 0.96 / .25); animation: pulse 1.3s ease-out infinite; }
-@keyframes pulse { 70% { box-shadow: 0 0 0 26px color(srgb 0.07 0.53 0.96 / 0); transform: scale(1.05); } 100% { box-shadow: 0 0 0 0 color(srgb 0.07 0.53 0.96 / 0); transform: scale(1); } }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 .bottom { min-height: 0; display: grid; grid-template-columns: 220px 1fr 360px; border-top: 1px solid var(--hyper-line); }
 .files { overflow: auto; padding: 10px; background: #fafafa; border-right: 1px solid var(--hyper-line); display: flex; flex-direction: column; gap: 5px; }
@@ -210,3 +225,12 @@ iframe { flex: 1; width: 100%; border: 0; background: white; transition: filter 
 .storyDecisions { margin: 0; padding-left: 18px; }
 .storyDecisions li { margin: 5px 0; }
 .storyEmpty { color: color(srgb 0 0 0 / .5); font-style: italic; }
+
+/* Quality floor. Keyboard focus is always visible and always azure; the one
+   azure-on-azure case (user bubbles) flips to ink. */
+:focus-visible { outline: 2px solid var(--hyper-azure); outline-offset: 2px; }
+.msg.user:focus-visible { outline-color: var(--hyper-ink); }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .messages { scroll-behavior: auto; }
+}

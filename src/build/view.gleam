@@ -5,6 +5,7 @@ import build/actors/publish
 import build/actors/settings
 import build/actors/webcontainer
 import build/components/build_agent_chat
+import build/components/build_bolt
 import build/components/build_editor
 import build/components/build_element_picker
 import build/components/build_layout_switch
@@ -49,7 +50,7 @@ pub fn view(app: model.Model) -> Element(msg.Msg) {
         title_row(app.preview.layout, app.preview.code_panel_unread),
         html.p([], [
           html.text(
-            "Use an agent to create your application in a live browser workspace.",
+            "Describe your app. hyper builds it in a live browser workspace.",
           ),
         ]),
         boot_status(app.webcontainer.boot_phase),
@@ -116,7 +117,10 @@ pub fn view(app: model.Model) -> Element(msg.Msg) {
 
 fn title_row(layout: preview.LayoutMode, code_panel_unread: Bool) {
   html.div([attribute.class("titleRow")], [
-    html.h1([], [html.text("Build")]),
+    html.h1([attribute.class("wordmark")], [
+      build_bolt.lockup("wordmarkBolt"),
+      html.text("build"),
+    ]),
     html.div([attribute.class("titleRowTools")], [
       build_layout_switch.view(layout, code_panel_unread),
       html.button(

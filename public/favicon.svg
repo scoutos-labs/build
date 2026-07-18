@@ -1,19 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Build">
-  <defs>
-    <linearGradient id="bg" x1="10" y1="8" x2="54" y2="58" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#2563eb"/>
-      <stop offset="0.55" stop-color="#7c3aed"/>
-      <stop offset="1" stop-color="#db2777"/>
-    </linearGradient>
-    <linearGradient id="shine" x1="18" y1="12" x2="46" y2="52" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.95"/>
-      <stop offset="1" stop-color="#dbeafe" stop-opacity="0.86"/>
-    </linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#0f172a" flood-opacity="0.28"/>
-    </filter>
-  </defs>
-  <rect x="6" y="6" width="52" height="52" rx="14" fill="url(#bg)"/>
-  <path d="M18 44V20h15.3c5 0 8.2 2.7 8.2 6.7 0 2.5-1.3 4.4-3.5 5.4 3 .8 4.8 2.9 4.8 5.9 0 4.1-3.3 6-8.8 6H18Zm7-14.2h7.1c1.8 0 2.8-.8 2.8-2.3s-1-2.3-2.8-2.3H25v4.6Zm0 9h8.1c2 0 3-.8 3-2.4s-1-2.5-3-2.5H25v4.9Z" fill="url(#shine)" filter="url(#shadow)"/>
-  <path d="M45.5 16.5 40 27h6l-5.7 12.2L53 23.8h-6.1L51 16.5h-5.5Z" fill="#fef08a" stroke="#fff7ed" stroke-width="1.2" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 61 61" role="img" aria-label="build">
+  <rect width="61" height="61" rx="12" fill="#FABA00"/>
+  <path d="M28.6133 18.5759C29.2167 17.7689 30.5 18.1957 30.5 19.2033V33.5842H19.4821C18.6194 33.5842 18.1264 32.5999 18.643 31.909L28.6133 18.5759Z" fill="#ffffff"/>
+  <path d="M32.3868 41.8892C31.7834 42.6962 30.5 42.2694 30.5 41.2618V26.881H41.518C42.3807 26.881 42.8737 27.8652 42.357 28.5561L32.3868 41.8892Z" fill="#ffffff"/>
 </svg>

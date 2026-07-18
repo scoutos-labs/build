@@ -127,6 +127,11 @@ input:focus, textarea:focus, select:focus { border-color: transparent; box-shado
 .boltPulse.boltLarge { width: 52px; height: 52px; }
 @keyframes boltThrob { 50% { opacity: .45; transform: scale(.9); } }
 .budgetExhausted { color: #8a4b00; background: #fff7ed; border: 1px solid #f5c98a; border-radius: 12px; padding: 9px 11px; font-size: .84rem; box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
+/* Preview-error card: quiet ink-on-white with the amber rule — the bolt's
+   "needs work" cousin, not a red alarm. */
+.previewErrorCard { display: grid; gap: 8px; padding: 10px 12px; background: #fff; border: 1px solid var(--hyper-line); border-left: 3px solid var(--hyper-amber); border-radius: 12px; font-size: .84rem; color: var(--hyper-ink); box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
+.previewErrorCard pre { margin: 0; padding: 8px 10px; max-height: 96px; overflow: auto; font-family: var(--hyper-mono); font-size: .72rem; line-height: 1.45; white-space: pre-wrap; word-break: break-word; background: var(--hyper-soft); border-radius: 8px; }
+.previewErrorCard .actions { margin: 0; }
 .selectedElementPanel { display: grid; gap: 10px; padding: 12px; border: 1px solid color(srgb 0.07 0.53 0.96 / .25); border-radius: 16px; background: #fff; box-shadow: color(srgb 0.07 0.53 0.96 / .08) 0 8px 24px; }
 .selectedElementPanel small { color: #8b8d94; text-transform: uppercase; letter-spacing: .08em; font-size: .66rem; font-weight: 400; font-family: var(--hyper-mono); }
 .selectedElementPanel strong { display: block; margin: 3px 0; color: var(--hyper-ink); }

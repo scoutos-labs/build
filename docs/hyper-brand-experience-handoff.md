@@ -30,3 +30,7 @@
   mounts into landing slot; auth logic unchanged. 3 new gleam tests; build +
   smokes green; dist secret grep clean. Residual: no local Clerk key, full
   OAuth round-trip untested.
+- 2026-07-18 step-4-done — Try-to-fix card: preview.last_preview_error fed
+  from guard-checked [preview error] log line; FixPreviewError msg →
+  call_agent_with_prompt embedding error; clears on success/reload. 4 new
+  gleam tests; smokes green; card visible in smoke screenshot.

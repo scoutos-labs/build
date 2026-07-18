@@ -457,3 +457,92 @@ pub fn landing_idea_whitespace_does_not_advance_interview_test() {
   // AnswerSubmitted trims: a blank idea must not skip the first question.
   assert next.interview.stage == interview.Asking(0)
 }
+
+// --- "Try to fix" preview-error card ---
+
+fn with_preview_error(app: model.Model, text: String) -> model.Model {
+  let #(preview_state, _) =
+    preview.update(app.preview, preview.PreviewErrorReported(text))
+  model.Model(..app, preview: preview_state)
+}
+
+pub fn preview_error_log_line_populates_card_test() {
+  let #(next, _) =
+    update.update(
+      model.init(),
+      msg.WebContainer(webcontainer.LogAppended(
+        "[preview error] ReferenceError: foo is not defined",
+      )),
+    )
+
+  assert next.preview.last_preview_error
+    == option.Some("ReferenceError: foo is not defined")
+  assert next.preview.code_panel_unread
+}
+
+pub fn fix_preview_error_calls_agent_with_error_text_test() {
+  let configured =
+    model.Model(
+      ..model.init(),
+      settings: settings.State(
+        ..settings.init(),
+        model: "qwen/qwen3.6-35b-a3b",
+        api_key: "sk-test",
+        settings_open: False,
+      ),
+    )
+  let app = with_preview_error(configured, "ReferenceError: foo is not defined")
+
+  let #(next, effects) =
+    update.update(app, msg.FixPreviewError("fix-1", 1000))
+
+  assert agent.is_running(next.agent)
+  let has_error_in_prompt =
+    list.any(effects, fn(eff) {
+      case eff {
+        effect.Agent(agent.CallAgent(user_prompt: prompt, ..)) ->
+          string.contains(prompt, "ReferenceError: foo is not defined")
+        _ -> False
+      }
+    })
+  assert has_error_in_prompt
+}
+
+pub fn fix_preview_error_noop_without_error_or_mid_interview_test() {
+  // No recorded error: nothing happens.
+  let #(unchanged, effects) =
+    update.update(model.init(), msg.FixPreviewError("fix-2", 1000))
+  assert effects == []
+  assert !agent.is_running(unchanged.agent)
+
+  // Mid-interview: card is hidden and the msg must be inert.
+  let #(interviewing, _) =
+    update.update(model.init(), msg.Chat(chat.MessagesReplaced([])))
+  let armed = with_preview_error(interviewing, "boom")
+  let #(next, fix_effects) = update.update(armed, msg.FixPreviewError("fix-3", 1000))
+  assert fix_effects == []
+  assert !agent.is_running(next.agent)
+}
+
+pub fn agent_success_clears_preview_error_test() {
+  let configured =
+    model.Model(
+      ..model.init(),
+      settings: settings.State(
+        ..settings.init(),
+        model: "qwen/qwen3.6-35b-a3b",
+        api_key: "sk-test",
+        settings_open: False,
+      ),
+    )
+  let armed = with_preview_error(configured, "boom")
+  let #(running_app, _) = update.update(armed, msg.FixPreviewError("fix-4", 1000))
+
+  let #(next, _) =
+    update.update(
+      running_app,
+      msg.Agent(agent.AgentRequestSucceeded("fix-4", "fixed it", [])),
+    )
+
+  assert next.preview.last_preview_error == option.None
+}

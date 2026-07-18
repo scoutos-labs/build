@@ -100,6 +100,25 @@ pub fn update(
       }
     msg.BuildFromPlan(plan_summary, request_id, now) ->
       build_from_plan(app, plan_summary, request_id, now)
+    msg.FixPreviewError(request_id, now) ->
+      case
+        app.preview.last_preview_error,
+        app.interview.stage,
+        !agent.is_running(app.agent)
+          && !webcontainer.is_remounting(app.webcontainer)
+          && !app.agent.budget_exhausted
+      {
+        option.Some(error_text), interview.Idle, True ->
+          call_agent_with_prompt(
+            app,
+            "Fix the preview error.",
+            "The live preview is showing an error. Diagnose the root cause and fix it so the app runs cleanly.\n\nPreview error:\n"
+              <> error_text,
+            request_id,
+            now,
+          )
+        _, _, _ -> #(app, [])
+      }
     msg.ImproveSelectedElement(request_id, now) ->
       improve_selected_element(app, request_id, now)
     msg.ExportZip -> #(app, [effect.ExportZip(app.project.files)])
@@ -304,6 +323,17 @@ pub fn update(
             True -> {
               let #(preview_state, _) =
                 preview.update(next.preview, preview.CodePanelErrorSignaled)
+              // Same line also backs the chat's "Try to fix" card, minus the
+              // terminal tag.
+              let #(preview_state, _) =
+                preview.update(
+                  preview_state,
+                  preview.PreviewErrorReported(string.replace(
+                    line,
+                    "[preview error] ",
+                    "",
+                  )),
+                )
               model.Model(..next, preview: preview_state)
             }
             False -> next
@@ -367,12 +397,17 @@ fn update_agent(
             )
           let #(project_state, _) =
             project.update(project_state, project.BuildLogAppended(log_entry))
+          // A successful turn supersedes any recorded preview error: the
+          // page is about to reload with new code.
+          let #(preview_state, _) =
+            preview.update(app.preview, preview.PreviewErrorCleared)
           with_auto_save(
             model.Model(
               ..app,
               agent: agent_state,
               chat: chat_state,
               project: project_state,
+              preview: preview_state,
             ),
             list.append(
               mapped_agent_effects,

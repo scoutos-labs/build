@@ -6,6 +6,7 @@ import build/runtime/ids
 import gleam/dynamic/decode
 import gleam/int
 import gleam/list
+import gleam/option.{type Option}
 import gleam/string
 import lustre/attribute
 import lustre/element.{type Element, fragment}
@@ -21,6 +22,7 @@ pub fn view(
   budget_exhausted: Bool,
   budget_reset_at: String,
   interview_state: interview.State,
+  preview_error: Option(String),
 ) -> Element(msg.Msg) {
   let interviewing = interview.is_active(interview_state)
   fragment([
@@ -104,6 +106,26 @@ pub fn view(
           html.text(budget_exhausted_message(budget_reset_at)),
         ])
       False -> html.text("")
+    },
+    // Preview-error card: the scariest moment becomes a one-click ritual.
+    // Never shown mid-interview (no app of yours is running yet).
+    case preview_error, interviewing {
+      option.Some(error_text), False ->
+        html.div([attribute.class("previewErrorCard")], [
+          html.strong([], [html.text("The preview hit an error")]),
+          html.pre([], [html.text(error_text)]),
+          html.div([attribute.class("actions")], [
+            button(
+              [
+                attribute.class("compact"),
+                attribute.disabled(busy || budget_exhausted),
+                event.on("click", fix_click_decoder()),
+              ],
+              "Try to fix",
+            ),
+          ]),
+        ])
+      _, _ -> html.text("")
     },
     html.div([attribute.class("actions")], [
       button(
@@ -249,6 +271,11 @@ fn submit_prompt_msg() -> msg.Msg {
 pub fn submit_click_decoder() -> decode.Decoder(msg.Msg) {
   use _ <- decode.then(decode.success(Nil))
   decode.success(submit_prompt_msg())
+}
+
+pub fn fix_click_decoder() -> decode.Decoder(msg.Msg) {
+  use _ <- decode.then(decode.success(Nil))
+  decode.success(msg.FixPreviewError(ids.new_request_id(), ids.now_ms()))
 }
 
 pub fn submit_shortcut_decoder() -> decode.Decoder(msg.Msg) {

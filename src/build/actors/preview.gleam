@@ -34,6 +34,10 @@ pub type State {
     layout: LayoutMode,
     layout_is_manual: Bool,
     code_panel_unread: Bool,
+    // The latest runtime error reported by the preview iframe, backing the
+    // chat's "Try to fix" card. Cleared on preview reload (new URL) and on
+    // the next successful agent turn.
+    last_preview_error: Option(String),
   )
 }
 
@@ -45,6 +49,8 @@ pub type Msg {
   ElementCleared
   LayoutModeSelected(LayoutMode)
   CodePanelErrorSignaled
+  PreviewErrorReported(String)
+  PreviewErrorCleared
 }
 
 pub type Effect {
@@ -60,6 +66,7 @@ pub fn init() -> State {
     layout: ChatMode,
     layout_is_manual: False,
     code_panel_unread: False,
+    last_preview_error: option.None,
   )
 }
 
@@ -80,7 +87,13 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
         _, _, _ -> state.layout
       }
       #(
-        State(..state, preview_url: url, layout: layout),
+        // A fresh URL is a fresh page: any recorded runtime error is stale.
+        State(
+          ..state,
+          preview_url: url,
+          layout: layout,
+          last_preview_error: option.None,
+        ),
         case state.selecting_element {
           True -> [PostInspectorMessage(BuildInspectorEnable)]
           False -> []
@@ -150,6 +163,11 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
       State(..state, code_panel_unread: state.layout != BuilderMode),
       [],
     )
+    PreviewErrorReported(message) -> #(
+      State(..state, last_preview_error: option.Some(message)),
+      [],
+    )
+    PreviewErrorCleared -> #(State(..state, last_preview_error: option.None), [])
   }
 }
 

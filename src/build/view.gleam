@@ -88,6 +88,7 @@ pub fn view(app: model.Model) -> Element(msg.Msg) {
         app.agent.budget_exhausted,
         app.agent.budget_reset_at,
         app.interview,
+        app.preview.last_preview_error,
       ),
     ]),
     html.main(

@@ -27,6 +27,13 @@ Converted from the site's daisyUI HSL variables:
 
 Code blocks on the site use Prism default + Monokai-ish `#272822` panels.
 
+**Derived neutrals (Build only).** The site's base-200 `#C4C5C4` is too dark
+for hairlines at app density, so Build derives: `--hyper-line #E0E1E1`
+(base-200 mixed toward white), `--hyper-soft #F1F3F4` (cool base tint),
+`--hyper-charcoal #2F3947` (ink-family dark for neutral chrome). Amber is
+standardized on the logo's `#FABA00` everywhere (the daisyUI accent var
+computes `#FAC105`; one amber, the logo's, wins).
+
 ## Type
 
 - **Space Grotesk** (300/400/500/600/700) — display AND body on hyper.io.

@@ -37,3 +37,11 @@
 - 2026-07-18 step-5-done — narration chips: chat.Message gained paths
   (patch paths ride the message; error bubbles can't desync). Persistence
   round-trip; chips outside the clamp. 140 gleam + 108 vitest green.
+- 2026-07-18 step-6-done — polish (card above composer, narrow-mode sizing,
+  lowercase voice, single entrance animation); full battery green incl.
+  server 103; judge APPROVE-WITH-FIXES, all rubric axes ≥4; fixes applied
+  (ChatMessage.paths? type, empty-error guard, brandkit neutrals note,
+  docs completed).
+- 2026-07-18 complete — 7 commits on hyper-brand-experience. Residuals:
+  Clerk OAuth round-trip needs a staging pass; free-fix accounting and
+  checkpoints/scoped-edits/diff-view/progressive-preview deferred (PRD §11).

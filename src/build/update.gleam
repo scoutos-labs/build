@@ -324,16 +324,18 @@ pub fn update(
               let #(preview_state, _) =
                 preview.update(next.preview, preview.CodePanelErrorSignaled)
               // Same line also backs the chat's "Try to fix" card, minus the
-              // terminal tag.
-              let #(preview_state, _) =
-                preview.update(
-                  preview_state,
-                  preview.PreviewErrorReported(string.replace(
-                    line,
-                    "[preview error] ",
-                    "",
-                  )),
-                )
+              // terminal tag. An empty message would make an empty card —
+              // keep the badge, skip the card.
+              let error_text =
+                string.trim(string.replace(line, "[preview error] ", ""))
+              let #(preview_state, _) = case error_text {
+                "" -> #(preview_state, [])
+                _ ->
+                  preview.update(
+                    preview_state,
+                    preview.PreviewErrorReported(error_text),
+                  )
+              }
               model.Model(..next, preview: preview_state)
             }
             False -> next

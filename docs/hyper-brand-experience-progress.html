@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Progress — hyper-brand-experience</title>
+<style>
+  :root { --ink:#252C37; --azure:#1286F6; --amber:#FABA00; --base:#F7F8F8; --line:#C4C5C4; --muted:#5B7FA6; }
+  body { font: 15px/1.55 -apple-system, "Segoe UI", sans-serif; color: var(--ink); background:#fff; max-width: 60rem; margin: 2rem auto; padding: 0 1.25rem; }
+  h1 { font-size: 1.5rem; border-bottom: 3px solid var(--amber); padding-bottom:.4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; color: var(--azure); }
+  code, pre { font-family: ui-monospace, Menlo, monospace; font-size:.86em; background: var(--base); }
+  pre { padding:.6rem; overflow-x:auto; border:1px solid var(--line); border-radius:6px; }
+  table { border-collapse: collapse; width:100%; }
+  th, td { border:1px solid var(--line); padding:.4rem .6rem; text-align:left; font-size:.92em; vertical-align: top; }
+  th { background: var(--base); }
+  .st { display:inline-block; padding:.05rem .55rem; border-radius:99px; font-size:.8em; font-weight:700; }
+  .planned { background:#eef1f4; color:#5B7FA6; }
+  .inprog { background:#fff4d6; color:#8a6400; }
+  .pass { background:#e2f6e3; color:#187a1c; }
+  .fail { background:#fdeeee; color:#a33; }
+  .muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>Progress — hyper-brand-experience</h1>
+<p>Overall status: <span class="st inprog">in-progress</span> · PRD: <code>hyper-brand-experience-prd.html</code> · handoff: <code>hyper-brand-experience-handoff.md</code></p>
+
+<h2>Step checklist</h2>
+<table>
+<tr><th>Step</th><th>Status</th><th>Evidence</th><th>Notes</th></tr>
+<tr><td>1 · Brand foundation (fonts + tokens)</td><td><span class="st pass">pass</span></td><td><code>npm test</code> 132 gleam + 108 vitest green; <code>smoke-layout-modes</code> 25/25 (incl. Focus-modal full-viewport check); playwright probe: <code>document.fonts</code> = Space Grotesk:loaded, PT Mono:loaded; font requests only <code>localhost:5199/fonts/*.woff2</code> (same-origin); grep: 0 <code>GeistSans</code>/<code>--scout-</code> remnants; screenshots <code>scripts/.smoke/layout-modes/*.png</code></td><td>Changed: <code>src/styles.css</code> (tokens → <code>--hyper-*</code>, @font-face), <code>src/gleam-externals/terminal.mjs</code> (xterm font), <code>public/fonts/</code> (2 woff2 + 2 OFL). design_guidance untouched.</td></tr>
+<tr><td>2 · Signature, voice, quality floor</td><td><span class="st planned">planned</span></td><td>—</td><td>—</td></tr>
+<tr><td>3 · Pre-auth landing + prompt carry-through</td><td><span class="st planned">planned</span></td><td>—</td><td>Verify Clerk theming question at start</td></tr>
+<tr><td>4 · Try-to-fix on preview errors</td><td><span class="st planned">planned</span></td><td>—</td><td>—</td></tr>
+<tr><td>5 · Build-narration chips</td><td><span class="st planned">planned</span></td><td>—</td><td>—</td></tr>
+<tr><td>6 · Polish + validation + judge</td><td><span class="st planned">planned</span></td><td>—</td><td>—</td></tr>
+</table>
+
+<h2>Research log</h2>
+<ul>
+<li>2026-07-18 — brandkit extracted from hyper.io → <code>docs/hyper-brandkit.md</code> (Space Grotesk + PT Mono; azure/amber/ink palette; "Create. Connect. Build." voice).</li>
+<li>2026-07-18 — codebase map (Explore agent): styling entirely in <code>src/styles.css</code> (189 lines, tokens :1-13); GeistSans declared, never loaded; no landing page — Clerk overlay mounts pre-Gleam (<code>managed-auth.ts:83-116</code>); modes share DOM; building UX = thinking pill + pulse orb + xterm.</li>
+<li>2026-07-18 — competitor research (v0/Lovable/Bolt/Replit/Figma Make): top picks for this loop = Try-to-fix (S), narration chips (S); deferred = checkpoints, scoped element edits, diff view, progressive preview.</li>
+</ul>
+
+<h2>Reviewer / judge findings</h2>
+<p class="muted">Plan-review gate: pending. Implementation judge: pending.</p>
+
+<h2>Validation results</h2>
+<p class="muted">None yet.</p>
+
+<h2>Residual risks</h2>
+<p class="muted">To be filled at completion.</p>
+</body>
+</html>

@@ -13,7 +13,7 @@ class BuildTerminal extends HTMLElement {
     const terminal = new Terminal({
       cursorBlink: true,
       convertEol: true,
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+      fontFamily: '"PT Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
       fontSize: 12,
       theme: { background: '#050915', foreground: '#c5d2ee' },
     })

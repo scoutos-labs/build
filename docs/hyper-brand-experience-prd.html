@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PRD — hyper-brand-experience</title>
+<style>
+  :root { --ink:#252C37; --azure:#1286F6; --amber:#FABA00; --base:#F7F8F8; --line:#C4C5C4; --muted:#5B7FA6; }
+  body { font: 15px/1.55 -apple-system, "Segoe UI", sans-serif; color: var(--ink); background:#fff; max-width: 60rem; margin: 2rem auto; padding: 0 1.25rem; }
+  h1 { font-size: 1.6rem; border-bottom: 3px solid var(--amber); padding-bottom:.4rem; }
+  h2 { font-size: 1.15rem; margin-top: 2.2rem; color: var(--azure); }
+  h3 { font-size: 1rem; }
+  code, pre { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .86em; background: var(--base); }
+  pre { padding: .75rem; overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; }
+  table { border-collapse: collapse; width: 100%; margin: .75rem 0; }
+  th, td { border: 1px solid var(--line); padding: .4rem .6rem; text-align: left; vertical-align: top; font-size:.92em; }
+  th { background: var(--base); }
+  .chip { display:inline-block; padding:.05rem .5rem; border-radius: 99px; font-size:.8em; font-weight:600; }
+  .goal { background:#e8f1fe; color:#0b5cc4; }
+  .non { background:#fdeeee; color:#a33; }
+  .step { border:1px solid var(--line); border-left:4px solid var(--azure); border-radius:6px; padding: .75rem 1rem; margin: 1rem 0; }
+  .step h3 { margin:.1rem 0 .5rem; }
+  ul { padding-left: 1.3rem; }
+  .muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>PRD — hyper-brand-experience</h1>
+<p class="muted">2026-07-18 · repo <code>/Users/tron/desk-projects/build</code> · branch <code>main</code> → work on <code>hyper-brand-experience</code> · artifacts: this PRD, <code>hyper-brand-experience-progress.html</code>, <code>hyper-brand-experience-handoff.md</code>, brandkit <code>hyper-brandkit.md</code></p>
+
+<h2>1 · Summary &amp; core concept</h2>
+<p>Build's visual identity today is an unbranded Scout leftover: one 189-line <code>src/styles.css</code> with <code>--scout-*</code> tokens, a font stack naming GeistSans that is <em>never loaded</em> (the app renders system-ui), and a managed-auth boot chain that drops signed-out users into a raw fullscreen Clerk overlay (<code>src/managed-auth.ts:83-116</code>) before the Gleam runtime exists. There is no landing page.</p>
+<p><strong>This loop makes Build unmistakably hyper's product, from the first pre-auth pixel to the moment the agent finishes a build turn.</strong> Three coherent moves: (1) the hyper brand system (Space Grotesk + PT Mono, azure/ink/base palette); (2) a pre-auth landing whose hero is a real prompt box that carries the typed idea through sign-in into the interview; (3) two competitor-validated building-experience wins — a "Try to fix" card on preview errors and changed-file narration chips on assistant turns.</p>
+<p><strong>Signature element (the one aesthetic risk):</strong> the amber bolt (<code>#FABA00</code>, hyper's logo mark) becomes Build's <em>working state</em>. Everywhere the app is doing work — thinking pill, preview generation overlay, boot journey — the bolt appears and pulses. Amber means "hyper is building." Everything else stays calm azure/ink. Boldness spent in exactly one place.</p>
+
+<h2>2 · Goals / non-goals</h2>
+<p>
+<span class="chip goal">GOAL</span> hyper brandkit applied to all Build chrome ·
+<span class="chip goal">GOAL</span> pre-auth landing with prompt carry-through ·
+<span class="chip goal">GOAL</span> Try-to-fix on preview errors ·
+<span class="chip goal">GOAL</span> build-narration chips ·
+<span class="chip goal">GOAL</span> a11y/reduced-motion/responsive quality floor
+</p>
+<p>
+<span class="chip non">NON-GOAL</span> <code>design-guidance</code> files (style prompts for <em>generated apps</em>, guard-tested — untouched) ·
+<span class="chip non">NON-GOAL</span> dark mode ·
+<span class="chip non">NON-GOAL</span> layout-mode DOM/mechanics changes ·
+<span class="chip non">NON-GOAL</span> server changes / budget accounting / publish flow ·
+<span class="chip non">NON-GOAL</span> editing <code>build/</code> or <code>dist/</code> output ·
+<span class="chip non">NON-GOAL</span> deep Clerk-internal re-theming (frame it if theming resists)
+</p>
+
+<h2>3 · Brandkit (source of truth: <code>docs/hyper-brandkit.md</code>)</h2>
+<table>
+<tr><th>Token</th><th>Hex</th><th>Role in Build</th></tr>
+<tr><td>azure (primary)</td><td>#1286F6</td><td>links, primary buttons, focus rings, user bubbles</td></tr>
+<tr><td>purple (primary-focus)</td><td>#A340E0</td><td>hover/active on primary</td></tr>
+<tr><td>green (secondary)</td><td>#2AB62F</td><td>success, server-ready states</td></tr>
+<tr><td>amber (accent)</td><td>#FABA00</td><td><strong>working-state signature + logo only</strong></td></tr>
+<tr><td>slate (neutral)</td><td>#5B7FA6</td><td>muted text, secondary chrome</td></tr>
+<tr><td>base-100 / base-200</td><td>#F7F8F8 / #C4C5C4</td><td>panel backgrounds / borders</td></tr>
+<tr><td>ink</td><td>#252C37</td><td>text</td></tr>
+</table>
+<p><strong>Amber standardization:</strong> the brandkit lists accent <code>#FAC105</code> (daisyUI var) and logo fill <code>#FABA00</code>; Build standardizes on the logo's <code>#FABA00</code> as the single amber everywhere.</p>
+<p>Type: <strong>Space Grotesk</strong> 300–700 (display + body, self-hosted woff2), <strong>PT Mono</strong> (terminal, code, ALL-CAPS eyebrows, narration chips). Voice: short declaratives, developer-direct, lowercase "hyper", eyebrows in ALL-CAPS, numbered markers only where sequence is real (interview steps qualify).</p>
+
+<h2>4 · Architectural decision — landing page</h2>
+<p><strong>Pre-auth static TS module (<code>src/landing.ts</code>, pure DOM), invoked from the managed branch of <code>boot()</code> in <code>src/main-gleam.ts</code>, not a Gleam view.</strong> Rationale: the boot-gate contract forbids starting the Gleam runtime/WebContainer/IndexedDB pre-auth; <code>styles.css</code> is already loaded pre-boot so the landing shares brand tokens with zero duplication; COOP/COEP (<code>same-origin</code>/<code>require-corp</code>, WebContainers hard requirement) is satisfied by construction with same-origin-only assets (self-hosted fonts, inline SVG bolt); Clerk's redirect OAuth flow is reused unchanged, mounting into a landing-owned slot instead of the bare <code>#signInGate</code>. Prompt carry-through: idea → <code>sessionStorage["build.landing-prompt"]</code> → one-shot post-boot consumption seeds interview/composer → key cleared. Flag-off (non-managed) mode byte-identical in behavior.</p>
+
+<h2>5 · Privacy &amp; security constraints (binding)</h2>
+<ul>
+<li>Only credential client-side: <code>VITE_CLERK_PUBLISHABLE_KEY</code> (publishable by design). Gate: grep built <code>dist/</code> for <code>sk_</code>, <code>CLERK_SECRET</code>, secret env names.</li>
+<li>No telemetry, no tracking, <strong>no cross-origin asset/script/font/telemetry requests pre-auth</strong> (fonts self-hosted in <code>public/fonts/</code>, OFL licenses vendored). The only permitted cross-origin traffic is Clerk's existing frontend-API calls, which managed auth cannot function without.</li>
+<li>Landing prompt is user content: sessionStorage only, never sent pre-auth, never console-logged, cleared after one-shot consumption.</li>
+<li><code>ensureSignedIn()</code> token/listener/reload-on-sign-out logic untouched; COOP/COEP headers not relaxed.</li>
+<li>Try-to-fix consumes only messages passing <code>isTrustedPreviewMessage</code>; error text rendered as text, never HTML.</li>
+<li>Load-bearing UI constraints: Focus-mode <code>.panel.chat</code> never carries transform/filter; <code>.msg</code> clamp/overflow traps per <code>docs/founders-ux-*</code>.</li>
+</ul>
+
+<h2>6 · Steps</h2>
+
+<div class="step"><h3>Step 1 — Brand foundation: self-hosted type + token swap (no layout changes)</h3>
+<p>Space Grotesk 300–700 + PT Mono woff2 → <code>public/fonts/</code>; <code>@font-face</code> in <code>styles.css</code>; replace phantom GeistSans stack; mono surfaces → PT Mono. Swap <code>--scout-*</code> token values to hyper hexes; rename to <code>--hyper-*</code> (all usages confirmed inside <code>styles.css</code>).</p>
+<ul>
+<li><strong>AC:</strong> computed style shows Space Grotesk (not stack-order illusion); terminal/editor PT Mono; every color token traceable to §3; four layout modes visually intact (Space Grotesk runs wider — no wrap/overflow regressions); Focus-mode no-transform constraint holds; zero cross-origin font requests; OFL licenses vendored.</li>
+<li><strong>Evidence:</strong> <code>npm test</code>; screenshots Chat/App/Focus/Code; network-panel note (fonts from <code>/fonts/</code> only); grep: no <code>GeistSans</code>/<code>--scout-</code> remnants; diff shows <code>design_guidance</code> untouched.</li>
+</ul></div>
+
+<div class="step"><h3>Step 2 — Signature, voice, and quality floor</h3>
+<p>Amber bolt (inline SVG, recreated from brandkit geometry) replaces pink/teal/blue <code>pulseOrb</code>; thinking pill gains bolt glyph; boot journey adopts brand voice. Composer gradient → quiet azure (purple on focus). Buttons azure/purple/green per §3. Eyebrows → PT Mono ALL-CAPS. Favicon → amber bolt. Quality floor: all keyframe animations inside <code>prefers-reduced-motion: no-preference</code>; <code>:focus-visible</code> audit.</p>
+<ul>
+<li><strong>AC:</strong> amber only in working states + logo/favicon (grep count, each justified); no decorative numbering; reduced-motion emulation shows no motion; tab-through reaches every control with visible azure ring; Focus-mode modal constraint holds; <code>.msg</code> rules unchanged.</li>
+<li><strong>Evidence:</strong> <code>npm test</code>; layout smoke; screenshots: thinking, generating overlay, Focus+modal, focus ring, reduced-motion; diff of animation blocks.</li>
+</ul></div>
+
+<div class="step"><h3>Step 3 — Pre-auth landing with prompt carry-through</h3>
+<p>New <code>src/landing.ts</code> per §4; <code>ensureSignedIn</code> restructured minimally (Clerk mounts into landing slot; auth logic byte-identical). Copy: eyebrow <code>BUILD ANYTHING</code>; hero "Create. Connect. Build."; benefit line; prompt box hero + 3–4 specific example chips; sign-in CTA. Post-boot one-shot seeds interview/composer (interview.gleam remains single source of truth for plan-summary format).</p>
+<p><strong>Seed handshake (reviewer advisory, binding):</strong> the bridge <code>sendMsg</code> silently drops messages pre-<code>registerRuntime</code>, and <code>AnswerSubmitted</code> no-ops in <code>Idle</code>; interview eligibility is decided at <code>MessagesReplaced</code> hydration. The seed must therefore be consumed inside the Gleam update path at/after the point where hydration decides interview eligibility — not fired blind from TS. AC addition: the prompt is not lost under slow hydration. The Clerk-widget fallback (branded frame around the default widget) is a first-class design, not a contingency.</p>
+<ul>
+<li><strong>AC:</strong> signed-out managed visit → landing, never raw overlay; idea survives OAuth redirect round-trip and pre-fills interview/composer with key cleared; signed-in reload skips landing (no flash — landing renders only after <code>clerk.load()</code> resolves signed-out; pre-load treatment is a minimal branded base-color shell, testable); flag-off byte-identical; keyboard operable; responsive 980px/375px; no cross-origin requests other than Clerk frontend-API; no secrets/console-logged prompt.</li>
+<li><strong>Evidence:</strong> manual E2E screenshots (landing → sign-in → seeded chat, incl. redirect variant); app-panel screenshot of cleared key; <code>npm run build</code> + dist grep; <code>npm test</code>; diff shows auth logic unchanged.</li>
+</ul></div>
+
+<div class="step"><h3>Step 4 — "Try to fix" on preview errors</h3>
+<p><code>BUILD_PREVIEW_ERROR</code> (already guard-checked in <code>main-gleam.ts</code>) → preview actor <code>last_preview_error: Option(String)</code>. Chat renders quiet error card (ink on base, amber left rule) with error text + "Try to fix" button dispatching a prewritten agent prompt embedding the error. Clears on next successful turn or preview reload; disabled while busy.</p>
+<ul>
+<li><strong>AC:</strong> broken app surfaces card within one error event; click sends exactly one agent request containing the error; never appears during interview; clears on recovery; pure Gleam actor test covers transitions; guard tests green.</li>
+<li><strong>Evidence:</strong> <code>npm test</code> incl. new actor test; repro screenshots (broken → card → fixed → gone); diff confirms <code>isTrustedPreviewMessage</code> path.</li>
+</ul></div>
+
+<div class="step"><h3>Step 5 — Build-step narration chips</h3>
+<p>Assistant bubbles show PT Mono chips of changed file paths, derived from patch paths already persisted to <code>buildLog</code>. Styled on existing <code>.storyChip</code> vocabulary, re-tinted.</p>
+<p><strong>Association design (reviewer advisory, decide before coding):</strong> <code>chat.Message</code> is only <code>(role, content)</code> — index correlation with <code>buildLog</code> desyncs when an <code>AssistantError</code> bubble appends with no matching log entry, and across reload/hydration. Either extend the message type with optional paths (touches persistence in <code>src/projects.ts</code>, has tests) or write documented, tested correlation rules. AC addition: an error bubble between two successful turns must not shift chips.</p>
+<ul>
+<li><strong>AC:</strong> one chip per patched path; chips respect <code>.msg</code> clamp (no overflow-trap regression); zero-patch turns show no chip row; Build Story output unchanged; expand/collapse unchanged.</li>
+<li><strong>Evidence:</strong> <code>npm test</code>; screenshots clamped + expanded; before/after Story export comparison.</li>
+</ul></div>
+
+<div class="step"><h3>Step 6 — Polish, full validation, judge</h3>
+<p>Coherence pass (remove one accessory), breakpoint check, final screenshot set (4 modes + landing), full validation battery, LLM-as-judge review vs §8, bounded repair.</p>
+<ul>
+<li><strong>AC:</strong> all §7 commands pass; judge ≥4/5 per axis (one repair loop allowed); progress HTML complete; handoff has step-1..6-done lines.</li>
+<li><strong>Evidence:</strong> command outputs in progress HTML; final screenshots; judge findings + repair diffs.</li>
+</ul></div>
+
+<h2>7 · Validation commands</h2>
+<pre>npm test                        # gleam build + gleam test + vitest (guards incl. templates + prompt parity)
+npm run build                   # gleam build + tsc -b + vite build
+node scripts/smoke-layout-modes.mjs
+cd server &amp;&amp; npm test           # untouched; run once in Step 6 to prove it
+npm run dev                     # + browser for screenshot evidence</pre>
+
+<h2>8 · Judge rubric (1–5 each; ≥4 required)</h2>
+<table>
+<tr><th>Axis</th><th>Judgment</th></tr>
+<tr><td>Correctness</td><td>Validation green; boot-gate contract intact; Focus-modal constraint intact; flag-off unchanged.</td></tr>
+<tr><td>Brand fidelity</td><td>Colors traceable to §3; font roles as specified; lowercase "hyper"; voice register correct.</td></tr>
+<tr><td>Taste</td><td>Signature singular, surroundings quiet; typography carries personality; explicitly not the three AI-default looks (cream+serif+terracotta / near-black+acid / broadsheet); no decorative numbering; no scattered gradients.</td></tr>
+<tr><td>Originality</td><td>Landing shares the prompt-hero pattern without reading as a v0/Bolt/Lovable clone — hyper voice, bolt motif, numbered-interview handoff distinguish it.</td></tr>
+<tr><td>Quality floor</td><td>375px responsive; visible keyboard focus; reduced motion respected.</td></tr>
+<tr><td>Cohesion</td><td>Landing → sign-in → chat → build states read as one system; four modes feel like one product.</td></tr>
+</table>
+
+<h2>9 · Definition of done</h2>
+<p>All six steps pass AC with evidence in the progress HTML; judge ≥4/5 per axis after ≤1 repair loop; <code>npm test</code>, <code>npm run build</code>, server tests, layout smoke all green; signed-out managed visit lands on a branded page whose typed idea reaches the interview after sign-in; no cross-origin pre-auth requests beyond Clerk frontend-API; no secret material in <code>dist/</code>; design-guidance files and guards untouched; handoff + progress artifacts complete.</p>
+
+<h2>10 · Open questions</h2>
+<table>
+<tr><th>#</th><th>Question</th><th>Proposed answer</th><th>Blocker?</th></tr>
+<tr><td>1</td><td>Clerk theming under bundled no-rhc build</td><td>Try appearance vars; else frame default widget in branded card</td><td>Verify at Step 3 start — only potential true blocker</td></tr>
+<tr><td>2</td><td>"Build" vs lowercase "build" wordmark + bolt</td><td>Lowercase lockup on landing and app h1</td><td>No — user-taste flag at Step 2</td></tr>
+<tr><td>3</td><td>Landing in flag-off mode?</td><td>No — managed path only</td><td>No</td></tr>
+<tr><td>4</td><td>Try-to-fix free of charge (server accounting)</td><td>Ship button charging normally; server change deferred</td><td>No</td></tr>
+<tr><td>5</td><td>Logo rights</td><td>hyper's own mark (user is hyper.io); recreate as inline SVG</td><td>No</td></tr>
+<tr><td>6</td><td>Font licensing</td><td>Both OFL; self-host + vendor licenses</td><td>No</td></tr>
+</table>
+
+<h2>11 · Deferred follow-ups (ranked)</h2>
+<ol>
+<li>Per-turn file-set checkpoints with free one-click restore (S–M; snapshot design in <code>projects.ts</code>).</li>
+<li>Element-picker scoped-edit extension (M; extend <code>build_element_picker.gleam</code>).</li>
+<li>Per-response diff view in Code mode (M).</li>
+<li>Progressive preview during generation (M).</li>
+<li>Server-side "fix is free" budget accounting.</li>
+</ol>
+<p class="muted">Skipped permanently as poor fit: multiplayer, visible self-testing, parallel agent boards.</p>
+</body>
+</html>

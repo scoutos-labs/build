@@ -80,7 +80,11 @@ pub fn canceled_request_late_response_is_discarded_test() {
     )
   let #(canceled, cancel_effects) =
     agent.update(running_a, agent.AgentRequestCanceled)
-  assert cancel_effects == [agent.StopElapsedTimer, agent.AbortAgent]
+  // KillExec joined this list with the tool harness: under the loop a cancel
+  // can land while a command is running, and a wedged process that outlives the
+  // turn quietly degrades the container.
+  assert cancel_effects
+    == [agent.StopElapsedTimer, agent.AbortAgent, agent.KillExec]
 
   let #(running_b, _) =
     agent.update(canceled, agent.AgentRequestStarted(request_b, ids.now_ms()))

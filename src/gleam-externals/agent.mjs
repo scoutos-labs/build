@@ -69,6 +69,35 @@ export async function callAgent(requestId, provider, model, userPrompt, apiKey =
   }
 }
 
+// ── Harness effects ──────────────────────────────────────────────────────────
+// The loop is wired in U7a; until then these are reachable only from the new
+// actor messages, which nothing dispatches yet. They are real exports rather
+// than absent ones so the Gleam interpreter has something to bind to and a
+// missing implementation surfaces as a test failure, not a runtime TypeError.
+
+export function callAgentStep(requestId, step) {
+  globalThis.__buildAgentStepCalls = [
+    ...(globalThis.__buildAgentStepCalls ?? []),
+    { requestId, step },
+  ]
+}
+
+export function executeTool(requestId, callId, name, argsJson) {
+  globalThis.__buildAgentToolCalls = [
+    ...(globalThis.__buildAgentToolCalls ?? []),
+    { requestId, callId, name, argsJson },
+  ]
+}
+
+export function killExec() {
+  globalThis.__buildAgentKillExecCalls = (globalThis.__buildAgentKillExecCalls ?? 0) + 1
+}
+
+export function installDependencies() {
+  globalThis.__buildAgentInstallCalls = (globalThis.__buildAgentInstallCalls ?? 0) + 1
+  void runNpmInstall()
+}
+
 export function startElapsedTimer() {
   stopElapsedTimer()
   elapsedTimer = setInterval(() => { if (activeRequestId) dispatchAgentTick(Date.now()) }, 500)

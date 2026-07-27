@@ -683,3 +683,21 @@ pub fn agent_turn_summary_omits_verification_when_it_failed_test() {
   // the check failed.
   assert agent.turn_summary(failed) == "1 step"
 }
+
+pub fn agent_trail_is_collapsed_by_default_and_toggles_test() {
+  let state = running_turn()
+  assert !state.trail_expanded
+  let #(open, effects) = agent.update(state, agent.AgentTrailToggled)
+  assert open.trail_expanded
+  assert effects == []
+  let #(closed, _) = agent.update(open, agent.AgentTrailToggled)
+  assert !closed.trail_expanded
+}
+
+pub fn agent_new_turn_recollapses_the_trail_test() {
+  // A previous turn left expanded must not leave the next turn's trail open —
+  // the summary is the resting state.
+  let #(open, _) = agent.update(running_turn(), agent.AgentTrailToggled)
+  let #(fresh, _) = agent.update(open, agent.AgentRequestStarted("req2", 2000))
+  assert !fresh.trail_expanded
+}

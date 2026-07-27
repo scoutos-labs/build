@@ -129,6 +129,22 @@ input:focus, textarea:focus, select:focus { border-color: transparent; box-shado
 .boltPulse { width: 16px; height: 16px; flex: 0 0 auto; animation: boltThrob 1.15s ease-in-out infinite; }
 .boltPulse.boltLarge { width: 52px; height: 52px; }
 @keyframes boltThrob { 50% { opacity: .45; transform: scale(.9); } }
+/* The activity trail's resting state: what the turn did, in one quiet line.
+   Same geometry as .thinking — the trail is that pill having learned to speak —
+   but no amber, because nothing is working any more. */
+.trail { display: grid; gap: 6px; }
+.trailSummary { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: left; background: #fff; color: var(--hyper-charcoal); border: 1px solid var(--hyper-line); border-radius: 12px; padding: 9px 11px; font-size: .84rem; font-weight: 400; box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
+.trailSummary:where(:hover:not(:disabled)) { background: var(--hyper-base); color: var(--hyper-ink); }
+.trailChevron { font-family: var(--hyper-mono); font-size: .68rem; color: var(--hyper-slate); }
+/* Receipts. Deliberately no timestamps, no step numbers, no status glyphs — a
+   step budget is not progress and must never be drawn as one. */
+.trailSteps { list-style: none; margin: 0; padding: 0 0 0 11px; display: grid; gap: 4px; border-left: 1px solid var(--hyper-line); }
+/* Charcoal, not slate: slate (#5B7FA6) reads blue at this size and would
+   compete with Show/Hide, the row's only interactive affordance. Receipts
+   should be quiet grey; the one blue-grey thing is the control. */
+.trailStep { font-size: .8rem; color: var(--hyper-charcoal); opacity: .78; line-height: 1.45; }
+/* A failed step is ink on white, like .previewErrorCard — never red. */
+.trailStepProblem { color: var(--hyper-ink); }
 .budgetExhausted { color: #8a4b00; background: #fff7ed; border: 1px solid #f5c98a; border-radius: 12px; padding: 9px 11px; font-size: .84rem; box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
 /* Preview-error card: quiet ink-on-white with the amber rule — the bolt's
    "needs work" cousin, not a red alarm. */

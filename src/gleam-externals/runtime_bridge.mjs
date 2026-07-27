@@ -51,7 +51,18 @@ export function dispatchProjectListRefreshed(projects = []) {
   sendMsg(Msg.Msg$Project(Project.Msg$ProjectListRefreshed(toList(projects.map(p => Project.SavedProject$SavedProject(p.id, p.name, p.updatedAt ?? p.updated_at ?? ''))))))
 }
 
+/** Seed the agent's file snapshot whenever a whole file set arrives.
+ *
+ * Without this the snapshot is empty until the first autosave, so an agent turn
+ * on a freshly-opened project would see no files at all. Sourced from the same
+ * payload the model is about to receive, so the two cannot disagree. */
+async function seedProjectFiles(files) {
+  const { publishProjectFiles } = await import('./projects.mjs')
+  publishProjectFiles(toGleamFiles(files ?? []))
+}
+
 export function dispatchProjectLoaded(project) {
+  void seedProjectFiles(project?.files ?? [])
   sendMsg(Msg.Msg$Project(Project.Msg$ProjectLoaded(
     project?.id ? Option.Option$Some(project.id) : Option.Option$None(),
     project?.name ?? 'Untitled Project',
@@ -63,6 +74,7 @@ export function dispatchProjectLoaded(project) {
 }
 
 export function dispatchProjectCreated(project) {
+  void seedProjectFiles(project.files ?? [])
   sendMsg(Msg.Msg$Project(Project.Msg$ProjectCreated(
     project.id,
     project.name,
@@ -73,7 +85,7 @@ export function dispatchProjectCreated(project) {
 
 export function dispatchProjectReady() { sendMsg(Msg.Msg$Project(Project.Msg$ProjectReady())) }
 export function dispatchProjectSaveStatus(status) { sendMsg(Msg.Msg$Project(Project.Msg$SaveStatusChanged(status))) }
-export function dispatchProjectFilesUpdated(files, status = '') { sendMsg(Msg.Msg$Project(Project.Msg$FilesUpdated(toGleamFiles(files), status))) }
+export function dispatchProjectFilesUpdated(files, status = '') { void seedProjectFiles(files); sendMsg(Msg.Msg$Project(Project.Msg$FilesUpdated(toGleamFiles(files), status))) }
 export function dispatchProjectsDialogClosed() { sendMsg(Msg.Msg$Project(Project.Msg$ProjectsDialogClosed())) }
 
 export function dispatchChatMessagesReplaced(messages) { sendMsg(Msg.Msg$Chat(Chat.Msg$MessagesReplaced(toGleamMessages(messages)))) }
@@ -102,7 +114,6 @@ export function dispatchPreviewElementSelected(element) {
   ))))
 }
 
-export function dispatchAgentSucceeded(requestId, reply, patches) { sendMsg(Msg.Msg$Agent(Agent.Msg$AgentRequestSucceeded(requestId, reply, toList((patches ?? []).map(p => Agent.Patch$Patch(p.path, p.content)))))) }
 export function dispatchAgentFailed(requestId, message) { sendMsg(Msg.Msg$Agent(Agent.Msg$AgentRequestFailed(requestId, message))) }
 export function dispatchAgentBudgetExhausted(requestId, resetAt) { sendMsg(Msg.Msg$Agent(Agent.Msg$AgentBudgetExhausted(requestId, String(resetAt ?? '')))) }
 export function dispatchAccountLoaded(plan, budget) { sendMsg(Msg.Msg$Settings(Settings.Msg$AccountLoaded(String(plan ?? ''), String(budget ?? '')))) }

@@ -1,5 +1,5 @@
 import { runNpmInstall } from './webcontainer.mjs'
-import { dispatchAgentBudgetExhausted, dispatchAgentFailed, dispatchAgentSucceeded, dispatchAgentTick, dispatchAgentToolFinished, dispatchAgentToolStarted, dispatchProjectFileApplied, dispatchWebContainerLog } from './runtime_bridge.mjs'
+import { dispatchAgentBudgetExhausted, dispatchAgentFailed, dispatchAgentStepReturned, dispatchAgentTick, dispatchAgentTimeoutReached, dispatchAgentToolFinished, dispatchAgentToolStarted, dispatchProjectFileApplied, dispatchWebContainerLog } from './runtime_bridge.mjs'
 
 let elapsedTimer = null
 let activeController = null
@@ -88,12 +88,6 @@ export async function callAgent(requestId, provider, model, userPrompt, apiKey =
   await runStep(requestId, 0)
 }
 
-/** Ollama has no tool mode (see LLMStepParams.provider) — it stays on the
- * single-shot JSON protocol, and the loop's first step is also its last. */
-function usesToolMode(turn) {
-  return managedAuth() !== null || turn.provider !== 'ollama'
-}
-
 async function runStep(requestId, stepIndex) {
   const turn = turns.get(requestId)
   if (!turn) return // canceled between steps
@@ -101,8 +95,10 @@ async function runStep(requestId, stepIndex) {
   try {
     const managed = managedAuth()
     if (!managed) {
-      // BYOK. Ollama falls back to the single-shot protocol; BYOK-OpenRouter
-      // will get the client-side loop with the step transport from U3.
+      // BYOK. Ollama has no tool mode (see LLMStepParams.provider), so it stays
+      // on the single-shot JSON protocol and its first step is also its last.
+      // Patches are applied through the ONE legal write path, not wc.fs, so the
+      // editor and the next turn's context stay in step either way.
       const result = await (await agentModule()).runAgent({
         provider: turn.provider,
         apiKey: turn.apiKey,

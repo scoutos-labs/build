@@ -145,6 +145,25 @@ export function publishProjectFiles(files) {
   globalThis.__buildProjectFiles = normalizeFiles(files)
 }
 
+/** Publish an already-plain `[{path, content}]` list (JS-side callers). */
+export function publishProjectFileList(files) {
+  globalThis.__buildProjectFiles = (files ?? []).map(file => ({
+    path: file.path,
+    content: file.content,
+  }))
+}
+
+/** Upsert one file into the snapshot. Fires on every applied write, so the
+ * snapshot never depends on an autosave having happened. */
+export function publishProjectFile(path, content) {
+  const current = globalThis.__buildProjectFiles ?? []
+  const index = current.findIndex(file => file.path === path)
+  globalThis.__buildProjectFiles =
+    index === -1
+      ? [...current, { path, content }]
+      : current.map((file, i) => (i === index ? { path, content } : file))
+}
+
 export function scheduleSave(delay, name, filesArg, messagesArg, buildLogArg, selectedPath, currentProjectId) {
   lastSavePayload = { name, filesArg, messagesArg, buildLogArg, selectedPath, currentProjectId, silent: true }
   if (saveTimer) clearTimeout(saveTimer)

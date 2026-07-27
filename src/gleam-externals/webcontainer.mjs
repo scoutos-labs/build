@@ -254,4 +254,14 @@ export async function startShell(onOutput, terminal) {
 globalThis.__buildGleamStartShell = startShell
 
 export function remountProject() { void mountAndInstall() }
-export function setLastFiles(files) { lastFiles = files?.length ? files : fallbackStarterFiles }
+
+export function setLastFiles(files) {
+  lastFiles = files?.length ? files : fallbackStarterFiles
+  // Seed the agent's file snapshot. Boot and remount are the only paths that
+  // carry the authoritative file set on a first run — with no saved project
+  // nothing else dispatches files, so without this the agent's first turn would
+  // see an empty project and `fs_list` would return nothing.
+  void import('./projects.mjs')
+    .then(m => m.publishProjectFileList(lastFiles))
+    .catch(() => {})
+}

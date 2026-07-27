@@ -38,8 +38,14 @@ pub fn interpret(effect: project.Effect) -> Nil {
     project.RefreshProjectList -> refresh_project_list()
     project.PersistCurrentProjectId(id) ->
       persist_current_project_id(option.unwrap(id, ""))
-    project.WriteFileToContainer(path, content) ->
+    project.WriteFileToContainer(path, content) -> {
+      // Keep the agent's snapshot current on EVERY applied file, not only when
+      // an autosave happens to run. Autosave is gated on the container being
+      // hydrated, so relying on it alone left `fs_list` and `fs_read` reading an
+      // empty project — the agent was blind to the very files it had written.
+      publish_project_file(path, content)
       write_file_to_container(path, content)
+    }
     project.DebouncedWriteFileToContainer(delay, path, content) ->
       schedule_write_file_to_container(delay, path, content)
     project.RemountProject(_) -> remount_project()
@@ -72,6 +78,11 @@ pub fn interpret(effect: project.Effect) -> Nil {
 /// replica, so `fs_read`/`fs_list` must read the model, not the disk.
 @external(javascript, "../../gleam-externals/projects.mjs", "publishProjectFiles")
 fn publish_project_files(files: List(templates.ProjectFile)) -> Nil
+
+/// Upsert a single file into the snapshot, for the write path that fires
+/// regardless of autosave.
+@external(javascript, "../../gleam-externals/projects.mjs", "publishProjectFile")
+fn publish_project_file(path: String, content: String) -> Nil
 
 @external(javascript, "../../gleam-externals/projects.mjs", "loadInitialProject")
 fn load_initial_project() -> Nil

@@ -94,6 +94,9 @@ pub type State {
     /// Assistant prose accumulated across steps; the last non-empty value is the
     /// turn's reply.
     final_reply: String,
+    /// Whether the finished turn's trail is expanded. Collapsed by default: the
+    /// summary is the product, the steps are the receipts.
+    trail_expanded: Bool,
   )
 }
 
@@ -123,6 +126,8 @@ pub type Msg {
     installed: Bool,
   )
   AgentStepBudgetReached(request_id: String)
+  /// Expand or collapse the finished turn's trail. Pure UI.
+  AgentTrailToggled
 }
 
 pub type Effect {
@@ -172,6 +177,7 @@ pub fn init() -> State {
     pkg_dirty: False,
     pending_calls: [],
     final_reply: "",
+    trail_expanded: False,
   )
 }
 
@@ -204,6 +210,7 @@ fn clear_turn(state: State) -> State {
     pkg_dirty: False,
     pending_calls: [],
     final_reply: "",
+    trail_expanded: False,
   )
 }
 
@@ -422,6 +429,11 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
         }
         _ -> #(state, [])
       }
+
+    AgentTrailToggled -> #(
+      State(..state, trail_expanded: !state.trail_expanded),
+      [],
+    )
 
     AgentStepBudgetReached(request_id) ->
       case state.lifecycle {

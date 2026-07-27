@@ -1,3 +1,4 @@
+import build/actors/agent
 import build/actors/chat
 import build/actors/interview
 import build/components/build_bolt
@@ -23,6 +24,7 @@ pub fn view(
   budget_reset_at: String,
   interview_state: interview.State,
   preview_error: Option(String),
+  agent_state: agent.State,
 ) -> Element(msg.Msg) {
   let interviewing = interview.is_active(interview_state)
   fragment([
@@ -113,14 +115,7 @@ pub fn view(
       ],
       prompt,
     ),
-    case running {
-      True ->
-        html.div([attribute.class("thinking")], [
-          build_bolt.glyph("boltPulse"),
-          html.text("hyper is thinking…"),
-        ])
-      False -> html.text("")
-    },
+    trail_view(agent_state, running),
     case budget_exhausted {
       True ->
         html.div([attribute.class("budgetExhausted")], [
@@ -328,4 +323,110 @@ fn message_view(
 
 fn button(attrs, label: String) {
   html.button([attribute.type_("button"), ..attrs], [html.text(label)])
+}
+
+// --- the activity trail ---
+//
+// Deliberately NOT a growing list of tool calls. While the agent works this is a
+// single line that *changes*: bolt, a present-tense verb, and the file it is on.
+// A twelve-row log would push the composer off a laptop screen and would read as
+// CI output to a founder whose prompt explicitly forbids jargon and file paths.
+//
+// When the turn ends the line becomes one quiet summary — "3 steps · 1 file ·
+// checked it builds" — that expands on click. The steps are receipts; the
+// summary is the product.
+//
+// Amber appears on exactly one element at a time: the bolt on the active step.
+// Finished rows are slate. That is the brand's working-state signature and it
+// stops meaning anything if more than one thing wears it.
+
+fn trail_view(state: agent.State, running: Bool) -> Element(msg.Msg) {
+  case running, state.trail {
+    // Working, but no tool has been picked up yet.
+    True, [] ->
+      html.div([attribute.class("thinking")], [
+        build_bolt.glyph("boltPulse"),
+        html.text("hyper is thinking…"),
+      ])
+
+    // Working: one mutating line showing the step in flight.
+    True, trail ->
+      html.div([attribute.class("thinking")], [
+        build_bolt.glyph("boltPulse"),
+        html.text(active_summary(trail)),
+      ])
+
+    // Idle with nothing to show.
+    False, [] -> html.text("")
+
+    // Finished: the collapsed summary, expandable.
+    False, trail ->
+      html.div([attribute.class("trail")], [
+        html.button(
+          [
+            attribute.class("trailSummary"),
+            attribute.attribute("aria-expanded", case state.trail_expanded {
+              True -> "true"
+              False -> "false"
+            }),
+            event.on_click(msg.Agent(agent.AgentTrailToggled)),
+          ],
+          [
+            html.span([attribute.class("trailCount")], [
+              html.text(agent.turn_summary(state)),
+            ]),
+            html.span([attribute.class("trailChevron")], [
+              html.text(case state.trail_expanded {
+                True -> "Hide"
+                False -> "Show"
+              }),
+            ]),
+          ],
+        ),
+        case state.trail_expanded {
+          True ->
+            html.ol(
+              [attribute.class("trailSteps")],
+              list.map(trail, trail_row),
+            )
+          False -> html.text("")
+        },
+      ])
+  }
+}
+
+/// The line shown while working: the step currently in flight, or the most
+/// recent finished one while the next request is in the air.
+fn active_summary(trail: List(agent.TrailStep)) -> String {
+  let running_step =
+    list.find(trail, fn(step) { step.status == agent.ToolRunning })
+  case running_step {
+    Ok(step) ->
+      case step.summary {
+        "" -> "hyper is working…"
+        text -> text
+      }
+    Error(_) ->
+      case list.last(trail) {
+        Ok(step) if step.summary != "" -> step.summary
+        _ -> "hyper is working…"
+      }
+  }
+}
+
+fn trail_row(step: agent.TrailStep) -> Element(msg.Msg) {
+  html.li(
+    [
+      attribute.class(case step.status {
+        agent.ToolFailed -> "trailStep trailStepProblem"
+        _ -> "trailStep"
+      }),
+    ],
+    [
+      html.text(case step.summary {
+        "" -> "Working…"
+        text -> text
+      }),
+    ],
+  )
 }

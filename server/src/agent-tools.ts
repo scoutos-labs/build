@@ -112,6 +112,21 @@ export const CLIENT_TOOL_SPECS: ToolSpec[] = [
   {
     type: 'function',
     function: {
+      name: 'fs_delete',
+      description:
+        'Delete one file. Use it when a refactor makes a file obsolete — a leftover file keeps shipping with the app. Files the app needs to run cannot be deleted.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Path relative to the project root.' },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'exec',
       description:
         "Run a command in the project's Node environment and read its real output. This is how you check your own work: `npx tsc --noEmit` to typecheck, `npm run build` to build, `npm install <pkg>` to add a dependency. Available commands are npm, npx (tsc or vite), and node. Do not start the dev server — it is already running and reloads your changes. Verify before you hand back.",

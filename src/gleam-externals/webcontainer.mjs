@@ -39,6 +39,9 @@ async function modules() {
       writeProjectFile: async (path, content) => {
         lastFiles = lastFiles.map(file => file.path === path ? { path, content } : file)
       },
+      deleteProjectFile: async path => {
+        lastFiles = lastFiles.filter(file => file.path !== path)
+      },
     }
   }
 }
@@ -224,6 +227,14 @@ export async function readFilesFromContainer() {
   const files = await m.readProjectFilesFromWebContainer()
   if (files.length) dispatchProjectFilesUpdated(files, `Synced ${files.length} files from terminal`)
   else dispatchProjectSaveStatus('No files found to sync')
+}
+
+export async function deleteFileFromContainer(path) {
+  const m = await modules()
+  await bootGate
+  // The agent's snapshot was already updated synchronously by the interpreter —
+  // doing it here would be too late, since this awaits the boot gate.
+  if (m.deleteProjectFile) await m.deleteProjectFile(path)
 }
 
 export async function writeFileToContainer(path, content) {

@@ -10,6 +10,7 @@ import {
   exec,
   execSummary,
   fsBatchWrite,
+  fsDelete,
   fsList,
   fsRead,
   fsWrite,
@@ -59,6 +60,7 @@ function makeContext(
   overrides: Partial<ToolContext> & { process?: ReturnType<typeof fakeProcess> } = {},
 ) {
   const applied: { path: string; content: string }[] = []
+  const removed: string[] = []
   const logs: string[] = []
   const spawned: { command: string; args: string[] }[] = []
   const flushes: number[] = []
@@ -71,6 +73,10 @@ function makeContext(
       const index = current.findIndex(file => file.path === path)
       if (index === -1) current.push({ path, content })
       else current[index] = { path, content }
+    },
+    removeFile(path) {
+      removed.push(path)
+      current = current.filter(file => file.path !== path)
     },
     async readContainerFile(path) {
       return path === 'dist/index.js' ? 'built output' : undefined
@@ -87,7 +93,7 @@ function makeContext(
     },
     ...overrides,
   }
-  return { ctx, applied, logs, spawned, flushes, files: () => current }
+  return { ctx, applied, removed, logs, spawned, flushes, files: () => current }
 }
 
 beforeEach(() => {
@@ -611,6 +617,7 @@ describe('tool specs', () => {
       'fs_read',
       'fs_write',
       'fs_batch_write',
+      'fs_delete',
       'exec',
     ])
   })
@@ -651,5 +658,49 @@ describe('undeletable set', () => {
     for (const path of ['src/main.tsx', 'index.html', 'src/db.ts', 'zepto-bridge.js', 'server.js', 'vite.config.ts']) {
       expect(UNDELETABLE.has(path)).toBe(true)
     }
+  })
+})
+
+
+describe('fs_delete', () => {
+  it('removes a file through the project actor', () => {
+    const { ctx, removed } = makeContext([{ path: 'src/OldCard.tsx', content: 'x' }])
+    const result = fsDelete(ctx, { path: 'src/OldCard.tsx' })
+    expect(result.ok).toBe(true)
+    expect(removed).toEqual(['src/OldCard.tsx'])
+    expect(result.paths).toEqual(['src/OldCard.tsx'])
+    expect(result.summary).toBe('Deleted OldCard.tsx')
+  })
+
+  it('refuses a file the app needs to run, and says why', () => {
+    // A bare "no" invites a retry; these are writable but not removable.
+    for (const path of ['src/main.tsx', 'index.html', 'src/db.ts', 'package.json', 'vite.config.ts']) {
+      const { ctx, removed } = makeContext([{ path, content: 'x' }])
+      const result = fsDelete(ctx, { path })
+      expect(result.ok).toBe(false)
+      expect(result.content).toMatch(/part of how the app runs/)
+      expect(removed).toEqual([])
+    }
+  })
+
+  it('refuses a path the policy denies', () => {
+    const { ctx, removed } = makeContext([])
+    expect(fsDelete(ctx, { path: '.env' }).ok).toBe(false)
+    expect(fsDelete(ctx, { path: '../escape.ts' }).ok).toBe(false)
+    expect(removed).toEqual([])
+  })
+
+  it('refuses a file that does not exist rather than silently succeeding', () => {
+    const { ctx, removed } = makeContext([{ path: 'a.ts', content: 'x' }])
+    const result = fsDelete(ctx, { path: 'src/Ghost.tsx' })
+    expect(result.ok).toBe(false)
+    expect(removed).toEqual([])
+  })
+
+  it('routes through runTool', async () => {
+    const { ctx, removed } = makeContext([{ path: 'src/Old.tsx', content: 'x' }])
+    const result = await runTool(ctx, 'fs_delete', '{"path":"src/Old.tsx"}')
+    expect(result.ok).toBe(true)
+    expect(removed).toEqual(['src/Old.tsx'])
   })
 })

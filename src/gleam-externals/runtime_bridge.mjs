@@ -132,6 +132,12 @@ export function dispatchProjectFileApplied(path, content) {
   sendMsg(Msg.Msg$Project(Project.Msg$FileApplied(String(path), String(content))))
 }
 
+/** The only legal way for an agent tool to remove a project file — same reason
+ * as dispatchProjectFileApplied. */
+export function dispatchProjectFileRemoved(path) {
+  sendMsg(Msg.Msg$Project(Project.Msg$FileRemoved(String(path))))
+}
+
 function toGleamToolCalls(calls = []) {
   return toList(calls.map(call => Agent.ToolCall$ToolCall(
     String(call.id ?? ''),

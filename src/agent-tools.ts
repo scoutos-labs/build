@@ -135,6 +135,8 @@ export type ToolContext = {
   files(): ProjectFile[]
   /** Write through the project actor (`project.FileApplied`). */
   applyFile(path: string, content: string): void
+  /** Remove through the project actor (`project.FileRemoved`). */
+  removeFile(path: string): void
   /** Read a path from the container, for build artifacts `project.files` never sees. */
   readContainerFile(path: string): Promise<string | undefined>
   /** Flush queued container writes. Called before `exec` so a command sees what
@@ -307,6 +309,40 @@ export function fsBatchWrite(ctx: ToolContext, args: { files?: unknown }): ToolR
   const validated = validateBatch(args.files)
   if (!validated.ok) return refuse(validated.reason, 'Tried to write files it may not change')
   return applyAll(ctx, validated.files)
+}
+
+// ── fs_delete ────────────────────────────────────────────────────────────────
+
+/**
+ * Delete one file.
+ *
+ * Worth having despite the extra actor surface: without it the agent physically
+ * cannot finish a refactor. It writes `Card.tsx` to replace `OldCard.tsx` and the
+ * old file lingers forever — eating the context budget every turn, showing in the
+ * Files list, and **shipping to scoutos.live on the next publish**.
+ *
+ * Bounded hard: one path per call, no directories, and the guarded set refuses
+ * with an explanation rather than a bare no.
+ */
+export function fsDelete(ctx: ToolContext, args: { path?: unknown }): ToolResult {
+  const verdict = normalizePath(args.path)
+  if (!verdict.ok) return refuse(verdict.reason, 'Tried to delete a file it may not touch')
+  if (UNDELETABLE.has(verdict.path)) {
+    return refuse(
+      `${verdict.path} is part of how the app runs — it can be changed but not removed.`,
+      'Tried to delete a file the app needs',
+    )
+  }
+  if (!ctx.files().some(file => file.path === verdict.path)) {
+    return refuse(`There is no file at ${verdict.path}.`, `Looked for ${basename(verdict.path)}`)
+  }
+  ctx.removeFile(verdict.path)
+  return {
+    ok: true,
+    content: `ok · deleted ${verdict.path}`,
+    summary: `Deleted ${basename(verdict.path)}`,
+    paths: [verdict.path],
+  }
 }
 
 // ── exec ─────────────────────────────────────────────────────────────────────
@@ -571,6 +607,8 @@ export async function runTool(ctx: ToolContext, name: string, argsJson: string):
       return fsWrite(ctx, args)
     case 'fs_batch_write':
       return fsBatchWrite(ctx, args)
+    case 'fs_delete':
+      return fsDelete(ctx, args)
     case 'exec':
       return exec(ctx, args)
     default:
@@ -661,6 +699,21 @@ export const CLIENT_TOOL_SPECS = [
           },
         },
         required: ['files'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'fs_delete',
+      description:
+        'Delete one file. Use it when a refactor makes a file obsolete — a leftover file keeps shipping with the app. Files the app needs to run cannot be deleted.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Path relative to the project root.' },
+        },
+        required: ['path'],
       },
     },
   },

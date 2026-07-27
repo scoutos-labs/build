@@ -959,3 +959,51 @@ pub fn agent_next_turn_replaces_the_snapshot_test() {
     )
   assert fresh.snapshot == option.Some(second)
 }
+
+pub fn project_file_removed_drops_it_and_tells_the_container_test() {
+  let state =
+    project.State(
+      ..project.init(),
+      files: [file("src/Old.tsx", "x"), file("src/Keep.tsx", "y")],
+      selected_path: "src/Keep.tsx",
+    )
+  let #(next, effects) = project.update(state, project.FileRemoved("src/Old.tsx"))
+
+  assert next.files == [file("src/Keep.tsx", "y")]
+  assert next.selected_path == "src/Keep.tsx"
+  assert next.save_status == "Unsaved changes"
+  assert effects == [project.DeleteFileFromContainer("src/Old.tsx")]
+}
+
+pub fn project_removing_the_open_file_moves_selection_test() {
+  // Otherwise the editor points at nothing and goes blank.
+  let state =
+    project.State(
+      ..project.init(),
+      files: [file("src/Open.tsx", "x"), file("src/Other.tsx", "y")],
+      selected_path: "src/Open.tsx",
+    )
+  let #(next, _) = project.update(state, project.FileRemoved("src/Open.tsx"))
+
+  assert next.selected_path == "src/Other.tsx"
+}
+
+pub fn project_removing_the_last_file_clears_selection_test() {
+  let state =
+    project.State(
+      ..project.init(),
+      files: [file("only.ts", "x")],
+      selected_path: "only.ts",
+    )
+  let #(next, _) = project.update(state, project.FileRemoved("only.ts"))
+
+  assert next.files == []
+  assert next.selected_path == ""
+}
+
+pub fn templates_remove_file_normalizes_leading_slashes_test() {
+  let files = [file("src/a.ts", "x"), file("src/b.ts", "y")]
+  assert templates.remove_file(files, "/src/a.ts") == [file("src/b.ts", "y")]
+  // Removing something absent is a no-op, not an error.
+  assert templates.remove_file(files, "nope.ts") == files
+}

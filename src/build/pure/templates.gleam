@@ -30,6 +30,16 @@ pub fn starter_files() -> List(ProjectFile) {
   ]
 }
 
+/// Remove a file. Counterpart to `upsert_file`; same leading-slash
+/// normalization so a path that could be written can also be removed.
+pub fn remove_file(
+  files: List(ProjectFile),
+  path: String,
+) -> List(ProjectFile) {
+  let normalized = strip_leading_slashes(path)
+  list.filter(files, fn(file) { file.path != normalized })
+}
+
 pub fn upsert_file(
   files: List(ProjectFile),
   path: String,

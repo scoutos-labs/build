@@ -21,6 +21,16 @@ export async function writeProjectFile(path: string, content: string) {
   await wc.fs.writeFile(path, content)
 }
 
+export async function deleteProjectFile(path: string) {
+  const wc = await bootWebContainer()
+  try {
+    await wc.fs.rm(path)
+  } catch {
+    // Already gone (or never written to the container) — the project actor is
+    // the source of truth and has dropped it either way.
+  }
+}
+
 export async function readProjectFile(path: string): Promise<string | undefined> {
   const wc = await bootWebContainer()
   try {

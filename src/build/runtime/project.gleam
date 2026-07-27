@@ -46,6 +46,14 @@ pub fn interpret(effect: project.Effect) -> Nil {
       publish_project_file(path, content)
       write_file_to_container(path, content)
     }
+    project.DeleteFileFromContainer(path) -> {
+      // Symmetric with the write path above: update the snapshot SYNCHRONOUSLY
+      // here, not inside the container call. That call awaits `bootGate`, so a
+      // delete during boot would leave the file in the agent's snapshot
+      // indefinitely — fs_list would keep offering a file that is gone.
+      unpublish_project_file(path)
+      delete_file_from_container(path)
+    }
     project.DebouncedWriteFileToContainer(delay, path, content) ->
       schedule_write_file_to_container(delay, path, content)
     project.RemountProject(_) -> remount_project()
@@ -76,6 +84,12 @@ pub fn interpret(effect: project.Effect) -> Nil {
 ///
 /// `project.files` is the source of truth and the container FS is a lossy
 /// replica, so `fs_read`/`fs_list` must read the model, not the disk.
+@external(javascript, "../../gleam-externals/webcontainer.mjs", "deleteFileFromContainer")
+fn delete_file_from_container(path: String) -> Nil
+
+@external(javascript, "../../gleam-externals/projects.mjs", "unpublishProjectFile")
+fn unpublish_project_file(path: String) -> Nil
+
 @external(javascript, "../../gleam-externals/projects.mjs", "publishProjectFiles")
 fn publish_project_files(files: List(templates.ProjectFile)) -> Nil
 

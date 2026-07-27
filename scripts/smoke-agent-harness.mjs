@@ -362,6 +362,55 @@ note('undo restores the exact pre-turn content', restored === originalMain)
 note('undo is one-shot', (await page.locator('.trailUndo button').count()) === 0)
 await snap('undo-applied')
 
+// ── 11. fs_delete finishes a refactor ──────────────────────────────────────
+// Without it a replaced file lingers forever — eating context every turn and
+// shipping to scoutos.live on the next publish.
+await page.evaluate(async () => {
+  const { A, M, toList } = globalThis.__h
+  const T = await import('/build/dev/javascript/build/build/pure/templates.mjs')
+  const snapshot = toList(
+    (globalThis.__buildProjectFiles ?? []).map(f => T.ProjectFile$ProjectFile(f.path, f.content)),
+  )
+  __go(M.Msg$Agent(A.Msg$AgentRequestStarted('del', Date.now(), snapshot)))
+  __go(M.Msg$Agent(A.Msg$AgentStepReturned('del',
+    toList([A.ToolCall$ToolCall('d0', 'fs_write',
+      JSON.stringify({ path: 'src/Doomed.tsx', content: 'export const Doomed = () => null\n' }))]), '')))
+})
+await page.waitForTimeout(700)
+note(
+  'a file exists to delete',
+  await page.evaluate(() => (globalThis.__buildProjectFiles ?? []).some(f => f.path === 'src/Doomed.tsx')),
+)
+
+await page.evaluate(() => {
+  const { A, M, toList } = globalThis.__h
+  __go(M.Msg$Agent(A.Msg$AgentStepReturned('del',
+    toList([A.ToolCall$ToolCall('d1', 'fs_delete', JSON.stringify({ path: 'src/Doomed.tsx' }))]), '')))
+})
+await page.waitForTimeout(700)
+note(
+  'fs_delete removes it from the project',
+  !(await page.evaluate(() => (globalThis.__buildProjectFiles ?? []).some(f => f.path === 'src/Doomed.tsx'))),
+)
+
+// Files the app needs to run are writable but not removable.
+await page.evaluate(() => {
+  const { A, M, toList } = globalThis.__h
+  __go(M.Msg$Agent(A.Msg$AgentStepReturned('del',
+    toList([A.ToolCall$ToolCall('d2', 'fs_delete', JSON.stringify({ path: 'src/main.tsx' }))]), '')))
+})
+await page.waitForTimeout(700)
+note(
+  'the entry file cannot be deleted',
+  await page.evaluate(() => (globalThis.__buildProjectFiles ?? []).some(f => f.path === 'src/main.tsx')),
+)
+await page.evaluate(() => {
+  const { A, M, toList } = globalThis.__h
+  __go(M.Msg$Agent(A.Msg$AgentStepReturned('del', toList([]), 'Cleaned up.')))
+})
+await page.waitForTimeout(400)
+await snap('fs-delete')
+
 await context.close()
 const videos = (await readdir(OUT)).filter(f => f.endsWith('.webm'))
 for (const file of videos) {

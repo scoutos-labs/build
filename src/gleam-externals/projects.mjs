@@ -153,6 +153,13 @@ export function publishProjectFileList(files) {
   }))
 }
 
+/** Drop one file from the snapshot. */
+export function unpublishProjectFile(path) {
+  globalThis.__buildProjectFiles = (globalThis.__buildProjectFiles ?? []).filter(
+    file => file.path !== path,
+  )
+}
+
 /** Upsert one file into the snapshot. Fires on every applied write, so the
  * snapshot never depends on an autosave having happened. */
 export function publishProjectFile(path, content) {

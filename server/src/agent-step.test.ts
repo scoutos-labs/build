@@ -145,6 +145,7 @@ describe('POST /api/agent/step', () => {
       'fs_read',
       'fs_write',
       'fs_batch_write',
+      'fs_delete',
       'exec',
       'web_search',
       'web_fetch',
@@ -481,7 +482,14 @@ describe('web tools — offering', () => {
     await post(app, stepBody())
     const offered = (openrouter.toolCompletion as ReturnType<typeof vi.fn>).mock.calls[0]![0]
       .tools.map((t: { function: { name: string } }) => t.function.name)
-    expect(offered).toEqual(['fs_list', 'fs_read', 'fs_write', 'fs_batch_write', 'exec'])
+    expect(offered).toEqual([
+      'fs_list',
+      'fs_read',
+      'fs_write',
+      'fs_batch_write',
+      'fs_delete',
+      'exec',
+    ])
   })
 })
 

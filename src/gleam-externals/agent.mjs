@@ -1,5 +1,5 @@
 import { runNpmInstall } from './webcontainer.mjs'
-import { dispatchAgentBudgetExhausted, dispatchAgentFailed, dispatchAgentApprovalRequested, dispatchAgentServerStepRecorded, dispatchAgentStepReturned, dispatchAgentTick, dispatchAgentTimeoutReached, dispatchAgentToolFinished, dispatchAgentToolStarted, dispatchProjectFileApplied, dispatchProjectFilesUpdated, dispatchWebContainerLog, dispatchWebContainerRemountRequested } from './runtime_bridge.mjs'
+import { dispatchAgentBudgetExhausted, dispatchAgentFailed, dispatchAgentApprovalRequested, dispatchAgentServerStepRecorded, dispatchAgentStepReturned, dispatchAgentTick, dispatchAgentTimeoutReached, dispatchAgentToolFinished, dispatchAgentToolStarted, dispatchProjectFileApplied, dispatchProjectFileRemoved, dispatchProjectFilesUpdated, dispatchWebContainerLog, dispatchWebContainerRemountRequested } from './runtime_bridge.mjs'
 
 let elapsedTimer = null
 let activeController = null
@@ -297,6 +297,7 @@ async function toolContext() {
       files: () => globalThis.__buildProjectFiles ?? [],
       // The ONLY legal write path — see dispatchProjectFileApplied.
       applyFile: (path, content) => dispatchProjectFileApplied(path, content),
+      removeFile: path => dispatchProjectFileRemoved(path),
       readContainerFile: async path => {
         const m = await import('../webcontainer')
         return m.readProjectFile ? m.readProjectFile(path) : undefined

@@ -25,7 +25,7 @@
 </head>
 <body>
 <h1>Progress — agent-harness</h1>
-<p>Overall status: <span class="st pass">release 1 complete</span> — <strong>All twelve units done. The loop is live, judge blockers fixed, both advisories closed.</strong> PRD: <code>agent-harness-prd.html</code> · handoff: <code>agent-harness-handoff.md</code> · branch <code>agent-harness</code> (17 commits off <code>8c9b385</code>)</p>
+<p>Overall status: <span class="st pass">release 1 complete</span> — <strong>All twelve units done, plus BYOK tool mode. The loop is live in both modes.</strong> PRD: <code>agent-harness-prd.html</code> · handoff: <code>agent-harness-handoff.md</code> · branch <code>agent-harness</code> (23 commits off <code>8c9b385</code>)</p>
 <p class="muted">The single-shot <code>{reply, patches[]}</code> protocol is <strong>gone</strong>: <code>agent.Patch</code>, <code>AgentRequestSucceeded</code>, <code>apply_patches</code>, and <code>InstallIfNeeded(patches)</code> are all removed. One write path, one install trigger. All five named core tools ship: <code>fs_*</code>, <code>exec</code>, <code>web_search</code>, <code>web_fetch</code>, <code>web_post</code> — plus <code>fs_delete</code> and undo. Nothing from the plan remains unbuilt.</p>
 <p class="muted">Goal: replace Build's single-shot <code>{reply, patches[]}</code> agent with a bounded tool-calling harness using the WebContainer as the control plane, plus a curated multi-model picker. Workspaces (agents / skills / workflow) designed in PRD §9, not built.</p>
 
@@ -101,14 +101,14 @@ Advisories fixed: A3 (architecture doc), A4 (search results + POST responses now
 </ul>
 
 <h2>Validation results</h2>
-<pre>npm test                              → gleam 191 passed, vitest 225 passed (17 files)
+<pre>npm test                              → gleam 191 passed, vitest 234 passed (17 files)
 npm run build                         → gleam build + tsc -b + vite build ✓
 cd server &amp;&amp; npm test                 → 307 passed (13 files)
 cd server &amp;&amp; npm run typecheck        → clean   [added to the battery per advisory A12]
 node scripts/smoke-layout-modes.mjs   → 25/25 (incl. Focus-modal full-viewport, identical-DOM, iframe survival)
 node scripts/smoke-interview.mjs      → 14/14
 node scripts/smoke-agent-harness.mjs  → 37/37  [NEW — drives a real multi-step turn]</pre>
-<p class="muted">Merge-base counts: gleam 140, vitest 108, server 103. Net new: <strong>+51 gleam, +117 vitest, +204 server = 372 tests</strong>, plus a new 37-check browser smoke. The two build warnings (a Rolldown <code>@__PURE__</code> annotation and a <code>dict.delete</code> import) are pre-existing and come from vendored Lustre output under <code>build/</code>.</p>
+<p class="muted">Merge-base counts: gleam 140, vitest 108, server 103. Net new: <strong>+51 gleam, +126 vitest, +204 server = 381 tests</strong>, plus a new 37-check browser smoke. The two build warnings (a Rolldown <code>@__PURE__</code> annotation and a <code>dict.delete</code> import) are pre-existing and come from vendored Lustre output under <code>build/</code>.</p>
 
 <h2>Live spike — OpenRouter catalog (advisory A2 / open question B3)</h2>
 <pre>GET https://openrouter.ai/api/v1/models      2026-07-27
@@ -135,7 +135,7 @@ node scripts/smoke-agent-harness.mjs  → 37/37  [NEW — drives a real multi-st
 <ul>
 <li><strong>Two more bugs the end-to-end smoke caught in U12</strong>, both the same class as the blind-agent bug: <code>FileRemoved</code> was missing from <code>update.gleam</code>'s auto-save branch, and the snapshot removal sat <em>after</em> <code>await bootGate</code> so a delete during boot would leave the file visible to <code>fs_list</code> forever. <strong>The agent's file snapshot must never depend on an async path settling.</strong></li>
 <li><strong>No live-model run yet.</strong> The loop is exercised end-to-end by the harness smoke with the real executors, real project state, and the real actor — but the step responses are injected rather than returned by a provider. A managed run against a real OpenRouter key is the remaining validation, and it is what S1/S2/S4 need before they can be measured.</li>
-<li><strong>BYOK-OpenRouter is still on the single-shot JSON path.</strong> The tool transport exists on the client (<code>FetchLLMClient.step</code>, tested), but <code>runStep</code> only drives the loop in managed mode; BYOK falls through to <code>runAgent</code>. Patches still land through <code>FileApplied</code>, so nothing is broken — BYOK simply does not get tools yet.</li>
+<li><strong>Two more bugs found by driving BYOK against a stubbed provider.</strong> <code>FetchLLMClient</code> held <code>globalThis.fetch</code> unbound and called it as a method → "Illegal invocation" (pre-existing; would have broken BYOK's JSON path in production too). And <strong>the transcript window was one step wide in both modes</strong> — each step replaced <code>toolCalls</code>/<code>toolResults</code> instead of accumulating, so the model re-decided from the file tree every step: 12 steps for work that takes 2. Accumulation is what makes the step budget mean what it says.</li>
 <li><strong>A6 — dev-server restart cadence, partially mitigated.</strong> <code>webcontainer.ts</code> notes that container writes do not reliably trigger vite's watcher, so the dev server exits and auto-restarts after 1s. Today a turn writes once; under the loop it writes in bursts. <code>flushWrites</code> before <code>exec</code> is in place, but suppressing preview-error capture while the agent runs belongs to U7a. Until then, a multi-step turn could flood <code>[preview error]</code> lines and pop the Try-to-fix card mid-work — which would make S2 <em>worse</em> from cadence alone.</li>
 <li><strong>R1 injection→exec chain is not yet live</strong> and will not be until U11 adds web tools. Shipping U1–U9 without web tools keeps that entire surface out of release 1 — the reason the plan gate recommended deferring it.</li>
 <li><strong>R2 — <code>.env</code> deviation.</strong> Denied rather than approval-gated, because the mechanism the locked decision would gate does not exist (no env channel in the Gleam effects or the request body). Strictly stronger than gating; recorded as a mechanism deviation, not a scope change.</li>

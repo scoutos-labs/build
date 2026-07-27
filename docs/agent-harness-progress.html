@@ -25,8 +25,8 @@
 </head>
 <body>
 <h1>Progress — agent-harness</h1>
-<p>Overall status: <span class="st pass">release 1 complete</span> — <strong>U1–U9 + U11 done, the loop is live, judge blockers fixed.</strong> PRD: <code>agent-harness-prd.html</code> · handoff: <code>agent-harness-handoff.md</code> · branch <code>agent-harness</code> (14 commits off <code>8c9b385</code>)</p>
-<p class="muted">The single-shot <code>{reply, patches[]}</code> protocol is <strong>gone</strong>: <code>agent.Patch</code>, <code>AgentRequestSucceeded</code>, <code>apply_patches</code>, and <code>InstallIfNeeded(patches)</code> are all removed. One write path, one install trigger. All five named core tools ship: <code>fs_*</code>, <code>exec</code>, <code>web_search</code>, <code>web_fetch</code>, <code>web_post</code>. U10 (undo) and U12 (<code>fs_delete</code>) remain, as declared.</p>
+<p>Overall status: <span class="st pass">release 1 complete</span> — <strong>All twelve units done. The loop is live, judge blockers fixed, both advisories closed.</strong> PRD: <code>agent-harness-prd.html</code> · handoff: <code>agent-harness-handoff.md</code> · branch <code>agent-harness</code> (17 commits off <code>8c9b385</code>)</p>
+<p class="muted">The single-shot <code>{reply, patches[]}</code> protocol is <strong>gone</strong>: <code>agent.Patch</code>, <code>AgentRequestSucceeded</code>, <code>apply_patches</code>, and <code>InstallIfNeeded(patches)</code> are all removed. One write path, one install trigger. All five named core tools ship: <code>fs_*</code>, <code>exec</code>, <code>web_search</code>, <code>web_fetch</code>, <code>web_post</code> — plus <code>fs_delete</code> and undo. Nothing from the plan remains unbuilt.</p>
 <p class="muted">Goal: replace Build's single-shot <code>{reply, patches[]}</code> agent with a bounded tool-calling harness using the WebContainer as the control plane, plus a curated multi-model picker. Workspaces (agents / skills / workflow) designed in PRD §9, not built.</p>
 
 <h2>Step checklist</h2>
@@ -43,10 +43,10 @@
 <tr><td>U7b · Timeout / abort / transcript restructure</td><td><span class="layer">T</span><span class="layer">G</span></td><td><span class="st pass">pass</span></td><td>parity: untouched · templates: untouched</td><td>New tests: reset mid-turn cancels the lifecycle and a late <code>AgentStepReturned</code> is inert; timeout renders a bubble and emits <code>KillExec</code>. Smoke: "cancel leaves no turn state behind" via <code>pendingTurnCount()</code>.</td><td>B6: timeout path is dead code — no dispatcher, no <code>update_agent</code> branch. B7: <code>ResetProject</code> bypasses the cancel path.</td></tr>
 <tr><td>U8 · Activity trail UI</td><td><span class="layer">G</span></td><td><span class="st pass">pass</span></td><td>parity: untouched · templates: untouched · <strong>layout smoke is the guard</strong> (A15)</td><td><code>smoke-agent-harness</code> 22/22 — one-line-not-a-log, verbs-not-tool-names, no amber when idle, composer survives 375px with the trail expanded. Screenshots <code>scripts/.smoke/agent-harness/*.png</code>. Layout smoke still 25/25.</td><td>Load-bearing taste call: one mutating line, not a growing list. Composer slot (B10).</td></tr>
 <tr><td>U9 · Model picker (curated only)</td><td><span class="layer">G</span><span class="layer">T</span></td><td><span class="st pass">pass</span></td><td>parity: untouched · templates: untouched · layout smoke</td><td><code>smoke-agent-harness</code>: three jobs, no model id in the picker, default is the middle job, choice persists, no picker for Ollama. Parity guard on job→model verified to bite.</td><td>Advanced catalog browser deferred.</td></tr>
-<tr><td colspan="6" class="muted">— release-1 line: everything above is done —</td></tr>
-<tr><td>U10 · Turn snapshot + undo</td><td><span class="layer">G</span><span class="layer">T</span></td><td><span class="st planned">planned</span></td><td>parity: untouched · templates: untouched</td><td>—</td><td>B5: must use <code>webcontainer.RemountRequested(files)</code> — <code>project.RemountProject</code> discards its argument.</td></tr>
+<tr><td colspan="6" class="muted">— original release-1 line; everything below shipped too —</td></tr>
+<tr><td>U10 · Turn snapshot + undo</td><td><span class="layer">G</span><span class="layer">T</span></td><td><span class="st pass">pass</span></td><td>parity: untouched · templates: untouched</td><td>Verified end to end in a browser, not by inspection: a turn clobbers <code>src/main.tsx</code>, undo is offered, clicking restores the byte-exact pre-turn content, and the button is gone afterwards. 5 actor tests cover snapshot survival across <code>clear_turn</code>, one-shot semantics, and refusal for read-only turns.</td><td>B5: must use <code>webcontainer.RemountRequested(files)</code> — <code>project.RemountProject</code> discards its argument.</td></tr>
 <tr><td>U11 · Server web tools + web_post approval</td><td><span class="layer">S</span><span class="layer">T</span><span class="layer">G</span></td><td><span class="st pass">pass</span></td><td>parity: <strong>fires</strong> (SERVER_ONLY_RULES grows) · templates: untouched</td><td>New <code>web-tools.test.ts</code> (90) covering the ported guards adversarially, plus 6 endpoint tests and 8 approval-flow actor tests. Both new guards verified to bite. <code>smoke-agent-harness</code> 29/29 including the approval card showing the exact body and a tainted turn offering no send button.</td><td>Tainted-turn rule is a Build addition the reference lacks. Brave key preferred over keyless DDG (A3).</td></tr>
-<tr><td>U12 · fs_delete</td><td><span class="layer">G</span><span class="layer">T</span></td><td><span class="st planned">planned</span></td><td>parity: untouched · templates: <strong>may fire</strong> (additive fn only)</td><td>—</td><td>New actor surface (<code>project.FileRemoved</code>). Guarded set extended per A7.</td></tr>
+<tr><td>U12 · fs_delete</td><td><span class="layer">G</span><span class="layer">T</span></td><td><span class="st pass">pass</span></td><td>parity: untouched · templates: <strong>may fire</strong> (additive fn only)</td><td>5 executor tests + 4 project-actor tests + 3 smoke checks. Templates drift test stayed green (<code>remove_file</code> is additive; starter content byte-identical).</td><td>New actor surface (<code>project.FileRemoved</code>). Guarded set extended per A7.</td></tr>
 </table>
 
 <h2>Harness metrics</h2>
@@ -101,14 +101,14 @@ Advisories fixed: A3 (architecture doc), A4 (search results + POST responses now
 </ul>
 
 <h2>Validation results</h2>
-<pre>npm test                              → gleam 180 passed, vitest 220 passed (17 files)
+<pre>npm test                              → gleam 191 passed, vitest 225 passed (17 files)
 npm run build                         → gleam build + tsc -b + vite build ✓
-cd server &amp;&amp; npm test                 → 305 passed (13 files)
+cd server &amp;&amp; npm test                 → 307 passed (13 files)
 cd server &amp;&amp; npm run typecheck        → clean   [added to the battery per advisory A12]
 node scripts/smoke-layout-modes.mjs   → 25/25 (incl. Focus-modal full-viewport, identical-DOM, iframe survival)
 node scripts/smoke-interview.mjs      → 14/14
-node scripts/smoke-agent-harness.mjs  → 29/29  [NEW — drives a real multi-step turn]</pre>
-<p class="muted">Merge-base counts: gleam 140, vitest 108, server 103. Net new: <strong>+40 gleam, +112 vitest, +202 server = 354 tests</strong>, plus a new 29-check browser smoke. The two build warnings (a Rolldown <code>@__PURE__</code> annotation and a <code>dict.delete</code> import) are pre-existing and come from vendored Lustre output under <code>build/</code>.</p>
+node scripts/smoke-agent-harness.mjs  → 37/37  [NEW — drives a real multi-step turn]</pre>
+<p class="muted">Merge-base counts: gleam 140, vitest 108, server 103. Net new: <strong>+51 gleam, +117 vitest, +204 server = 372 tests</strong>, plus a new 37-check browser smoke. The two build warnings (a Rolldown <code>@__PURE__</code> annotation and a <code>dict.delete</code> import) are pre-existing and come from vendored Lustre output under <code>build/</code>.</p>
 
 <h2>Live spike — OpenRouter catalog (advisory A2 / open question B3)</h2>
 <pre>GET https://openrouter.ai/api/v1/models      2026-07-27
@@ -133,6 +133,7 @@ node scripts/smoke-agent-harness.mjs  → 29/29  [NEW — drives a real multi-st
 
 <h2>Residual risks</h2>
 <ul>
+<li><strong>Two more bugs the end-to-end smoke caught in U12</strong>, both the same class as the blind-agent bug: <code>FileRemoved</code> was missing from <code>update.gleam</code>'s auto-save branch, and the snapshot removal sat <em>after</em> <code>await bootGate</code> so a delete during boot would leave the file visible to <code>fs_list</code> forever. <strong>The agent's file snapshot must never depend on an async path settling.</strong></li>
 <li><strong>No live-model run yet.</strong> The loop is exercised end-to-end by the harness smoke with the real executors, real project state, and the real actor — but the step responses are injected rather than returned by a provider. A managed run against a real OpenRouter key is the remaining validation, and it is what S1/S2/S4 need before they can be measured.</li>
 <li><strong>BYOK-OpenRouter is still on the single-shot JSON path.</strong> The tool transport exists on the client (<code>FetchLLMClient.step</code>, tested), but <code>runStep</code> only drives the loop in managed mode; BYOK falls through to <code>runAgent</code>. Patches still land through <code>FileApplied</code>, so nothing is broken — BYOK simply does not get tools yet.</li>
 <li><strong>A6 — dev-server restart cadence, partially mitigated.</strong> <code>webcontainer.ts</code> notes that container writes do not reliably trigger vite's watcher, so the dev server exits and auto-restarts after 1s. Today a turn writes once; under the loop it writes in bursts. <code>flushWrites</code> before <code>exec</code> is in place, but suppressing preview-error capture while the agent runs belongs to U7a. Until then, a multi-step turn could flood <code>[preview error]</code> lines and pop the Try-to-fix card mid-work — which would make S2 <em>worse</em> from cadence alone.</li>

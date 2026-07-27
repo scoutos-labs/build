@@ -7,6 +7,7 @@ import build/actors/webcontainer
 import build/pure/templates
 import gleam/int
 import gleam/list
+import gleam/option
 import gleeunit
 
 pub fn main() -> Nil {
@@ -700,4 +701,87 @@ pub fn agent_new_turn_recollapses_the_trail_test() {
   let #(open, _) = agent.update(running_turn(), agent.AgentTrailToggled)
   let #(fresh, _) = agent.update(open, agent.AgentRequestStarted("req2", 2000))
   assert !fresh.trail_expanded
+}
+
+// ── web_post approval: the one gated action ─────────────────────────────────
+
+fn approval(blocked: String) -> agent.Approval {
+  agent.Approval(
+    call_id: "p1",
+    url: "https://hooks.example/x",
+    method: "POST",
+    body: "{\"a\":1}",
+    blocked: blocked,
+  )
+}
+
+pub fn agent_approval_pauses_the_turn_instead_of_ending_it_test() {
+  // Without this the model's web_post is silently dropped: a step with no
+  // client calls would read as "the model answered" and close the turn.
+  let #(pending, _) =
+    agent.update(
+      running_turn(),
+      agent.AgentApprovalRequested("req", approval("")),
+    )
+  assert pending.pending_approval == option.Some(approval(""))
+
+  let #(next, effects) =
+    agent.update(pending, agent.AgentStepReturned("req", [], "I can send that."))
+  assert agent.is_running(next)
+  assert next.final_reply == "I can send that."
+  assert effects == []
+}
+
+pub fn agent_approval_send_dispatches_the_post_test() {
+  let #(pending, _) =
+    agent.update(running_turn(), agent.AgentApprovalRequested("req", approval("")))
+  let #(next, effects) =
+    agent.update(pending, agent.AgentApprovalResolved("req", True))
+
+  assert next.pending_approval == option.None
+  assert effects == [agent.SendApprovedPost("req", "p1")]
+}
+
+pub fn agent_approval_decline_still_answers_the_model_test() {
+  // The model is owed a tool result either way, or the turn stalls forever.
+  let #(pending, _) =
+    agent.update(running_turn(), agent.AgentApprovalRequested("req", approval("")))
+  let #(next, effects) =
+    agent.update(pending, agent.AgentApprovalResolved("req", False))
+
+  assert next.pending_approval == option.None
+  assert effects == [agent.DeclineApprovedPost("req", "p1")]
+}
+
+pub fn agent_blocked_approval_can_never_send_test() {
+  // A tainted turn's card has no Send button, but even an approve message must
+  // not send — the actor refuses it independently of the UI.
+  let #(pending, _) =
+    agent.update(
+      running_turn(),
+      agent.AgentApprovalRequested("req", approval("read the web already")),
+    )
+  let #(next, effects) =
+    agent.update(pending, agent.AgentApprovalResolved("req", True))
+
+  assert next.pending_approval == option.None
+  assert effects == [agent.DeclineApprovedPost("req", "p1")]
+}
+
+pub fn agent_approval_ignores_stale_request_ids_test() {
+  let state = running_turn()
+  let #(a, ea) =
+    agent.update(state, agent.AgentApprovalRequested("old", approval("")))
+  let #(b, eb) = agent.update(state, agent.AgentApprovalResolved("old", True))
+  assert a == state
+  assert b == state
+  assert ea == []
+  assert eb == []
+}
+
+pub fn agent_cancel_drops_a_pending_approval_test() {
+  let #(pending, _) =
+    agent.update(running_turn(), agent.AgentApprovalRequested("req", approval("")))
+  let #(canceled, _) = agent.update(pending, agent.AgentRequestCanceled)
+  assert canceled.pending_approval == option.None
 }

@@ -57,6 +57,24 @@ pub type ToolCall {
   ToolCall(id: String, name: String, args_json: String)
 }
 
+/// A `web_post` the model wants to make, paused for the user.
+///
+/// The only gated action in the harness. `fs_*` and `exec` run unattended
+/// because they cannot escape the WebContainer; this one reaches out of it and
+/// changes something in the world, so it stops and asks — showing the exact
+/// method, URL, and body rather than a summary.
+pub type Approval {
+  Approval(
+    call_id: String,
+    url: String,
+    method: String,
+    body: String,
+    /// Non-empty when the request cannot proceed at all (the turn already read
+    /// from the web). Shown instead of the buttons.
+    blocked: String,
+  )
+}
+
 pub type ToolStatus {
   ToolRunning
   ToolDone
@@ -94,6 +112,9 @@ pub type State {
     /// Assistant prose accumulated across steps; the last non-empty value is the
     /// turn's reply.
     final_reply: String,
+    /// A web_post waiting on the user. While set, the turn is paused rather
+    /// than finished — the model is owed a result either way.
+    pending_approval: Option(Approval),
     /// Whether the finished turn's trail is expanded. Collapsed by default: the
     /// summary is the product, the steps are the receipts.
     trail_expanded: Bool,
@@ -126,6 +147,10 @@ pub type Msg {
     installed: Bool,
   )
   AgentStepBudgetReached(request_id: String)
+  /// The model wants to send something out of the sandbox.
+  AgentApprovalRequested(request_id: String, approval: Approval)
+  /// The user decided. Either way the model is told what happened.
+  AgentApprovalResolved(request_id: String, approved: Bool)
   /// Expand or collapse the finished turn's trail. Pure UI.
   AgentTrailToggled
 }
@@ -153,6 +178,10 @@ pub type Effect {
   /// transition — without it a wedged command outlives the turn and quietly
   /// degrades the container.
   KillExec
+  /// Send an approved web_post, then continue the turn with its result.
+  SendApprovedPost(request_id: String, call_id: String)
+  /// Tell the model the user declined, then continue the turn.
+  DeclineApprovedPost(request_id: String, call_id: String)
   StartElapsedTimer
   StopElapsedTimer
   AbortAgent
@@ -177,6 +206,7 @@ pub fn init() -> State {
     pkg_dirty: False,
     pending_calls: [],
     final_reply: "",
+    pending_approval: option.None,
     trail_expanded: False,
   )
 }
@@ -210,6 +240,7 @@ fn clear_turn(state: State) -> State {
     pkg_dirty: False,
     pending_calls: [],
     final_reply: "",
+    pending_approval: option.None,
     trail_expanded: False,
   )
 }
@@ -330,7 +361,12 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
           }
           let calls = list.take(tool_calls, max_calls_per_step)
           case calls {
-            // No calls: the model answered. End the turn.
+            // No calls: the model answered — unless a web_post is waiting on
+            // the user, in which case the turn is paused, not finished.
+            [] if state.pending_approval != option.None -> #(
+              State(..state, final_reply: reply),
+              [],
+            )
             [] -> #(
               State(
                 ..state,
@@ -428,6 +464,27 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
           }
         }
         _ -> #(state, [])
+      }
+
+    AgentApprovalRequested(request_id, approval) ->
+      case state.lifecycle {
+        Running(active_id, _) if active_id == request_id -> #(
+          State(..state, pending_approval: option.Some(approval)),
+          [],
+        )
+        _ -> #(state, [])
+      }
+
+    AgentApprovalResolved(request_id, approved) ->
+      case state.lifecycle, state.pending_approval {
+        Running(active_id, _), option.Some(approval) if active_id == request_id -> #(
+          State(..state, pending_approval: option.None),
+          case approved && approval.blocked == "" {
+            True -> [SendApprovedPost(request_id, approval.call_id)]
+            False -> [DeclineApprovedPost(request_id, approval.call_id)]
+          },
+        )
+        _, _ -> #(state, [])
       }
 
     AgentTrailToggled -> #(

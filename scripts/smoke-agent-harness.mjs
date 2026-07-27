@@ -246,6 +246,63 @@ note(
   (await page.locator('.jobPicker').count()) === 0,
 )
 
+// ── 9. web_post stops and asks ──────────────────────────────────────────────
+// The one gated action: fs_*/exec run unattended because they cannot escape the
+// WebContainer; this reaches out of it, so the user sees the whole request.
+await bridge(`bridge.dispatchSettingsLoaded({ provider: 'openrouter', apiKey: 'sk-test', model: 'anthropic/claude-sonnet-4.6' })`)
+await page.waitForTimeout(300)
+await startTurn()
+await page.evaluate(() => {
+  const { A, M } = globalThis.__h
+  __go(
+    M.Msg$Agent(
+      A.Msg$AgentApprovalRequested(
+        'smoke',
+        A.Approval$Approval('p1', 'https://hooks.example/notify', 'POST', '{"event":"built"}', ''),
+      ),
+    ),
+  )
+})
+await page.waitForTimeout(300)
+const card = await page.evaluate(() => {
+  const el = document.querySelector('.approvalCard')
+  return {
+    present: !!el,
+    headline: el?.querySelector('strong')?.textContent?.trim(),
+    target: el?.querySelector('.approvalTarget')?.textContent?.trim(),
+    exactBody: el?.querySelector('pre')?.textContent,
+    buttons: [...(el?.querySelectorAll('button') ?? [])].map(b => b.textContent.trim()),
+  }
+})
+note('web_post pauses for approval', card.present)
+note('the card names the destination host', /hooks\.example/.test(card.headline ?? ''), card.headline)
+note('the card shows the exact body, not a summary', card.exactBody === '{"event":"built"}', card.exactBody)
+note('the card shows the method and full URL', /POST https:\/\/hooks\.example\/notify/.test(card.target ?? ''))
+note('the user can send or refuse', card.buttons.length === 2, card.buttons.join(' / '))
+await snap('web-post-approval')
+
+// A turn that already read the web cannot send at all.
+await page.evaluate(() => {
+  const { A, M } = globalThis.__h
+  __go(M.Msg$Agent(A.Msg$AgentApprovalResolved('smoke', false)))
+  __go(
+    M.Msg$Agent(
+      A.Msg$AgentApprovalRequested(
+        'smoke',
+        A.Approval$Approval('p2', 'https://hooks.example/x', 'POST', '{}', 'read the web already'),
+      ),
+    ),
+  )
+})
+await page.waitForTimeout(300)
+const blocked = await page.evaluate(() => ({
+  reason: document.querySelector('.approvalBlocked')?.textContent?.trim(),
+  buttons: [...document.querySelectorAll('.approvalCard button')].map(b => b.textContent.trim()),
+}))
+note('a tainted turn shows no send button', blocked.buttons.length === 1, blocked.buttons.join(' / '))
+note('and says why', (blocked.reason ?? '').length > 0, blocked.reason)
+await snap('web-post-blocked')
+
 await context.close()
 const videos = (await readdir(OUT)).filter(f => f.endsWith('.webm'))
 for (const file of videos) {

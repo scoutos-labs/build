@@ -1,5 +1,5 @@
 import { runNpmInstall } from './webcontainer.mjs'
-import { dispatchAgentBudgetExhausted, dispatchAgentFailed, dispatchAgentStepReturned, dispatchAgentTick, dispatchAgentTimeoutReached, dispatchAgentToolFinished, dispatchAgentToolStarted, dispatchProjectFileApplied, dispatchWebContainerLog } from './runtime_bridge.mjs'
+import { dispatchAgentBudgetExhausted, dispatchAgentFailed, dispatchAgentApprovalRequested, dispatchAgentStepReturned, dispatchAgentTick, dispatchAgentTimeoutReached, dispatchAgentToolFinished, dispatchAgentToolStarted, dispatchProjectFileApplied, dispatchWebContainerLog } from './runtime_bridge.mjs'
 
 let elapsedTimer = null
 let activeController = null
@@ -97,6 +97,8 @@ export async function callAgent(requestId, provider, model, userPrompt, apiKey =
 async function runStep(requestId, stepIndex) {
   const turn = turns.get(requestId)
   if (!turn) return // canceled between steps
+  // Results recorded since the last step (tool executions, an approved post).
+  if (stepIndex > 0) turn.toolResults = drainToolResults(requestId)
 
   try {
     const managed = managedAuth()
@@ -146,6 +148,7 @@ async function runStep(requestId, stepIndex) {
     )
 
     turn.stepToken = response.stepToken
+    turn.stepIndex = stepIndex
     // Once tainted, a turn stays tainted.
     turn.webRead = turn.webRead || response.webRead === true
 
@@ -159,6 +162,13 @@ async function runStep(requestId, stepIndex) {
     // only its own.
     turn.toolResults = []
     turn.toolCalls = response.toolCalls ?? []
+
+    // A web_post never arrives as a runnable call — the browser cannot send it.
+    // It pauses the turn for the user, who sees the exact request.
+    if (response.approval) {
+      turn.approval = response.approval
+      dispatchAgentApprovalRequested(requestId, response.approval)
+    }
 
     dispatchAgentStepReturned(
       requestId,
@@ -254,7 +264,6 @@ export function callAgentStep(requestId, step) {
   ]
   const turn = turns.get(requestId)
   if (!turn) return // canceled, timed out, or already finished
-  turn.toolResults = drainToolResults(requestId)
   void runStep(requestId, step)
 }
 
@@ -280,6 +289,66 @@ export async function executeTool(requestId, callId, name, argsJson) {
     result.paths ?? [],
     result.installed ?? false,
   )
+}
+
+/**
+ * Send an approved web_post, then continue the turn with its result.
+ *
+ * The taint flag rides along and is re-checked server-side: a client that
+ * "forgot" it had read the web must not be able to unlock the write.
+ */
+export async function sendApprovedPost(requestId, callId) {
+  const turn = turns.get(requestId)
+  if (!turn) return
+  const approval = turn.approval
+  turn.approval = null
+  let content = 'Could not send that request.'
+  try {
+    const managed = managedAuth()
+    const token = managed ? await managed.getToken() : null
+    const response = await fetch('/api/agent/tool/web_post', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({
+        url: approval?.url,
+        method: approval?.method,
+        body: approval?.body,
+        contentType: approval?.contentType,
+        webRead: turn.webRead,
+      }),
+      signal: turn.controller.signal,
+    })
+    const result = await response.json().catch(() => ({}))
+    content = response.ok
+      ? String(result.content ?? 'Sent.')
+      : String(result?.error?.message ?? 'That request was refused.')
+  } catch (error) {
+    content = `Could not send that request: ${message(error)}`
+  }
+  recordToolResult(requestId, callId, 'web_post', content)
+  dispatchAgentToolStarted(requestId, `${requestId}-post`, 'Sent the request')
+  void runStep(requestId, (turn.stepIndex ?? 0) + 1)
+}
+
+/** The user said no. The model is still owed a result, or the turn stalls. */
+export function declineApprovedPost(requestId, callId) {
+  const turn = turns.get(requestId)
+  if (!turn) return
+  turn.approval = null
+  recordToolResult(
+    requestId,
+    callId,
+    'web_post',
+    'The user declined to send this request. Do not try again unless they ask; carry on with the rest of the work.',
+  )
+  dispatchAgentToolStarted(requestId, `${requestId}-post`, 'Did not send the request')
+  void runStep(requestId, (turn.stepIndex ?? 0) + 1)
+}
+
+function recordToolResult(requestId, callId, name, content) {
+  const bucket = toolResults.get(requestId) ?? []
+  bucket.push({ toolCallId: callId, name, content })
+  toolResults.set(requestId, bucket)
 }
 
 export function killExec() {

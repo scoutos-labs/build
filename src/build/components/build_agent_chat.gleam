@@ -117,6 +117,7 @@ pub fn view(
       ],
       prompt,
     ),
+    approval_card(agent_state),
     trail_view(agent_state, running),
     case budget_exhausted {
       True ->
@@ -155,6 +156,89 @@ pub fn view(
       job_picker(settings_state, busy),
     ]),
   ])
+}
+
+/// The one gated moment in the harness.
+///
+/// `fs_*` and `exec` run unattended because they cannot escape the
+/// WebContainer. `web_post` reaches out of it and changes something in the
+/// world, so it stops and shows the user the whole request — method, host, and
+/// the exact body. A card that summarized would be a card that hid something.
+fn approval_card(state: agent.State) -> Element(msg.Msg) {
+  case state.pending_approval {
+    option.None -> html.text("")
+    option.Some(approval) ->
+      html.div([attribute.class("approvalCard")], [
+        html.strong([], [
+          html.text("hyper wants to send data to " <> host_of(approval.url)),
+        ]),
+        html.p([attribute.class("approvalTarget")], [
+          html.text(approval.method <> " " <> approval.url),
+        ]),
+        html.pre([], [html.text(approval.body)]),
+        case approval.blocked {
+          "" ->
+            html.div([attribute.class("actions")], [
+              button(
+                [
+                  attribute.class("compact"),
+                  event.on_click(msg.Agent(agent.AgentApprovalResolved(
+                    approval_request_id(state),
+                    True,
+                  ))),
+                ],
+                "Send it",
+              ),
+              button(
+                [
+                  attribute.class("ghost compact"),
+                  event.on_click(msg.Agent(agent.AgentApprovalResolved(
+                    approval_request_id(state),
+                    False,
+                  ))),
+                ],
+                "Don't send",
+              ),
+            ])
+          reason ->
+            html.div([], [
+              html.p([attribute.class("approvalBlocked")], [html.text(reason)]),
+              html.div([attribute.class("actions")], [
+                button(
+                  [
+                    attribute.class("ghost compact"),
+                    event.on_click(msg.Agent(agent.AgentApprovalResolved(
+                      approval_request_id(state),
+                      False,
+                    ))),
+                  ],
+                  "OK",
+                ),
+              ]),
+            ])
+        },
+      ])
+  }
+}
+
+fn approval_request_id(state: agent.State) -> String {
+  case state.lifecycle {
+    agent.Running(request_id, _) -> request_id
+    _ -> ""
+  }
+}
+
+/// Host only in the headline — the full URL is on its own line below, so the
+/// question reads as a sentence rather than a URL.
+fn host_of(url: String) -> String {
+  case string.split(url, "//") {
+    [_, rest, ..] ->
+      case string.split(rest, "/") {
+        [host, ..] -> host
+        [] -> url
+      }
+    _ -> url
+  }
 }
 
 /// The job picker.
@@ -383,6 +467,19 @@ fn button(attrs, label: String) {
 // stops meaning anything if more than one thing wears it.
 
 fn trail_view(state: agent.State, running: Bool) -> Element(msg.Msg) {
+  // While an approval is up, the agent is not thinking — it is waiting on the
+  // user, and the card right above says what for.
+  case state.pending_approval {
+    option.Some(_) ->
+      html.div([attribute.class("thinking")], [
+        build_bolt.glyph("boltPulse"),
+        html.text("waiting for you"),
+      ])
+    option.None -> trail_working_view(state, running)
+  }
+}
+
+fn trail_working_view(state: agent.State, running: Bool) -> Element(msg.Msg) {
   case running, state.trail {
     // Working, but no tool has been picked up yet.
     True, [] ->

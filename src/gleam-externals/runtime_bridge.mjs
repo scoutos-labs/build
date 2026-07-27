@@ -163,6 +163,19 @@ export function dispatchAgentToolFinished(requestId, callId, ok, summary, paths 
   )))
 }
 
+export function dispatchAgentApprovalRequested(requestId, approval) {
+  sendMsg(Msg.Msg$Agent(Agent.Msg$AgentApprovalRequested(
+    String(requestId),
+    Agent.Approval$Approval(
+      String(approval?.toolCallId ?? ''),
+      String(approval?.url ?? ''),
+      String(approval?.method ?? 'POST'),
+      String(approval?.body ?? ''),
+      String(approval?.blocked ?? ''),
+    ),
+  )))
+}
+
 export function dispatchAgentStepBudgetReached(requestId) {
   sendMsg(Msg.Msg$Agent(Agent.Msg$AgentStepBudgetReached(String(requestId))))
 }

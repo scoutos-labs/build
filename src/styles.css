@@ -145,6 +145,16 @@ input:focus, textarea:focus, select:focus { border-color: transparent; box-shado
 .trailStep { font-size: .8rem; color: var(--hyper-charcoal); opacity: .78; line-height: 1.45; }
 /* A failed step is ink on white, like .previewErrorCard — never red. */
 .trailStepProblem { color: var(--hyper-ink); }
+/* The approval card: the one moment the agent stops and asks. Ink on white with
+   the amber rule — the same "needs your attention" language as the preview-error
+   card, never a red alarm. */
+.approvalCard { display: grid; gap: 8px; padding: 10px 12px; background: #fff; border: 1px solid var(--hyper-line); border-left: 3px solid var(--hyper-amber); border-radius: 12px; font-size: .84rem; color: var(--hyper-ink); box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
+.approvalTarget { font-family: var(--hyper-mono); font-size: .72rem; color: var(--hyper-slate); word-break: break-all; margin: 0; }
+/* The EXACT body, scrollable rather than clipped — the user must be able to
+   read everything that would leave the sandbox. */
+.approvalCard pre { margin: 0; padding: 8px 10px; max-height: 120px; overflow: auto; font-family: var(--hyper-mono); font-size: .72rem; line-height: 1.45; white-space: pre-wrap; word-break: break-word; background: var(--hyper-soft); border-radius: 8px; }
+.approvalCard .actions { margin: 0; }
+.approvalBlocked { color: var(--hyper-charcoal); margin: 0 0 8px; }
 /* The job picker sits with Send, not in settings: choosing how hard to think is
    part of composing a request. Quiet by default — it is a choice, not a control
    panel. */

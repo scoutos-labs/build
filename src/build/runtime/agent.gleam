@@ -13,6 +13,10 @@ pub fn interpret(effect: agent.Effect) -> Nil {
     agent.ExecuteTool(request_id, call) ->
       execute_tool(request_id, call.id, call.name, call.args_json)
     agent.KillExec -> kill_exec()
+    agent.SendApprovedPost(request_id, call_id) ->
+      send_approved_post(request_id, call_id)
+    agent.DeclineApprovedPost(request_id, call_id) ->
+      decline_approved_post(request_id, call_id)
     agent.StartElapsedTimer -> start_elapsed_timer()
     agent.StopElapsedTimer -> stop_elapsed_timer()
     agent.AbortAgent -> abort_agent()
@@ -38,6 +42,12 @@ fn execute_tool(
 
 @external(javascript, "../../gleam-externals/agent.mjs", "killExec")
 fn kill_exec() -> Nil
+
+@external(javascript, "../../gleam-externals/agent.mjs", "sendApprovedPost")
+fn send_approved_post(request_id: String, call_id: String) -> Nil
+
+@external(javascript, "../../gleam-externals/agent.mjs", "declineApprovedPost")
+fn decline_approved_post(request_id: String, call_id: String) -> Nil
 
 @external(javascript, "../../gleam-externals/agent.mjs", "installDependencies")
 fn install_dependencies() -> Nil

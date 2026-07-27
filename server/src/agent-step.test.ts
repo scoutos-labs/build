@@ -734,3 +734,43 @@ describe('web_post — the transcript must stay well-formed', () => {
     expect(body.transcriptCalls.map(c => c.id)).toEqual(['c1', 'p1'])
   })
 })
+
+describe('server web reads survive into the next step', () => {
+  it('echoes the inline call AND its result, so the model keeps what it read', async () => {
+    // Without this the page vanishes when the step ends: buildToolModeMessages
+    // rebuilds from the request body, which knows nothing about the server's
+    // local message list. The model would re-fetch on a turn whose taint has
+    // already cost it web_post.
+    const openrouter = scriptedOpenRouter('web_fetch', '{"url":"https://example.com/doc"}')
+    const app = createApp(
+      webDeps({ openrouter, webFetchImpl: async () => ({ ok: true, content: 'THE DOCS SAY X' }) }),
+    )
+    const body = (await (await post(app, stepBody())).json()) as {
+      transcriptCalls: { id: string; function: { name: string } }[]
+      serverToolResults: { toolCallId: string; content: string }[]
+    }
+    expect(body.transcriptCalls.map(c => c.function.name)).toContain('web_fetch')
+    expect(body.serverToolResults).toHaveLength(1)
+    expect(body.serverToolResults[0]!.content).toContain('THE DOCS SAY X')
+    // The pair must reference the same id, or the next request is malformed.
+    expect(body.serverToolResults[0]!.toolCallId).toBe(body.transcriptCalls[0]!.id)
+  })
+
+  it('assembles a well-formed transcript when the client echoes them back', () => {
+    const messages = buildToolModeMessages({
+      turnId: 't',
+      stepIndex: 1,
+      tree: [],
+      fullFiles: [],
+      messages: [],
+      toolCalls: [toolCall('w1', 'web_fetch', '{"url":"https://example.com"}')],
+      toolResults: [{ toolCallId: 'w1', name: 'web_fetch', content: 'page text' }],
+    })
+    const assistant = messages.find(m => m.role === 'assistant')
+    const announced = new Set((assistant?.tool_calls ?? []).map(c => c.id))
+    for (const message of messages.filter(m => m.role === 'tool')) {
+      expect(announced.has(message.tool_call_id!)).toBe(true)
+    }
+    expect(messages.some(m => m.role === 'tool' && m.content === 'page text')).toBe(true)
+  })
+})

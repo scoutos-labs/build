@@ -833,3 +833,24 @@ pub fn agent_server_steps_ignore_stale_request_ids_test() {
   assert next == state
   assert effects == []
 }
+
+pub fn agent_does_not_step_while_an_approval_is_pending_test() {
+  // A step can return both a client call and a web_post. If the tool finishing
+  // stepped the turn while the user was still deciding, two requests would be
+  // in flight sharing one transcript.
+  let #(dispatched, _) =
+    agent.update(running_turn(), agent.AgentStepReturned("req", [call("c1", "fs_read")], ""))
+  let #(waiting, _) =
+    agent.update(dispatched, agent.AgentApprovalRequested("req", approval("")))
+  let #(_, effects) = finish(waiting, "c1", "Read a file")
+
+  assert effects == []
+}
+
+pub fn agent_steps_normally_when_no_approval_is_pending_test() {
+  let #(dispatched, _) =
+    agent.update(running_turn(), agent.AgentStepReturned("req", [call("c1", "fs_read")], ""))
+  let #(_, effects) = finish(dispatched, "c1", "Read a file")
+
+  assert effects == [agent.CallAgentStep("req", 1)]
+}

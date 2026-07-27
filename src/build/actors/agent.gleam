@@ -464,10 +464,13 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
               pkg_dirty: dirty,
               trail: set_trail_status(state.trail, call_id, status, summary),
             )
-          case still_pending {
-            // Every call for this step is in — take the next step.
-            [] -> #(next, [CallAgentStep(request_id, next.step)])
-            _ -> #(next, [])
+          case still_pending, next.pending_approval {
+            // Every call for this step is in — take the next step. Unless a
+            // web_post is waiting on the user: resolving it will continue the
+            // turn, and stepping now would put two requests in flight sharing
+            // one turn's transcript.
+            [], option.None -> #(next, [CallAgentStep(request_id, next.step)])
+            _, _ -> #(next, [])
           }
         }
         _ -> #(state, [])
@@ -506,13 +509,17 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
 
     AgentApprovalResolved(request_id, approved) ->
       case state.lifecycle, state.pending_approval {
-        Running(active_id, _), option.Some(approval) if active_id == request_id -> #(
-          State(..state, pending_approval: option.None),
-          case approved && approval.blocked == "" {
-            True -> [SendApprovedPost(request_id, approval.call_id)]
-            False -> [DeclineApprovedPost(request_id, approval.call_id)]
-          },
-        )
+        Running(active_id, _), option.Some(approval) if active_id == request_id -> {
+          let cleared = State(..state, pending_approval: option.None)
+          // Mirror of the guard above: if client tools from this same step are
+          // still running, record the decision but let their completion drive
+          // the next step, so only one request is ever in flight.
+          let send = case approved && approval.blocked == "" {
+            True -> SendApprovedPost(request_id, approval.call_id)
+            False -> DeclineApprovedPost(request_id, approval.call_id)
+          }
+          #(cleared, [send])
+        }
         _, _ -> #(state, [])
       }
 

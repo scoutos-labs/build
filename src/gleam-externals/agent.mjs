@@ -92,9 +92,24 @@ export async function callAgent(requestId, provider, model, userPrompt, apiKey =
   await runStep(requestId, 0)
 }
 
+/**
+ * One step of the turn.
+ *
+ * Serialized per turn. A step can be triggered from two places at once — the
+ * last client tool of a step finishing, and the user resolving a web_post
+ * approval from that same step — and two in-flight requests sharing one turn
+ * would race `drainToolResults` and clobber each other's `stepToken` and
+ * `toolCalls`. The later trigger is queued rather than dropped, so its results
+ * still reach the model on the next step.
+ */
 async function runStep(requestId, stepIndex) {
   const turn = turns.get(requestId)
   if (!turn) return // canceled between steps
+  if (turn.inFlight) {
+    turn.queuedStep = Math.max(turn.queuedStep ?? 0, stepIndex)
+    return
+  }
+  turn.inFlight = true
   // Results recorded since the last step (tool executions, an approved post).
   if (stepIndex > 0) turn.toolResults = drainToolResults(requestId)
 
@@ -186,8 +201,9 @@ async function runStep(requestId, stepIndex) {
       dispatchAgentServerStepRecorded(requestId, step.name, summary)
     }
     // Results are consumed by the step that carried them; the next step reports
-    // only its own.
-    turn.toolResults = []
+    // only its own — plus any the SERVER ran inline, which must be echoed back
+    // or the model loses the page it just read.
+    turn.toolResults = response.serverToolResults ?? []
     // The FULL emitted set (including a gated web_post), because every tool
     // result we send next step must have a matching call in this array.
     turn.toolCalls = response.transcriptCalls ?? response.toolCalls ?? []
@@ -221,6 +237,14 @@ async function runStep(requestId, stepIndex) {
       dispatchWebContainerLog(raw)
     }
     finishTurn(requestId)
+  } finally {
+    turn.inFlight = false
+    const queued = turn.queuedStep
+    if (queued !== undefined) {
+      turn.queuedStep = undefined
+      // No-op if the turn ended while this step was running.
+      void runStep(requestId, queued)
+    }
   }
 }
 

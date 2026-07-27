@@ -508,11 +508,20 @@ export function createApp(deps: AppDeps) {
       maxCalls: MAX_CALLS_PER_STEP,
     })
     const serverSteps: { name: string; summary: string; warn?: string }[] = []
+    /**
+     * The inline calls and their results, echoed back so the NEXT step still has
+     * them. Without this a page the agent just read vanishes when the step ends:
+     * `buildToolModeMessages` rebuilds from the request body, which knows nothing
+     * about the server's local message list — so the model would re-fetch what it
+     * already has, on a turn whose taint flag has already cost it web_post.
+     */
+    const inlineCalls: ProviderToolCall[] = []
+    const inlineResults: { toolCallId: string; name: string; content: string }[] = []
 
     for (let inner = 0; inner < INNER_CAP; inner++) {
       if (result.kind !== 'ok') break
-      const inlineCalls = result.toolCalls.filter(call => SERVER_INLINE_TOOLS.has(call.function.name))
-      if (inlineCalls.length === 0) break
+      const runnableHere = result.toolCalls.filter(call => SERVER_INLINE_TOOLS.has(call.function.name))
+      if (runnableHere.length === 0) break
 
       modelMessages.push({ role: 'assistant', content: result.content, tool_calls: result.toolCalls })
       for (const call of result.toolCalls) {
@@ -531,6 +540,12 @@ export function createApp(deps: AppDeps) {
         webRead = true
         serverSteps.push(executed.step)
         modelMessages.push({ role: 'tool', content: executed.content, tool_call_id: call.id })
+        inlineCalls.push(call)
+        inlineResults.push({
+          toolCallId: call.id,
+          name: call.function.name,
+          content: executed.content,
+        })
       }
       result = await deps.openrouter.toolCompletion({
         apiKey,
@@ -574,7 +589,10 @@ export function createApp(deps: AppDeps) {
       // echoes THIS back as the assistant `tool_calls` on the next step:
       // answering a call the provider never saw requested is a 400, and it
       // would land after the POST had already gone out.
-      transcriptCalls: toolCalls,
+      transcriptCalls: [...inlineCalls, ...toolCalls],
+      // Answers for the inline calls above, so the client can echo the pair and
+      // the model keeps what it read.
+      serverToolResults: inlineResults,
       approval: approval ? describeApproval(approval, webRead) : null,
       serverSteps,
       assistantContent,

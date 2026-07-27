@@ -5,9 +5,11 @@ import type { KeyCrypto } from './key-crypto.js'
 import type { OpenRouterClient } from './openrouter.js'
 import { buildModelMessages, extractJson, type AgentRequestBody, type ProjectFile } from './prompt.js'
 import { checkSubdomain, packageProject } from './publish.js'
-import type { RateLimiter } from './rate-limit.js'
+import type { AgentRateLimiters, RateLimiter } from './rate-limit.js'
 import type { ScoutLiveClient } from './scoutlive.js'
 import { normalizeTier, tierConfig } from './tiers.js'
+import { DEFAULT_JOB, type ModelCatalog } from './models.js'
+import { maxStepsForTier, type StepTokens } from './step-token.js'
 
 /**
  * Caps raw request parsing only. Model spend is bounded separately: context
@@ -35,6 +37,16 @@ export type AppDeps = {
   scoutlive: ScoutLiveClient
   keyCrypto: KeyCrypto
   rateLimiter: RateLimiter
+  /**
+   * Harness dependencies. Optional so the single-shot `/api/agent` surface (and
+   * its existing tests) keep working untouched: when absent, the model and
+   * step-token routes report themselves unconfigured rather than 500ing.
+   */
+  models?: ModelCatalog
+  stepTokens?: StepTokens
+  /** Separate ceilings for turn-starts vs. continuation steps. Falls back to
+   * `rateLimiter` for both when absent. */
+  agentLimiters?: AgentRateLimiters
   /** Verify a Clerk session JWT; throw on anything invalid. */
   verifyToken(token: string): Promise<AuthResult>
   /** Verify a svix-signed webhook; throw on bad signature. */
@@ -422,6 +434,9 @@ export function createApp(deps: AppDeps) {
     }
 
     const keyInfo = await deps.openrouter.getKey(user.or_key_hash)
+    // Tool capability is a property of the *harness*, not of billing — surface
+    // it so the client can refuse to run the loop rather than degrade silently.
+    const toolCapable = deps.models ? await deps.models.isToolCapable(user.model) : false
     return c.json({
       plan: user.tier,
       model: user.model,
@@ -429,7 +444,63 @@ export function createApp(deps: AppDeps) {
       limit: keyInfo.limit,
       usage: keyInfo.usage,
       limitRemaining: keyInfo.limitRemaining,
+      toolCapable,
+      maxToolSteps: maxStepsForTier(user.tier),
     })
+  })
+
+  /**
+   * The picker's data. `curated` is what the UI shows by default (three jobs, no
+   * model ids); `catalog` backs the advanced disclosure and is already filtered
+   * to tool-capable rows, because offering a non-tool model would silently break
+   * the harness rather than merely perform worse.
+   */
+  app.get('/api/models', async c => {
+    const auth = await authenticate(c)
+    if (!auth) return c.json(errorBody('unauthorized', 'Missing or invalid session token'), 401)
+    if (!deps.models) return c.json(errorBody('not_configured', 'Model catalog unavailable'), 503)
+
+    const [curated, catalog] = await Promise.all([
+      deps.models.curated(),
+      deps.models.toolCapable(),
+    ])
+    return c.json({ curated, catalog, defaultJob: DEFAULT_JOB })
+  })
+
+  app.put('/api/me/model', async c => {
+    const auth = await authenticate(c)
+    if (!auth) return c.json(errorBody('unauthorized', 'Missing or invalid session token'), 401)
+    if (!deps.models) return c.json(errorBody('not_configured', 'Model catalog unavailable'), 503)
+
+    let body: { model?: unknown }
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json(errorBody('bad_request', 'Body must be JSON'), 400)
+    }
+    const model = typeof body.model === 'string' ? body.model.trim() : ''
+    if (!model) return c.json(errorBody('bad_request', 'Body must include a model id'), 400)
+
+    if (!(await deps.models.isToolCapable(model))) {
+      return c.json(
+        errorBody(
+          'model_not_tool_capable',
+          "That model can't use tools, so build couldn't read files, run commands, or check its own work.",
+        ),
+        400,
+      )
+    }
+
+    // Provision first: a model choice made before the first turn must not be
+    // written to a row that does not exist yet.
+    try {
+      await loadOrProvisionUser(deps, auth)
+    } catch (error) {
+      deps.log?.(`provisioning failed for ${auth.userId}: ${String(error)}`)
+      return c.json(errorBody('provisioning_failed', 'Could not provision account'), 503)
+    }
+    await deps.db.updateModel(auth.userId, model)
+    return c.json({ model })
   })
 
   app.post('/webhooks/clerk', async c => {

@@ -53,6 +53,10 @@ function createFakeDb(initial: UserRow[] = []) {
       const row = rows.get(id)
       if (row) rows.set(id, { ...row, tier, model })
     },
+    async updateModel(id, model) {
+      const row = rows.get(id)
+      if (row) rows.set(id, { ...row, model })
+    },
     async upsertCredential(id, provider, keyEnc) {
       credentials.set(`${id}:${provider}`, keyEnc)
     },
@@ -340,6 +344,11 @@ describe('GET /api/me', () => {
       limit: 1,
       usage: 0.25,
       limitRemaining: 0.75,
+      // Harness fields. `models` is not wired into these deps, so tool
+      // capability reports false rather than guessing — the client then refuses
+      // to run the loop instead of degrading silently.
+      toolCapable: false,
+      maxToolSteps: 8,
     })
   })
 

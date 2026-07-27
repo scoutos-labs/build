@@ -14,6 +14,9 @@ const turns = new Map()
  * old per-request timeout were the same number; under a loop they are not. */
 const TURN_DEADLINE_MS = 300_000
 
+/** Tool calls honored from one step. Mirrors the Gleam actor and the server. */
+const MAX_CALLS_PER_STEP = 3
+
 
 async function agentModule() {
   try { return await import('../agent') }
@@ -111,61 +114,12 @@ async function runStep(requestId, stepIndex) {
   }
   turn.inFlight = true
   // Results recorded since the last step (tool executions, an approved post).
-  if (stepIndex > 0) turn.toolResults = drainToolResults(requestId)
+  if (stepIndex > 0) turn.toolResults = [...turn.toolResults, ...drainToolResults(requestId)]
 
   try {
     const managed = managedAuth()
     if (!managed) {
-      // BYOK stays on the single-shot JSON protocol (Ollama has no tool mode
-      // at all; see LLMStepParams.provider). Its one response is adapted into
-      // the SAME synthetic fs_batch_write the managed legacy adapter uses, so
-      // BYOK goes through identical machinery — touched_paths, pkg_dirty, chips
-      // and the build log all populate. Applying patches directly instead left
-      // BYOK with no chips, no story paths, and no install trigger at all.
-      const result = await (await agentModule()).runAgent({
-        provider: turn.provider,
-        apiKey: turn.apiKey,
-        ollamaUrl: turn.ollamaUrl,
-        model: turn.model,
-        userPrompt: turn.userPrompt,
-        files: turn.files,
-        messages: turn.messages,
-        selectedElement: turn.selectedElement,
-        elementComment: turn.elementComment,
-        signal: turn.controller.signal,
-      })
-      const patches = (result.patches ?? []).filter(
-        patch => typeof patch?.path === 'string' && typeof patch?.content === 'string',
-      )
-      if (patches.length > 0) {
-        const callId = `${requestId}-byok`
-        // Drop the turn FIRST. AgentToolFinished emits CallAgentStep
-        // synchronously, and JSON mode has no next step — with the turn still
-        // registered that would fire a second provider call.
-        turns.delete(requestId)
-        dispatchAgentStepReturned(
-          requestId,
-          [{ id: callId, name: 'fs_batch_write', argsJson: JSON.stringify({ files: patches }) }],
-          result.reply ?? '',
-        )
-        // Apply through the one legal write path, then report it the same way a
-        // tool would — this is what populates chips, the build log, and
-        // pkg_dirty (and therefore the turn-end install).
-        for (const patch of patches) dispatchProjectFileApplied(patch.path, patch.content)
-        const paths = patches.map(patch => patch.path)
-        dispatchAgentToolFinished(
-          requestId,
-          callId,
-          true,
-          paths.length === 1 ? `Wrote ${paths[0].split('/').pop()}` : `Wrote ${paths.length} files`,
-          paths,
-          false,
-        )
-        dispatchAgentStepReturned(requestId, [], result.reply ?? '')
-      } else {
-        dispatchAgentStepReturned(requestId, [], result.reply ?? '')
-      }
-      finishTurn(requestId)
+      await runByokStep(requestId, stepIndex, turn)
       return
     }
 
@@ -200,13 +154,17 @@ async function runStep(requestId, stepIndex) {
       const summary = step.warn ? `${step.summary} — ${step.warn}` : step.summary
       dispatchAgentServerStepRecorded(requestId, step.name, summary)
     }
-    // Results are consumed by the step that carried them; the next step reports
-    // only its own — plus any the SERVER ran inline, which must be echoed back
-    // or the model loses the page it just read.
-    turn.toolResults = response.serverToolResults ?? []
-    // The FULL emitted set (including a gated web_post), because every tool
-    // result we send next step must have a matching call in this array.
-    turn.toolCalls = response.transcriptCalls ?? response.toolCalls ?? []
+    // ACCUMULATE, never replace. A one-step-wide transcript window leaves the
+    // model with no memory of what it already did, so it re-decides from the
+    // file tree every step and burns the whole budget rediscovering the same
+    // thing — measured at 12 steps for work that takes 2.
+    //
+    // toolCalls carries the FULL emitted set (including a gated web_post),
+    // because every tool result sent must have a matching call in this array.
+    // toolResults picks up anything the SERVER ran inline, or the model loses
+    // the page it just read.
+    turn.toolCalls = [...turn.toolCalls, ...(response.transcriptCalls ?? response.toolCalls ?? [])]
+    turn.toolResults = [...turn.toolResults, ...(response.serverToolResults ?? [])]
 
     // A web_post never arrives as a runnable call — the browser cannot send it.
     // It pauses the turn for the user, who sees the exact request.
@@ -246,6 +204,154 @@ async function runStep(requestId, stepIndex) {
       void runStep(requestId, queued)
     }
   }
+}
+
+/**
+ * One BYOK step.
+ *
+ * OpenRouter gets the same tool loop as managed mode, driven entirely from the
+ * browser — there is no server to hold the key, so the client calls the provider
+ * and assembles the transcript itself. The step budget is enforced by the actor
+ * (there is no step token to enforce it with), and no web tools are offered:
+ * they need the SSRF guard and a server-held search key.
+ *
+ * Ollama stays on the single-shot JSON protocol — it forces `format: 'json'`,
+ * returns tool-call arguments as an object rather than a JSON string, and
+ * exposes no capability metadata, so tool mode there would fail silently.
+ */
+async function runByokStep(requestId, stepIndex, turn) {
+  const agentModuleExports = await agentModule()
+  if (turn.provider !== 'openrouter') {
+    await runJsonModeTurn(requestId, turn, agentModuleExports)
+    return
+  }
+
+  const [{ FetchLLMClient }, tools, prompt] = await Promise.all([
+    import('../llm-client'),
+    import('../agent-tools'),
+    import('../agent'),
+  ])
+  const client = new FetchLLMClient()
+  const result = await client.step({
+    provider: 'openrouter',
+    model: turn.model,
+    apiKey: turn.apiKey,
+    messages: prompt.buildToolModeMessages({
+      files: globalThis.__buildProjectFiles ?? turn.files,
+      messages: turn.messages,
+      userPrompt: stepIndex === 0 ? turn.userPrompt : undefined,
+      selectedElement: turn.selectedElement,
+      elementComment: turn.elementComment,
+      toolCalls: turn.toolCalls,
+      toolResults: turn.toolResults,
+    }),
+    tools: tools.CLIENT_TOOL_SPECS,
+    maxCalls: MAX_CALLS_PER_STEP,
+    signal: turn.controller.signal,
+  })
+
+  let toolCalls = result.toolCalls
+  let content = result.content
+  // Same adapter as managed mode: a model answering in the old JSON envelope is
+  // decoded into one synthetic fs_batch_write rather than failing the turn.
+  if (toolCalls.length === 0 && content) {
+    const adapted = adaptLegacyPatches(content, `${requestId}-${stepIndex}-legacy`)
+    if (adapted) {
+      toolCalls = adapted.toolCalls
+      content = adapted.reply
+    }
+  }
+
+  turn.toolCalls = [...turn.toolCalls, ...toolCalls]
+  turn.stepIndex = stepIndex
+  dispatchAgentStepReturned(
+    requestId,
+    toolCalls.map(call => ({
+      id: call.id,
+      name: call.function?.name ?? '',
+      argsJson: call.function?.arguments ?? '{}',
+    })),
+    content ?? '',
+  )
+  if (toolCalls.length === 0) finishTurn(requestId)
+}
+
+/**
+ * Decode a legacy `{reply, patches[]}` answer into one synthetic
+ * `fs_batch_write`. Mirrors `adaptLegacyPatches` in server/src/prompt.ts so BYOK
+ * keeps exactly one write path too.
+ */
+function adaptLegacyPatches(content, callId) {
+  let parsed
+  try {
+    const trimmed = String(content).trim()
+    const unfenced = trimmed.startsWith('```')
+      ? trimmed.replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim()
+      : trimmed
+    parsed = JSON.parse(unfenced)
+  } catch {
+    return null
+  }
+  if (!Array.isArray(parsed?.patches) || typeof parsed?.reply !== 'string') return null
+  const files = parsed.patches.filter(
+    patch => patch && typeof patch.path === 'string' && typeof patch.content === 'string',
+  )
+  if (files.length === 0) return { toolCalls: [], reply: parsed.reply }
+  return {
+    reply: parsed.reply,
+    toolCalls: [
+      { id: callId, type: 'function', function: { name: 'fs_batch_write', arguments: JSON.stringify({ files }) } },
+    ],
+  }
+}
+
+/**
+ * Ollama's single-shot turn.
+ *
+ * Its one response is adapted into the SAME synthetic fs_batch_write the tool
+ * loop uses, so it goes through identical machinery — touched_paths, pkg_dirty,
+ * chips and the build log all populate. Applying patches directly instead left
+ * this path with no chips, no story paths, and no install trigger at all.
+ */
+async function runJsonModeTurn(requestId, turn, agentModuleExports) {
+  const result = await agentModuleExports.runAgent({
+    provider: turn.provider,
+    apiKey: turn.apiKey,
+    ollamaUrl: turn.ollamaUrl,
+    model: turn.model,
+    userPrompt: turn.userPrompt,
+    files: turn.files,
+    messages: turn.messages,
+    selectedElement: turn.selectedElement,
+    elementComment: turn.elementComment,
+    signal: turn.controller.signal,
+  })
+  const patches = (result.patches ?? []).filter(
+    patch => typeof patch?.path === 'string' && typeof patch?.content === 'string',
+  )
+  if (patches.length > 0) {
+    const callId = `${requestId}-json`
+    // Drop the turn FIRST: AgentToolFinished emits CallAgentStep synchronously,
+    // and JSON mode has no next step.
+    turns.delete(requestId)
+    dispatchAgentStepReturned(
+      requestId,
+      [{ id: callId, name: 'fs_batch_write', argsJson: JSON.stringify({ files: patches }) }],
+      result.reply ?? '',
+    )
+    for (const patch of patches) dispatchProjectFileApplied(patch.path, patch.content)
+    const paths = patches.map(patch => patch.path)
+    dispatchAgentToolFinished(
+      requestId,
+      callId,
+      true,
+      paths.length === 1 ? `Wrote ${paths[0].split('/').pop()}` : `Wrote ${paths.length} files`,
+      paths,
+      false,
+    )
+  }
+  dispatchAgentStepReturned(requestId, [], result.reply ?? '')
+  finishTurn(requestId)
 }
 
 /** Everything a finished turn was holding. */

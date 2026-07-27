@@ -198,3 +198,80 @@ describe('Ollama is excluded from tool mode', () => {
     expect(body.tools).toBeUndefined()
   })
 })
+
+describe('the BYOK tool-mode prompt', () => {
+  it('never mentions a tool BYOK will not be offered', async () => {
+    const { buildToolModePrompt } = await import('./agent')
+    const prompt = buildToolModePrompt()
+    for (const web of ['web_search', 'web_fetch', 'web_post']) {
+      expect(prompt).not.toContain(web)
+    }
+  })
+
+  it('still instructs the model to verify with exec', async () => {
+    const { buildToolModePrompt } = await import('./agent')
+    expect(buildToolModePrompt()).toContain('tsc --noEmit')
+  })
+
+  it('ships a file tree, not file contents', async () => {
+    const { buildToolModeMessages } = await import('./agent')
+    const messages = buildToolModeMessages({
+      files: [
+        { path: 'src/App.tsx', content: 'x'.repeat(5000) },
+        { path: 'package.json', content: '{"name":"app"}' },
+      ],
+      messages: [],
+      userPrompt: 'add a button',
+    })
+    const joined = messages.map(m => m.content).join('\n')
+    expect(joined).toContain('src/App.tsx (5000 bytes)')
+    // The big file's CONTENT must not travel — that is what makes multi-step
+    // turns affordable.
+    expect(joined).not.toContain('x'.repeat(5000))
+    // package.json is in the always-full set, so it does.
+    expect(joined).toContain('{"name":"app"}')
+  })
+
+  it('pairs echoed tool calls with their results', async () => {
+    const { buildToolModeMessages } = await import('./agent')
+    const messages = buildToolModeMessages({
+      files: [],
+      messages: [],
+      toolCalls: [toolCall('c1')],
+      toolResults: [{ toolCallId: 'c1', content: 'ok · 12 bytes' }],
+    })
+    const assistant = messages.find(m => m.role === 'assistant')
+    const tool = messages.find(m => m.role === 'tool')
+    expect(assistant?.tool_calls?.[0]?.id).toBe('c1')
+    expect(tool?.tool_call_id).toBe('c1')
+    expect(messages.indexOf(assistant!)).toBeLessThan(messages.indexOf(tool!))
+  })
+})
+
+describe('the transcript window', () => {
+  it('carries every call and result, not just the last step', async () => {
+    // A one-step-wide window leaves the model with no memory of what it already
+    // did, so it re-decides from the file tree every step and burns the whole
+    // budget rediscovering the same thing — measured at 12 steps for work that
+    // takes 2.
+    const { buildToolModeMessages } = await import('./agent')
+    const messages = buildToolModeMessages({
+      files: [],
+      messages: [],
+      toolCalls: [toolCall('c1', 'fs_list', '{}'), toolCall('c2', 'fs_write', '{}')],
+      toolResults: [
+        { toolCallId: 'c1', content: 'listed 12 files' },
+        { toolCallId: 'c2', content: 'ok · 40 bytes' },
+      ],
+    })
+    const assistant = messages.find(m => m.role === 'assistant')
+    const announced = new Set((assistant?.tool_calls ?? []).map(c => c.id))
+    expect([...announced].sort()).toEqual(['c1', 'c2'])
+    // Every result still references a call the model can see it made.
+    const toolMessages = messages.filter(m => m.role === 'tool')
+    expect(toolMessages).toHaveLength(2)
+    for (const message of toolMessages) {
+      expect(announced.has(message.tool_call_id!)).toBe(true)
+    }
+  })
+})

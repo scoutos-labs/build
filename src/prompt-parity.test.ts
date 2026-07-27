@@ -1,7 +1,15 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { buildSystemPrompt } from './agent'
+import {
+  SHARED_RULES as CLIENT_SHARED_RULES,
+  buildSystemPrompt,
+  buildToolModePrompt,
+} from './agent'
+import {
+  SHARED_RULES as SERVER_SHARED_RULES,
+  buildToolModePrompt as serverBuildToolModePrompt,
+} from '../server/src/prompt'
 import { CLIENT_TOOL_SPECS } from './agent-tools'
 
 // The agent prompt is assembled in two places until the planned Phase-3
@@ -85,6 +93,25 @@ describe('client/server prompt parity', () => {
     const stubChars = (source: string, file: string) => constant(source, /STUB_MAX_CHARS = (\d+)/, file)
     expect(stubLines(clientSource, 'src/agent.ts')).toBe(stubLines(serverSource, 'server/src/prompt.ts'))
     expect(stubChars(clientSource, 'src/agent.ts')).toBe(stubChars(serverSource, 'server/src/prompt.ts'))
+  })
+
+  it('keeps the tool-mode prompt identical, minus the web tools', () => {
+    // BYOK has no SSRF guard, no server-held search key, and no authenticated
+    // caller, so it is offered no web tools — and must not be told about them.
+    const client = buildToolModePrompt()
+    const server = serverBuildToolModePrompt({ webTools: false })
+    expect(client).toBe(server)
+  })
+
+  it('adds the web-tool rules only when the server actually offers them', () => {
+    const withWeb = serverBuildToolModePrompt({ webTools: true })
+    expect(withWeb).not.toBe(buildToolModePrompt())
+    expect(withWeb).toContain('web_search')
+    expect(buildToolModePrompt()).not.toContain('web_search')
+  })
+
+  it('keeps SHARED_RULES identical across both files', () => {
+    expect(CLIENT_SHARED_RULES).toEqual(SERVER_SHARED_RULES)
   })
 
   it('extracts the JSON-mode Rules block unambiguously', () => {

@@ -77,7 +77,11 @@ export class FetchLLMClient implements LLMClient {
   private readonly fetchFn: typeof fetch
 
   constructor(fetchFn?: typeof fetch) {
-    this.fetchFn = fetchFn ?? globalThis.fetch
+    // Bound to globalThis: stored as a bare reference and invoked as
+    // `this.fetchFn(...)`, the browser sees `this` as the client instance and
+    // throws "Illegal invocation". Injected test doubles are plain functions and
+    // are unaffected, which is why unit tests never caught it.
+    this.fetchFn = fetchFn ?? globalThis.fetch.bind(globalThis)
   }
 
   async call(params: LLMCallParams): Promise<LLMResult> {

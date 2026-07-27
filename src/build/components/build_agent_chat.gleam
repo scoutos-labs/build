@@ -249,7 +249,8 @@ fn host_of(url: String) -> String {
 /// is what the option text talks about.
 ///
 /// Hidden for Ollama: it has no tool mode and no catalog, so a job picker there
-/// would promise a choice that does not exist.
+/// would promise a choice that does not exist. Shown for BYOK-OpenRouter, which
+/// runs the same tool loop as managed mode against the user's own key.
 fn job_picker(state: settings.State, busy: Bool) -> Element(msg.Msg) {
   case state.provider {
     settings.Ollama -> html.text("")

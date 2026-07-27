@@ -704,3 +704,15 @@ describe('fs_delete', () => {
     expect(removed).toEqual(['src/Old.tsx'])
   })
 })
+
+describe('BYOK offers no web tools', () => {
+  it('the client tool set the BYOK loop passes to the provider has no web tool', () => {
+    // BYOK has no SSRF guard, no server-held search key, and no authenticated
+    // caller. A model told about a tool it will not be offered calls it and
+    // stalls, so the absence has to be structural, not conditional.
+    const names = CLIENT_TOOL_SPECS.map(spec => spec.function.name)
+    for (const web of ['web_search', 'web_fetch', 'web_post']) {
+      expect(names).not.toContain(web)
+    }
+  })
+})

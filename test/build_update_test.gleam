@@ -227,14 +227,24 @@ pub fn file_changes_schedule_autosave_when_hydrated_test() {
     ]
 }
 
-pub fn agent_success_applies_patches_and_replies_test() {
+/// An agent mid-turn that has already written `paths`.
+///
+/// Under the harness the fs tools write as the loop runs, so by the time a turn
+/// ends the files are long since applied — `touched_paths` is the accumulated
+/// record of what happened, not a to-do list.
+fn agent_mid_turn(id: String, at: Int, paths: List(String)) -> agent.State {
+  agent.State(
+    ..agent.init(),
+    lifecycle: agent.Running(id, at),
+    touched_paths: paths,
+  )
+}
+
+pub fn agent_turn_end_replies_once_with_touched_paths_test() {
   let app =
     model.Model(
       ..model.init(),
-      agent: agent.State(
-        ..agent.init(),
-        lifecycle: agent.Running("req", 1000),
-      ),
+      agent: agent_mid_turn("req", 1000, ["src/main.tsx"]),
       webcontainer: webcontainer.State(
         ..webcontainer.init(),
         boot_phase: webcontainer.Ready,
@@ -242,26 +252,18 @@ pub fn agent_success_applies_patches_and_replies_test() {
       ),
     )
   let #(next, effects) =
-    update.update(
-      app,
-      msg.Agent(
-        agent.AgentRequestSucceeded("req", "Done", [
-          agent.Patch("src/main.tsx", "patched"),
-        ]),
-      ),
-    )
+    update.update(app, msg.Agent(agent.AgentStepReturned("req", [], "Done")))
 
   assert next.agent.lifecycle == agent.Idle
   assert next.chat.messages
     == [chat.Message(chat.Assistant, "Done", ["src/main.tsx"])]
   assert next.project.save_status == "Saving..."
+  // No WriteFileToContainer and no install here: the write already happened
+  // through project.FileApplied while the loop ran, and nothing touched
+  // package.json. This is the one-write-path / one-install-trigger invariant.
   assert effects
     == [
       effect.Agent(agent.StopElapsedTimer),
-      effect.Agent(
-        agent.InstallIfNeeded([agent.Patch("src/main.tsx", "patched")]),
-      ),
-      effect.Project(project.WriteFileToContainer("src/main.tsx", "patched")),
       effect.ScrollMessagesToBottom,
       effect.Project(project.ScheduleSave(
         900,
@@ -359,14 +361,11 @@ pub fn build_from_plan_seeds_brain_test() {
   })
 }
 
-pub fn agent_success_appends_build_log_entry_test() {
+pub fn agent_turn_end_appends_one_build_log_entry_test() {
   let app =
     model.Model(
       ..model.init(),
-      agent: agent.State(
-        ..agent.init(),
-        lifecycle: agent.Running("req", 1234),
-      ),
+      agent: agent_mid_turn("req", 1234, ["src/main.tsx"]),
       chat: chat.State(
         messages: [chat.Message(chat.User, "make a todo app", [])],
         prompt: "",
@@ -379,15 +378,10 @@ pub fn agent_success_appends_build_log_entry_test() {
       ),
     )
   let #(next, _) =
-    update.update(
-      app,
-      msg.Agent(
-        agent.AgentRequestSucceeded("req", "Done", [
-          agent.Patch("src/main.tsx", "patched"),
-        ]),
-      ),
-    )
+    update.update(app, msg.Agent(agent.AgentStepReturned("req", [], "Done")))
 
+  // One entry per TURN, not per step: the Build Story is a narrative of what
+  // was built, and a multi-step turn is still one thing the founder asked for.
   assert next.project.build_log
     == [build_log.entry(1234, "make a todo app", "Done", ["src/main.tsx"])]
 }
@@ -542,7 +536,7 @@ pub fn agent_success_clears_preview_error_test() {
   let #(next, _) =
     update.update(
       running_app,
-      msg.Agent(agent.AgentRequestSucceeded("fix-4", "fixed it", [])),
+      msg.Agent(agent.AgentStepReturned("fix-4", [], "fixed it")),
     )
 
   assert next.preview.last_preview_error == option.None
@@ -551,32 +545,24 @@ pub fn agent_success_clears_preview_error_test() {
 // --- Narration chips: paths ride the message, so error bubbles can't shift them ---
 
 pub fn narration_paths_survive_interleaved_error_turns_test() {
-  let running = fn(app: model.Model, id: String) {
-    model.Model(
-      ..app,
-      agent: agent.State(..agent.init(), lifecycle: agent.Running(id, 1000)),
-    )
+  let running = fn(app: model.Model, id: String, paths: List(String)) {
+    model.Model(..app, agent: agent_mid_turn(id, 1000, paths))
   }
   let app = model.init()
   let #(app, _) =
     update.update(
-      running(app, "a"),
-      msg.Agent(agent.AgentRequestSucceeded("a", "First", [
-        agent.Patch("src/a.tsx", "x"),
-      ])),
+      running(app, "a", ["src/a.tsx"]),
+      msg.Agent(agent.AgentStepReturned("a", [], "First")),
     )
   let #(app, _) =
     update.update(
-      running(app, "b"),
+      running(app, "b", []),
       msg.Agent(agent.AgentRequestFailed("b", "model exploded")),
     )
   let #(app, _) =
     update.update(
-      running(app, "c"),
-      msg.Agent(agent.AgentRequestSucceeded("c", "Second", [
-        agent.Patch("src/b.tsx", "y"),
-        agent.Patch("src/c.css", "z"),
-      ])),
+      running(app, "c", ["src/b.tsx", "src/c.css"]),
+      msg.Agent(agent.AgentStepReturned("c", [], "Second")),
     )
 
   assert app.chat.messages
@@ -585,4 +571,135 @@ pub fn narration_paths_survive_interleaved_error_turns_test() {
       chat.Message(chat.Assistant, "Error: model exploded", []),
       chat.Message(chat.Assistant, "Second", ["src/b.tsx", "src/c.css"]),
     ]
+}
+
+// --- Harness wiring: turn end, cancellation, and the two dead paths ---
+
+pub fn reset_project_cancels_the_agent_lifecycle_test() {
+  // ResetProject used to emit a bare AbortAgent and leave the lifecycle
+  // Running, unlike New and Open. Under the loop that meant a late step
+  // response still matched its request id and kept driving tool calls into the
+  // project the user had just reset.
+  let app =
+    model.Model(..model.init(), agent: agent_mid_turn("req", 1000, ["src/a.tsx"]))
+  let #(next, effects) = update.update(app, msg.ResetProject)
+
+  assert next.agent.lifecycle == agent.Idle
+  assert next.agent.touched_paths == []
+  assert list.contains(effects, effect.Agent(agent.AbortAgent))
+  assert list.contains(effects, effect.Agent(agent.KillExec))
+
+  // And a late response for the canceled turn is inert.
+  let #(after_late, late_effects) =
+    update.update(next, msg.Agent(agent.AgentStepReturned("req", [], "stale")))
+  assert after_late.chat.messages == []
+  assert late_effects == []
+}
+
+pub fn timeout_renders_a_bubble_and_frees_the_agent_test() {
+  // AgentTimeoutReached had no update_agent branch, so a timed-out turn would
+  // have rendered nothing at all.
+  let app =
+    model.Model(..model.init(), agent: agent_mid_turn("req", 1000, []))
+  let #(next, effects) =
+    update.update(app, msg.Agent(agent.AgentTimeoutReached("req")))
+
+  assert next.agent.lifecycle == agent.Idle
+  assert list.length(next.chat.messages) == 1
+  assert list.contains(effects, effect.Agent(agent.KillExec))
+}
+
+pub fn turn_end_installs_only_when_package_json_changed_test() {
+  let clean =
+    model.Model(..model.init(), agent: agent_mid_turn("req", 1000, ["src/a.tsx"]))
+  let #(_, clean_effects) =
+    update.update(clean, msg.Agent(agent.AgentStepReturned("req", [], "Done")))
+  assert !list.contains(clean_effects, effect.Agent(agent.InstallDependencies))
+
+  let dirty =
+    model.Model(
+      ..model.init(),
+      agent: agent.State(
+        ..agent_mid_turn("req", 1000, ["package.json"]),
+        pkg_dirty: True,
+      ),
+    )
+  let #(_, dirty_effects) =
+    update.update(dirty, msg.Agent(agent.AgentStepReturned("req", [], "Added a package")))
+  assert list.contains(dirty_effects, effect.Agent(agent.InstallDependencies))
+}
+
+pub fn step_budget_reached_closes_the_turn_normally_test() {
+  // A turn that spends its budget still did work and still has an answer, so it
+  // closes like a completion rather than surfacing as an error bubble.
+  let app =
+    model.Model(
+      ..model.init(),
+      agent: agent.State(
+        ..agent_mid_turn("req", 1000, ["src/a.tsx"]),
+        final_reply: "Got most of the way there.",
+      ),
+    )
+  let #(next, _) =
+    update.update(app, msg.Agent(agent.AgentStepBudgetReached("req")))
+
+  assert next.agent.lifecycle == agent.Idle
+  assert next.chat.messages
+    == [chat.Message(chat.Assistant, "Got most of the way there.", ["src/a.tsx"])]
+  assert list.length(next.project.build_log) == 1
+}
+
+pub fn a_multi_step_turn_produces_exactly_one_bubble_and_one_log_entry_test() {
+  let app =
+    model.Model(
+      ..model.init(),
+      agent: agent.State(..agent.init(), lifecycle: agent.Running("req", 1000)),
+      chat: chat.State(
+        messages: [chat.Message(chat.User, "add a login page", [])],
+        prompt: "",
+        expanded_messages: [],
+      ),
+    )
+  // read -> write -> verify, then the model answers.
+  let step = fn(app: model.Model, id: String, name: String) {
+    let #(app, _) =
+      update.update(
+        app,
+        msg.Agent(agent.AgentStepReturned(
+          "req",
+          [agent.ToolCall(id, name, "{}")],
+          "",
+        )),
+      )
+    app
+  }
+  let finish = fn(app: model.Model, id: String, paths: List(String)) {
+    let #(app, _) =
+      update.update(
+        app,
+        msg.Agent(agent.AgentToolFinished(
+          "req",
+          id,
+          agent.ToolDone,
+          "did a thing",
+          paths,
+          False,
+        )),
+      )
+    app
+  }
+  let app = finish(step(app, "c1", "fs_read"), "c1", [])
+  let app = finish(step(app, "c2", "fs_write"), "c2", ["src/Login.tsx"])
+  let app = finish(step(app, "c3", "exec"), "c3", [])
+  let #(app, _) =
+    update.update(app, msg.Agent(agent.AgentStepReturned("req", [], "Added a login page.")))
+
+  // Three steps, one bubble, one story entry — a multi-step turn is still one
+  // thing the founder asked for.
+  assert app.chat.messages
+    == [
+      chat.Message(chat.User, "add a login page", []),
+      chat.Message(chat.Assistant, "Added a login page.", ["src/Login.tsx"]),
+    ]
+  assert list.length(app.project.build_log) == 1
 }

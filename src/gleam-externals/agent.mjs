@@ -6,6 +6,14 @@ let activeController = null
 let activeRequestId = null
 let activeTimeout = null
 
+/** One turn's worth of context and in-flight transcript, keyed by request id.
+ * Deleted on every terminal transition — see finishTurn / abortAgent. */
+const turns = new Map()
+
+/** Per-TURN deadline. Before the harness a turn was one request, so this and the
+ * old per-request timeout were the same number; under a loop they are not. */
+const TURN_DEADLINE_MS = 300_000
+
 async function agentModule() {
   try { return await import('../agent') }
   catch { return { runAgent: async () => ({ reply: 'Agent unavailable outside browser bundle.', patches: [] }) } }
@@ -37,36 +45,160 @@ function managedAuth() {
   return globalThis.__buildManagedAuth ?? null
 }
 
+/**
+ * Start a turn.
+ *
+ * The effect that used to make one single-shot call now opens the loop: it
+ * records the turn's context (the parts that do not change between steps) and
+ * takes step 0. Continuation is `callAgentStep`, driven by the actor once every
+ * tool call for a step has reported back.
+ *
+ * The deadline is per TURN, not per request. Before the harness one turn was one
+ * request, so a 300s request timeout and a 300s turn timeout were the same
+ * thing; under a 12-step loop a per-request timeout would let a turn run for an
+ * hour.
+ */
 export async function callAgent(requestId, provider, model, userPrompt, apiKey = '', ollamaUrl = '', files, messages, selectedElement, elementComment = '') {
   const controller = new AbortController()
   activeController = controller
   activeRequestId = requestId
-  activeTimeout = setTimeout(() => controller.abort(), 300_000)
+  activeTimeout = setTimeout(() => {
+    // A turn that outruns the deadline is stopped, not merely aborted: the
+    // actor needs the message to render a bubble and reset the lifecycle.
+    controller.abort()
+    dispatchAgentTimeoutReached(requestId)
+  }, TURN_DEADLINE_MS)
+
+  turns.set(requestId, {
+    provider,
+    model,
+    apiKey,
+    ollamaUrl,
+    userPrompt,
+    files: normalizeFiles(files),
+    messages: normalizeMessages(messages),
+    selectedElement: normalizeSelectedElement(selectedElement),
+    elementComment,
+    controller,
+    toolCalls: [],
+    toolResults: [],
+    stepToken: undefined,
+  })
+
+  await runStep(requestId, 0)
+}
+
+/** Ollama has no tool mode (see LLMStepParams.provider) — it stays on the
+ * single-shot JSON protocol, and the loop's first step is also its last. */
+function usesToolMode(turn) {
+  return managedAuth() !== null || turn.provider !== 'ollama'
+}
+
+async function runStep(requestId, stepIndex) {
+  const turn = turns.get(requestId)
+  if (!turn) return // canceled between steps
+
   try {
     const managed = managedAuth()
-    const result = managed
-      ? await (await import('../managed-agent-client')).callManagedAgent(
-          { userPrompt, files: normalizeFiles(files), messages: normalizeMessages(messages), selectedElement: normalizeSelectedElement(selectedElement), elementComment },
-          { getToken: managed.getToken, signal: controller.signal },
-        )
-      : await (await agentModule()).runAgent({ provider, apiKey, ollamaUrl, model, userPrompt, files: normalizeFiles(files), messages: normalizeMessages(messages), selectedElement: normalizeSelectedElement(selectedElement), elementComment, signal: controller.signal })
-    dispatchAgentSucceeded(requestId, result.reply, result.patches)
+    if (!managed) {
+      // BYOK. Ollama falls back to the single-shot protocol; BYOK-OpenRouter
+      // will get the client-side loop with the step transport from U3.
+      const result = await (await agentModule()).runAgent({
+        provider: turn.provider,
+        apiKey: turn.apiKey,
+        ollamaUrl: turn.ollamaUrl,
+        model: turn.model,
+        userPrompt: turn.userPrompt,
+        files: turn.files,
+        messages: turn.messages,
+        selectedElement: turn.selectedElement,
+        elementComment: turn.elementComment,
+        signal: turn.controller.signal,
+      })
+      // Apply through the one legal write path, then close the turn.
+      for (const patch of result.patches ?? []) {
+        dispatchProjectFileApplied(patch.path, patch.content)
+      }
+      dispatchAgentStepReturned(requestId, [], result.reply)
+      finishTurn(requestId)
+      return
+    }
+
+    const { callAgentStep: postStep } = await import('../managed-agent-client')
+    const response = await postStep(
+      {
+        turnId: requestId,
+        stepIndex,
+        stepToken: turn.stepToken,
+        tree: fileTree(),
+        fullFiles: alwaysFullFiles(),
+        messages: turn.messages,
+        toolCalls: turn.toolCalls,
+        toolResults: turn.toolResults,
+        userPrompt: stepIndex === 0 ? turn.userPrompt : undefined,
+        selectedElement: turn.selectedElement,
+        elementComment: turn.elementComment,
+      },
+      { getToken: managed.getToken, signal: turn.controller.signal },
+    )
+
+    turn.stepToken = response.stepToken
+    // Results are consumed by the step that carried them; the next step reports
+    // only its own.
+    turn.toolResults = []
+    turn.toolCalls = response.toolCalls ?? []
+
+    dispatchAgentStepReturned(
+      requestId,
+      (response.toolCalls ?? []).map(call => ({
+        id: call.id,
+        name: call.function?.name ?? '',
+        argsJson: call.function?.arguments ?? '{}',
+      })),
+      response.assistantContent ?? '',
+    )
+    if (response.done) finishTurn(requestId)
   } catch (error) {
     if (error?.code === 'budget_exhausted') {
       dispatchAgentBudgetExhausted(requestId, error.resetAt ?? '')
+    } else if (error instanceof DOMException && error.name === 'AbortError') {
+      // Cancel and timeout already dispatched their own message; a second
+      // failure bubble would double-report the same event.
     } else {
-      const raw = error instanceof DOMException && error.name === 'AbortError' ? 'Request canceled or timed out after 5 minutes.' : message(error)
+      const raw = message(error)
       dispatchAgentFailed(requestId, raw)
       dispatchWebContainerLog(raw)
     }
-  } finally {
-    if (activeRequestId === requestId) {
-      if (activeTimeout) clearTimeout(activeTimeout)
-      activeTimeout = null
-      activeController = null
-      activeRequestId = null
-    }
+    finishTurn(requestId)
   }
+}
+
+/** Everything a finished turn was holding. */
+function finishTurn(requestId) {
+  clearTurnState(requestId)
+  turns.delete(requestId)
+  if (activeRequestId === requestId) {
+    if (activeTimeout) clearTimeout(activeTimeout)
+    activeTimeout = null
+    activeController = null
+    activeRequestId = null
+  }
+}
+
+/** Paths + sizes only. Contents reach the model through fs_read, which is what
+ * makes a multi-step turn affordable. */
+function fileTree() {
+  return (globalThis.__buildProjectFiles ?? []).map(file => ({
+    path: file.path,
+    bytes: file.content.length,
+  }))
+}
+
+/** The few files worth shipping unasked every step. */
+const ALWAYS_FULL = new Set(['package.json', 'BRAIN.md', 'src/db.ts'])
+
+function alwaysFullFiles() {
+  return (globalThis.__buildProjectFiles ?? []).filter(file => ALWAYS_FULL.has(file.path))
 }
 
 // ── Harness effects ──────────────────────────────────────────────────────────
@@ -101,12 +233,17 @@ async function toolContext() {
   }
 }
 
+/** Continue a turn. Dispatched by the actor once every tool call for the current
+ * step has reported back. */
 export function callAgentStep(requestId, step) {
-  // Wired in U4; recorded so the loop's step cadence is observable in tests.
   globalThis.__buildAgentStepCalls = [
     ...(globalThis.__buildAgentStepCalls ?? []),
     { requestId, step },
   ]
+  const turn = turns.get(requestId)
+  if (!turn) return // canceled, timed out, or already finished
+  turn.toolResults = drainToolResults(requestId)
+  void runStep(requestId, step)
 }
 
 export async function executeTool(requestId, callId, name, argsJson) {
@@ -143,17 +280,29 @@ export function installDependencies() {
   void runNpmInstall()
 }
 
+/** Take and clear the tool results accumulated for a turn's current step. */
+function drainToolResults(requestId) {
+  const bucket = toolResults.get(requestId) ?? []
+  toolResults.set(requestId, [])
+  return bucket
+}
+
 /** Drop everything a finished turn was holding. Called on every terminal
  * transition — success, failure, cancel, timeout, project new/open/reset — so a
  * transcript never outlives its turn. */
 export function clearTurnState(requestId) {
-  if (requestId) toolResults.delete(requestId)
-  else toolResults.clear()
+  if (requestId) {
+    toolResults.delete(requestId)
+    turns.delete(requestId)
+  } else {
+    toolResults.clear()
+    turns.clear()
+  }
 }
 
-/** Test seam: the turn-state map must be empty after every terminal transition. */
+/** Test seam: no turn state may survive a terminal transition. */
 export function pendingTurnCount() {
-  return toolResults.size
+  return Math.max(toolResults.size, turns.size)
 }
 
 export function startElapsedTimer() {
@@ -161,13 +310,18 @@ export function startElapsedTimer() {
   elapsedTimer = setInterval(() => { if (activeRequestId) dispatchAgentTick(Date.now()) }, 500)
 }
 export function stopElapsedTimer() { if (elapsedTimer) clearInterval(elapsedTimer); elapsedTimer = null }
-export function abortAgent() { activeController?.abort(); if (activeTimeout) clearTimeout(activeTimeout); activeTimeout = null }
-export function installIfNeeded(patches) {
-  const normalized = gleamListToArray(patches)
-  const needsInstall = normalized.some(patch => patch.path === 'package.json' || patch[0] === 'package.json')
-  globalThis.__buildInstallIfNeededCalls = [
-    ...(globalThis.__buildInstallIfNeededCalls ?? []),
-    { paths: normalized.map(patch => patch.path ?? patch[0] ?? ''), needsInstall },
-  ]
-  if (needsInstall) void runNpmInstall()
+/**
+ * Stop the turn and drop everything it held.
+ *
+ * Clearing the maps is not housekeeping — it is what makes a late step response
+ * inert. Without it a reply arriving after a cancel would find its turn context
+ * and keep looping into a project the user has since reset.
+ */
+export function abortAgent() {
+  activeController?.abort()
+  if (activeTimeout) clearTimeout(activeTimeout)
+  activeTimeout = null
+  activeController = null
+  activeRequestId = null
+  clearTurnState()
 }

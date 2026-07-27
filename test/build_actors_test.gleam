@@ -57,25 +57,27 @@ pub fn chat_user_message_clears_prompt_test() {
   assert next.messages == [chat.Message(chat.User, "hello", [])]
 }
 
-pub fn agent_ignores_stale_success_test() {
+pub fn agent_ignores_stale_completion_test() {
   let #(running, _) =
     agent.update(agent.init(), agent.AgentRequestStarted("new", 1000))
   let #(next, effects) =
-    agent.update(running, agent.AgentRequestSucceeded("old", "ignored", []))
+    agent.update(running, agent.AgentStepReturned("old", [], "ignored"))
 
   assert agent.is_running(next)
   assert effects == []
 }
 
-pub fn agent_success_stops_timer_and_installs_test() {
-  let patch = agent.Patch(path: "package.json", content: "{}")
+pub fn agent_completion_stops_the_timer_test() {
   let #(running, _) =
     agent.update(agent.init(), agent.AgentRequestStarted("req", 1000))
   let #(next, effects) =
-    agent.update(running, agent.AgentRequestSucceeded("req", "done", [patch]))
+    agent.update(running, agent.AgentStepReturned("req", [], "done"))
 
   assert next.lifecycle == agent.Idle
-  assert effects == [agent.StopElapsedTimer, agent.InstallIfNeeded([patch])]
+  // A turn that touched no package.json installs nothing. InstallDependencies
+  // is now the ONLY install trigger — the old patch-list-inspecting
+  // InstallIfNeeded was removed with the patch protocol.
+  assert effects == [agent.StopElapsedTimer]
 }
 
 pub fn project_file_applied_upserts_and_writes_test() {

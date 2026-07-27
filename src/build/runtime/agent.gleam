@@ -16,7 +16,6 @@ pub fn interpret(effect: agent.Effect) -> Nil {
     agent.StartElapsedTimer -> start_elapsed_timer()
     agent.StopElapsedTimer -> stop_elapsed_timer()
     agent.AbortAgent -> abort_agent()
-    agent.InstallIfNeeded(patches) -> install_if_needed(patches)
     agent.InstallDependencies -> install_dependencies()
   }
 }
@@ -52,5 +51,3 @@ fn stop_elapsed_timer() -> Nil
 @external(javascript, "../../gleam-externals/agent.mjs", "abortAgent")
 fn abort_agent() -> Nil
 
-@external(javascript, "../../gleam-externals/agent.mjs", "installIfNeeded")
-fn install_if_needed(patches: List(agent.Patch)) -> Nil

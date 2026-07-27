@@ -139,9 +139,16 @@ pub fn update(
       let #(project_state, project_effects) =
         project.update(app.project, project.ResetToStarter)
       let chat_state = chat.update(app.chat, chat.ChatCleared)
+      // Route through the actor's cancel, exactly as New and Open do. A bare
+      // AbortAgent effect left the lifecycle Running, so under the loop a late
+      // step response would still match its request id and keep driving tool
+      // calls into the project the user just reset.
+      let #(agent_state, agent_effects) =
+        agent.update(app.agent, agent.AgentRequestCanceled)
       #(
         model.Model(
           ..app,
+          agent: agent_state,
           project: project_state,
           chat: chat_state,
           preview: preview.on_project_navigation(app.preview),
@@ -149,10 +156,12 @@ pub fn update(
             interview.init(),
             interview.InterviewStarted,
           ),
-        ), [
-        effect.Agent(agent.AbortAgent),
-        ..list.map(project_effects, effect.Project)
-      ])
+        ),
+        list.append(
+          list.map(agent_effects, effect.Agent),
+          list.map(project_effects, effect.Project),
+        ),
+      )
     }
     msg.OpenProject(id) -> {
       let #(agent_state, agent_effects) =
@@ -378,56 +387,23 @@ fn update_agent(
   let #(agent_state, agent_effects) = agent.update(app.agent, agent_msg)
   let mapped_agent_effects = list.map(agent_effects, effect.Agent)
   case agent_msg {
-    agent.AgentRequestSucceeded(request_id, reply, patches) ->
-      case request_matches(app.agent, request_id) {
-        True -> {
-          let chat_state =
-            chat.update(
-              app.chat,
-              chat.AssistantReplied(
-                reply,
-                list.map(patches, fn(patch) { patch.path }),
-              ),
-            )
-          let #(project_state, project_effects) =
-            apply_patches(app.project, patches)
-          // Record the turn for the Build Story: request-start timestamp,
-          // truncated prompt/reply, and the touched paths only.
-          let started_at = case app.agent.lifecycle {
-            agent.Running(_, at) -> at
-            _ -> 0
-          }
-          let log_entry =
-            build_log.entry(
-              started_at,
-              last_user_prompt(app.chat.messages),
-              reply,
-              list.map(patches, fn(patch) { patch.path }),
-            )
-          let #(project_state, _) =
-            project.update(project_state, project.BuildLogAppended(log_entry))
-          // A successful turn supersedes any recorded preview error: the
-          // page is about to reload with new code.
-          let #(preview_state, _) =
-            preview.update(app.preview, preview.PreviewErrorCleared)
-          with_auto_save(
-            model.Model(
-              ..app,
-              agent: agent_state,
-              chat: chat_state,
-              project: project_state,
-              preview: preview_state,
-            ),
-            list.append(
-              mapped_agent_effects,
-              list.append(list.map(project_effects, effect.Project), [
-                effect.ScrollMessagesToBottom,
-              ]),
-            ),
-          )
-        }
+    // A step that returned no tool calls is the end of the turn: the model
+    // answered. Files were already written by the fs tools as the loop ran, so
+    // there is nothing to apply here — only the turn's record to close.
+    agent.AgentStepReturned(request_id, _, _) ->
+      case request_matches(app.agent, request_id) && !agent.is_running(agent_state) {
+        True -> finish_turn(app, agent_state, mapped_agent_effects)
         False -> #(model.Model(..app, agent: agent_state), mapped_agent_effects)
       }
+
+    // Budget spent. The turn still produced work and an answer, so it closes
+    // exactly like a normal completion rather than surfacing as an error.
+    agent.AgentStepBudgetReached(request_id) ->
+      case request_matches(app.agent, request_id) {
+        True -> finish_turn(app, agent_state, mapped_agent_effects)
+        False -> #(model.Model(..app, agent: agent_state), mapped_agent_effects)
+      }
+
     agent.AgentRequestFailed(request_id, message) ->
       case request_matches(app.agent, request_id) {
         True -> {
@@ -439,8 +415,80 @@ fn update_agent(
         }
         False -> #(model.Model(..app, agent: agent_state), mapped_agent_effects)
       }
+
+    // Without this branch a timed-out turn renders no bubble at all — the
+    // message had no handler before the harness, because nothing dispatched it.
+    agent.AgentTimeoutReached(request_id) ->
+      case request_matches(app.agent, request_id) {
+        True -> {
+          let chat_state =
+            chat.update(
+              app.chat,
+              chat.AssistantError(
+                "This took too long and was stopped. Any files it already changed have been kept.",
+              ),
+            )
+          with_auto_save(
+            model.Model(..app, agent: agent_state, chat: chat_state),
+            list.append(mapped_agent_effects, [effect.ScrollMessagesToBottom]),
+          )
+        }
+        False -> #(model.Model(..app, agent: agent_state), mapped_agent_effects)
+      }
+
     _ -> #(model.Model(..app, agent: agent_state), mapped_agent_effects)
   }
+}
+
+/// Close a finished turn: one chat bubble, one build-log entry.
+///
+/// Deliberately **per turn, not per step**. Logging each step would turn the
+/// Build Story into a build log — the Story is a narrative of what was built,
+/// and a twelve-step turn is still one thing the founder asked for. `paths` is
+/// the union of everything written across the turn, in first-write order, which
+/// is exactly what the narration chips already render.
+///
+/// `agent_state` is read *after* the actor update, because that is where the
+/// accumulated reply and touched paths live; `app.agent` is read for the
+/// request-start clock, which the actor clears on the next turn.
+fn finish_turn(
+  app: model.Model,
+  agent_state: agent.State,
+  agent_effects: List(effect.Effect),
+) -> #(model.Model, List(effect.Effect)) {
+  let paths = agent_state.touched_paths
+  let reply = case agent_state.final_reply {
+    "" -> "Done."
+    text -> text
+  }
+  let chat_state = chat.update(app.chat, chat.AssistantReplied(reply, paths))
+  let started_at = case app.agent.lifecycle {
+    agent.Running(_, at) -> at
+    _ -> 0
+  }
+  let log_entry =
+    build_log.entry(
+      started_at,
+      last_user_prompt(app.chat.messages),
+      reply,
+      paths,
+    )
+  let #(project_state, _) =
+    project.update(app.project, project.BuildLogAppended(log_entry))
+  // A finished turn supersedes any recorded preview error: the page is about
+  // to reload with new code.
+  let #(preview_state, _) =
+    preview.update(app.preview, preview.PreviewErrorCleared)
+  with_auto_save(
+    model.Model(
+      ..app,
+      agent: agent_state,
+      chat: chat_state,
+      project: project_state,
+      preview: preview_state,
+    ),
+    list.append(agent_effects, [effect.ScrollMessagesToBottom]),
+  )
 }
 
 fn last_user_prompt(messages: List(chat.Message)) -> String {
@@ -456,21 +504,6 @@ fn request_matches(state: agent.State, request_id: String) -> Bool {
   case state.lifecycle {
     agent.Running(active_id, _) if active_id == request_id -> True
     _ -> False
-  }
-}
-
-fn apply_patches(
-  state: project.State,
-  patches: List(agent.Patch),
-) -> #(project.State, List(project.Effect)) {
-  case patches {
-    [] -> #(state, [])
-    [agent.Patch(path, content), ..rest] -> {
-      let #(next_state, effects) =
-        project.update(state, project.FileApplied(path, content))
-      let #(final_state, rest_effects) = apply_patches(next_state, rest)
-      #(final_state, list.append(effects, rest_effects))
-    }
   }
 }
 

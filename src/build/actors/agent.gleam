@@ -43,10 +43,6 @@ pub const max_calls_per_step = 3
 /// The file whose change means `npm install` has to run.
 pub const package_json = "package.json"
 
-pub type Patch {
-  Patch(path: String, content: String)
-}
-
 pub type Lifecycle {
   Idle
   Running(request_id: String, started_at: Int)
@@ -104,7 +100,6 @@ pub type State {
 pub type Msg {
   AgentRequestStarted(request_id: String, started_at: Int)
   AgentElapsedTick(now: Int)
-  AgentRequestSucceeded(request_id: String, reply: String, patches: List(Patch))
   AgentRequestFailed(request_id: String, message: String)
   AgentRequestCanceled
   AgentTimeoutReached(request_id: String)
@@ -156,9 +151,12 @@ pub type Effect {
   StartElapsedTimer
   StopElapsedTimer
   AbortAgent
-  InstallIfNeeded(patches: List(Patch))
-  /// Turn-end install driven by `pkg_dirty` rather than by inspecting a patch
-  /// list, so an explicit `npm install` by the model does not cause a second one.
+  /// The **only** thing that can trigger `npm install`.
+  ///
+  /// Driven by `pkg_dirty` rather than by inspecting a patch list, so a model
+  /// that installs explicitly does not get a second install at turn end, and a
+  /// model that forgets still gets one. The old `InstallIfNeeded(patches)` was
+  /// removed with the patch protocol — two triggers could both fire.
   InstallDependencies
 }
 
@@ -267,15 +265,6 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
         Running(_, started_at) -> #(
           State(..state, elapsed_seconds: { now - started_at } / 1000),
           [],
-        )
-        _ -> #(state, [])
-      }
-
-    AgentRequestSucceeded(request_id, _, patches) ->
-      case state.lifecycle {
-        Running(active_id, _) if active_id == request_id -> #(
-          State(..clear_turn(state), lifecycle: Idle, elapsed_seconds: 0),
-          [StopElapsedTimer, InstallIfNeeded(patches)],
         )
         _ -> #(state, [])
       }

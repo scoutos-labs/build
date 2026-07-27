@@ -132,6 +132,19 @@ export async function persistCurrentProjectId(id) {
   await m.setCurrentProjectId(id || null)
 }
 
+/**
+ * Publish the current file set for the agent's tool executors.
+ *
+ * `project.files` is the source of truth; the WebContainer FS is a replica that
+ * `isSyncableTextFile` silently filters. So `fs_read` and `fs_list` must read
+ * this snapshot rather than the disk, or the agent reasons about a file set the
+ * app does not have. Sourced from Gleam on every save path, which is every path
+ * that can change a file.
+ */
+export function publishProjectFiles(files) {
+  globalThis.__buildProjectFiles = normalizeFiles(files)
+}
+
 export function scheduleSave(delay, name, filesArg, messagesArg, buildLogArg, selectedPath, currentProjectId) {
   lastSavePayload = { name, filesArg, messagesArg, buildLogArg, selectedPath, currentProjectId, silent: true }
   if (saveTimer) clearTimeout(saveTimer)

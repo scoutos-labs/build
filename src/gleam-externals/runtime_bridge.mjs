@@ -107,6 +107,58 @@ export function dispatchAgentFailed(requestId, message) { sendMsg(Msg.Msg$Agent(
 export function dispatchAgentBudgetExhausted(requestId, resetAt) { sendMsg(Msg.Msg$Agent(Agent.Msg$AgentBudgetExhausted(requestId, String(resetAt ?? '')))) }
 export function dispatchAccountLoaded(plan, budget) { sendMsg(Msg.Msg$Settings(Settings.Msg$AccountLoaded(String(plan ?? ''), String(budget ?? '')))) }
 export function dispatchAgentTick(now) { sendMsg(Msg.Msg$Agent(Agent.Msg$AgentElapsedTick(now))) }
+
+// ── Agent harness ────────────────────────────────────────────────────────────
+
+// The ONLY legal way for an agent tool to write a project file.
+//
+// project.files is the source of truth; the WebContainer FS is a replica that
+// feeds nothing else. FileApplied updates state.files AND emits
+// WriteFileToContainer, so both stay in step. Writing straight to wc.fs would
+// leave the editor, the ZIP export, publish, autosave, and the next turn's
+// prompt context all reading stale bytes.
+export function dispatchProjectFileApplied(path, content) {
+  sendMsg(Msg.Msg$Project(Project.Msg$FileApplied(String(path), String(content))))
+}
+
+function toGleamToolCalls(calls = []) {
+  return toList(calls.map(call => Agent.ToolCall$ToolCall(
+    String(call.id ?? ''),
+    String(call.name ?? ''),
+    String(call.argsJson ?? '{}'),
+  )))
+}
+
+export function dispatchAgentStepReturned(requestId, toolCalls = [], assistantContent = '') {
+  sendMsg(Msg.Msg$Agent(Agent.Msg$AgentStepReturned(
+    String(requestId),
+    toGleamToolCalls(toolCalls),
+    String(assistantContent ?? ''),
+  )))
+}
+
+export function dispatchAgentToolStarted(requestId, callId, summary) {
+  sendMsg(Msg.Msg$Agent(Agent.Msg$AgentToolStarted(String(requestId), String(callId), String(summary ?? ''))))
+}
+
+export function dispatchAgentToolFinished(requestId, callId, ok, summary, paths = [], installed = false) {
+  sendMsg(Msg.Msg$Agent(Agent.Msg$AgentToolFinished(
+    String(requestId),
+    String(callId),
+    ok ? Agent.ToolStatus$ToolDone() : Agent.ToolStatus$ToolFailed(),
+    String(summary ?? ''),
+    toList((paths ?? []).map(String)),
+    Boolean(installed),
+  )))
+}
+
+export function dispatchAgentStepBudgetReached(requestId) {
+  sendMsg(Msg.Msg$Agent(Agent.Msg$AgentStepBudgetReached(String(requestId))))
+}
+
+export function dispatchAgentTimeoutReached(requestId) {
+  sendMsg(Msg.Msg$Agent(Agent.Msg$AgentTimeoutReached(String(requestId))))
+}
 export function dispatchLandingIdea(idea) { sendMsg(Msg.Msg$LandingIdeaArrived(String(idea ?? ''))) }
 export function dispatchBuildFromPlan(planSummary) {
   const requestId = `plan-${Date.now()}-${Math.random().toString(36).slice(2)}`

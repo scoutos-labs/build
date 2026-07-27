@@ -1,5 +1,5 @@
 import { runNpmInstall } from './webcontainer.mjs'
-import { dispatchAgentBudgetExhausted, dispatchAgentFailed, dispatchAgentSucceeded, dispatchAgentTick, dispatchWebContainerLog } from './runtime_bridge.mjs'
+import { dispatchAgentBudgetExhausted, dispatchAgentFailed, dispatchAgentSucceeded, dispatchAgentTick, dispatchAgentToolFinished, dispatchAgentToolStarted, dispatchProjectFileApplied, dispatchWebContainerLog } from './runtime_bridge.mjs'
 
 let elapsedTimer = null
 let activeController = null
@@ -70,32 +70,90 @@ export async function callAgent(requestId, provider, model, userPrompt, apiKey =
 }
 
 // ── Harness effects ──────────────────────────────────────────────────────────
-// The loop is wired in U7a; until then these are reachable only from the new
-// actor messages, which nothing dispatches yet. They are real exports rather
-// than absent ones so the Gleam interpreter has something to bind to and a
-// missing implementation surfaces as a test failure, not a runtime TypeError.
+// The step transport is wired in U4 and the loop in U7a. Tool execution below is
+// live: it runs the real executors against the real WebContainer.
+
+// Tool results for the current turn, keyed by request id. This is the only place
+// raw tool output lives — Gleam holds summaries and paths, never bodies. Cleared
+// on every terminal transition (see clearTurnState).
+const toolResults = new Map()
+
+/** The seam between the tool executors and the browser. */
+async function toolContext() {
+  const wc = await import('./webcontainer.mjs')
+  const tools = await import('../agent-tools')
+  return {
+    tools,
+    ctx: {
+      // project.files is the source of truth. Snapshotted into globalThis by the
+      // runtime bridge so the executors can read it without a Gleam round trip.
+      files: () => globalThis.__buildProjectFiles ?? [],
+      // The ONLY legal write path — see dispatchProjectFileApplied.
+      applyFile: (path, content) => dispatchProjectFileApplied(path, content),
+      readContainerFile: async path => {
+        const m = await import('../webcontainer')
+        return m.readProjectFile ? m.readProjectFile(path) : undefined
+      },
+      flushWrites: () => wc.flushContainerWrites(),
+      spawn: (command, args) => wc.spawnAgentCommand(command, args),
+      log: line => wc.appendRuntimeLog(line),
+    },
+  }
+}
 
 export function callAgentStep(requestId, step) {
+  // Wired in U4; recorded so the loop's step cadence is observable in tests.
   globalThis.__buildAgentStepCalls = [
     ...(globalThis.__buildAgentStepCalls ?? []),
     { requestId, step },
   ]
 }
 
-export function executeTool(requestId, callId, name, argsJson) {
-  globalThis.__buildAgentToolCalls = [
-    ...(globalThis.__buildAgentToolCalls ?? []),
-    { requestId, callId, name, argsJson },
-  ]
+export async function executeTool(requestId, callId, name, argsJson) {
+  let result
+  try {
+    const { tools, ctx } = await toolContext()
+    dispatchAgentToolStarted(requestId, callId, `Working on it`)
+    result = await tools.runTool(ctx, name, argsJson)
+  } catch (error) {
+    // A thrown executor must still finish the call, or the step never completes
+    // and the turn hangs until the deadline.
+    result = { ok: false, content: `Tool failed: ${message(error)}`, summary: 'A step failed' }
+  }
+  const bucket = toolResults.get(requestId) ?? []
+  bucket.push({ toolCallId: callId, name, content: result.content })
+  toolResults.set(requestId, bucket)
+  dispatchAgentToolFinished(
+    requestId,
+    callId,
+    result.ok,
+    result.summary,
+    result.paths ?? [],
+    result.installed ?? false,
+  )
 }
 
 export function killExec() {
   globalThis.__buildAgentKillExecCalls = (globalThis.__buildAgentKillExecCalls ?? 0) + 1
+  void import('../agent-tools').then(tools => tools.killExec()).catch(() => {})
 }
 
 export function installDependencies() {
   globalThis.__buildAgentInstallCalls = (globalThis.__buildAgentInstallCalls ?? 0) + 1
   void runNpmInstall()
+}
+
+/** Drop everything a finished turn was holding. Called on every terminal
+ * transition — success, failure, cancel, timeout, project new/open/reset — so a
+ * transcript never outlives its turn. */
+export function clearTurnState(requestId) {
+  if (requestId) toolResults.delete(requestId)
+  else toolResults.clear()
+}
+
+/** Test seam: the turn-state map must be empty after every terminal transition. */
+export function pendingTurnCount() {
+  return toolResults.size
 }
 
 export function startElapsedTimer() {

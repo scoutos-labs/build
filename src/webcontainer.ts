@@ -63,6 +63,28 @@ function isSyncableTextFile(path: string) {
   return TEXT_FILE_NAMES.has(name) || TEXT_FILE_PATTERN.test(path)
 }
 
+/**
+ * Spawn a one-shot command for the agent.
+ *
+ * Deliberately separate from `startShell`: the agent never writes to the user's
+ * `jsh` stdin, and its commands must be individually killable and individually
+ * timed. Argv form (not a shell string) is enforced by the caller — see
+ * `validateExec` in `src/agent-tools.ts`.
+ */
+export async function spawnCommand(command: string, args: string[]) {
+  const wc = await bootWebContainer()
+  const proc = await wc.spawn(command, args)
+  return {
+    exit: proc.exit,
+    onOutput(handler: (chunk: string) => void) {
+      proc.output.pipeTo(new WritableStream({ write: chunk => handler(String(chunk)) }))
+    },
+    kill() {
+      proc.kill()
+    },
+  }
+}
+
 export async function runInstall(onLog: (line: string) => void) {
   const wc = await bootWebContainer()
   const proc = await wc.spawn('npm', ['install'])

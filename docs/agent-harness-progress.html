@@ -25,7 +25,7 @@
 </head>
 <body>
 <h1>Progress — agent-harness</h1>
-<p>Overall status: <span class="st pass">release 1 complete</span> — <strong>All twelve units done, plus BYOK tool mode. The loop is live in both modes.</strong> PRD: <code>agent-harness-prd.html</code> · handoff: <code>agent-harness-handoff.md</code> · branch <code>agent-harness</code> (23 commits off <code>8c9b385</code>)</p>
+<p>Overall status: <span class="st pass">release 1 complete</span> — <strong>All twelve units done, BYOK tool mode in, and validated against a real model.</strong> PRD: <code>agent-harness-prd.html</code> · handoff: <code>agent-harness-handoff.md</code> · branch <code>agent-harness</code> (25 commits off <code>8c9b385</code>)</p>
 <p class="muted">The single-shot <code>{reply, patches[]}</code> protocol is <strong>gone</strong>: <code>agent.Patch</code>, <code>AgentRequestSucceeded</code>, <code>apply_patches</code>, and <code>InstallIfNeeded(patches)</code> are all removed. One write path, one install trigger. All five named core tools ship: <code>fs_*</code>, <code>exec</code>, <code>web_search</code>, <code>web_fetch</code>, <code>web_post</code> — plus <code>fs_delete</code> and undo. Nothing from the plan remains unbuilt.</p>
 <p class="muted">Goal: replace Build's single-shot <code>{reply, patches[]}</code> agent with a bounded tool-calling harness using the WebContainer as the control plane, plus a curated multi-model picker. Workspaces (agents / skills / workflow) designed in PRD §9, not built.</p>
 
@@ -101,14 +101,37 @@ Advisories fixed: A3 (architecture doc), A4 (search results + POST responses now
 </ul>
 
 <h2>Validation results</h2>
-<pre>npm test                              → gleam 191 passed, vitest 234 passed (17 files)
+<pre>npm test                              → gleam 191 passed, vitest 236 passed (17 files)
 npm run build                         → gleam build + tsc -b + vite build ✓
 cd server &amp;&amp; npm test                 → 307 passed (13 files)
 cd server &amp;&amp; npm run typecheck        → clean   [added to the battery per advisory A12]
 node scripts/smoke-layout-modes.mjs   → 25/25 (incl. Focus-modal full-viewport, identical-DOM, iframe survival)
 node scripts/smoke-interview.mjs      → 14/14
 node scripts/smoke-agent-harness.mjs  → 37/37  [NEW — drives a real multi-step turn]</pre>
-<p class="muted">Merge-base counts: gleam 140, vitest 108, server 103. Net new: <strong>+51 gleam, +126 vitest, +204 server = 381 tests</strong>, plus a new 37-check browser smoke. The two build warnings (a Rolldown <code>@__PURE__</code> annotation and a <code>dict.delete</code> import) are pre-existing and come from vendored Lustre output under <code>build/</code>.</p>
+<p class="muted">Merge-base counts: gleam 140, vitest 108, server 103. Net new: <strong>+51 gleam, +128 vitest, +204 server = 383 tests</strong>, plus a new 37-check browser smoke. The two build warnings (a Rolldown <code>@__PURE__</code> annotation and a <code>dict.delete</code> import) are pre-existing and come from vendored Lustre output under <code>build/</code>.</p>
+
+<h2>Live-model run — the acceptance gate</h2>
+<p>Same prompt in both cases: <em>Add a footer to the page with the text "Built with hyper".</em> BYOK mode, real key, real network, real WebContainer. <code>scripts/live-agent-run.mjs</code>.</p>
+<table>
+<tr><th>Model</th><th>Steps</th><th>Wall</th><th>Provider calls</th><th>Files</th><th>Verified (S1)</th></tr>
+<tr><td><code>anthropic/claude-sonnet-4.6</code></td><td>5</td><td>22s</td><td>6</td><td>1</td><td><span class="st pass">yes</span></td></tr>
+<tr><td><code>qwen/qwen3.6-35b-a3b</code> (free tier)</td><td>10</td><td>~35s</td><td>9</td><td>2</td><td><span class="st pass">yes</span></td></tr>
+</table>
+<pre>Sonnet's receipts:
+  Read main.tsx
+  Wrote main.tsx
+  Checked the code — found problems
+  Read main.tsx
+  Built cleanly
+
+  "The build succeeded. A footer with "Built with hyper" now sits at the bottom
+   of the page, styled in a soft muted gray that matches the existing scheme."</pre>
+<p><strong>S1 satisfied by observation.</strong> Both models wrote code, typechecked it, found <em>real</em> errors, fixed them, and re-verified before replying — the WebContainer-as-control-plane thesis, working. The footer renders in the live preview (screenshot <code>scripts/.smoke/live/live-turn.png</code>). <strong>The free tier works</strong>, which settles the last open question about its default model. The exec allowlist refused two commands on the free-tier run and the teaching refusal let the model recover rather than stall.</p>
+
+<h2>The bug the live run found — and nothing else could</h2>
+<p><strong>The user's request was dropped after step 0.</strong> <code>userPrompt</code> was sent only when <code>stepIndex === 0</code>, so from step 1 the model had tool results and no request. It read files, found nothing to act on, and replied <em>"Looks like you sent a blank message — what would you like to create?"</em>. The turn completed <em>successfully</em> with zero files changed, so nothing in the harness registered a failure. Present in <strong>both</strong> transports.</p>
+<p>500+ tests and three stubbed smokes missed it because <strong>a stub does not care what you ask it</strong>. This is the entire argument for a live run as the acceptance gate rather than a formality. Fixed on every step, with a source-level regression guard (the externals layer is not executed by unit tests) verified to bite.</p>
+<p>The first run also showed the agent reading six files — <code>index.html</code> and <code>main.tsx</code> twice each — and then stopping. <code>TOOL_MODE_WORKFLOW</code> now says reading is preparation rather than an answer, calls out re-reading as a wasted step, and names the starter page as a placeholder to replace rather than describe back.</p>
 
 <h2>Live spike — OpenRouter catalog (advisory A2 / open question B3)</h2>
 <pre>GET https://openrouter.ai/api/v1/models      2026-07-27
@@ -134,7 +157,8 @@ node scripts/smoke-agent-harness.mjs  → 37/37  [NEW — drives a real multi-st
 <h2>Residual risks</h2>
 <ul>
 <li><strong>Two more bugs the end-to-end smoke caught in U12</strong>, both the same class as the blind-agent bug: <code>FileRemoved</code> was missing from <code>update.gleam</code>'s auto-save branch, and the snapshot removal sat <em>after</em> <code>await bootGate</code> so a delete during boot would leave the file visible to <code>fs_list</code> forever. <strong>The agent's file snapshot must never depend on an async path settling.</strong></li>
-<li><strong>No live-model run yet.</strong> The loop is exercised end-to-end by the harness smoke with the real executors, real project state, and the real actor — but the step responses are injected rather than returned by a provider. A managed run against a real OpenRouter key is the remaining validation, and it is what S1/S2/S4 need before they can be measured.</li>
+<li><strong>BYOK validated live; managed mode is not.</strong> The live run went through the BYOK transport (a real OpenRouter key, no Clerk). The managed transport shares the actor, the executors, the prompt and the accumulation logic — and the <code>userPrompt</code> bug was fixed in both — but <code>/api/agent/step</code> itself has only been exercised against fixtures. A managed run needs a Clerk instance.</li>
+<li><strong>S2 still needs a corpus.</strong> S1 is now observed and S4 has two real data points, but the broken-handback rate needs a population, not two turns.</li>
 <li><strong>Two more bugs found by driving BYOK against a stubbed provider.</strong> <code>FetchLLMClient</code> held <code>globalThis.fetch</code> unbound and called it as a method → "Illegal invocation" (pre-existing; would have broken BYOK's JSON path in production too). And <strong>the transcript window was one step wide in both modes</strong> — each step replaced <code>toolCalls</code>/<code>toolResults</code> instead of accumulating, so the model re-decided from the file tree every step: 12 steps for work that takes 2. Accumulation is what makes the step budget mean what it says.</li>
 <li><strong>A6 — dev-server restart cadence, partially mitigated.</strong> <code>webcontainer.ts</code> notes that container writes do not reliably trigger vite's watcher, so the dev server exits and auto-restarts after 1s. Today a turn writes once; under the loop it writes in bursts. <code>flushWrites</code> before <code>exec</code> is in place, but suppressing preview-error capture while the agent runs belongs to U7a. Until then, a multi-step turn could flood <code>[preview error]</code> lines and pop the Try-to-fix card mid-work — which would make S2 <em>worse</em> from cadence alone.</li>
 <li><strong>R1 injection→exec chain is not yet live</strong> and will not be until U11 adds web tools. Shipping U1–U9 without web tools keeps that entire surface out of release 1 — the reason the plan gate recommended deferring it.</li>

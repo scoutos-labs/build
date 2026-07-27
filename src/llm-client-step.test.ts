@@ -275,3 +275,33 @@ describe('the transcript window', () => {
     }
   })
 })
+
+describe('the user request survives the whole turn', () => {
+  it('buildToolModeMessages includes the prompt whenever it is given', async () => {
+    const { buildToolModeMessages } = await import('./agent')
+    const messages = buildToolModeMessages({
+      files: [],
+      messages: [],
+      userPrompt: 'add a footer',
+      toolCalls: [toolCall('c1')],
+      toolResults: [{ toolCallId: 'c1', content: 'file body' }],
+    })
+    const user = messages.filter(m => m.role === 'user').map(m => m.content)
+    expect(user).toContain('add a footer')
+  })
+
+  it('the loop never conditions the prompt on the step index', async () => {
+    // Source-level guard, because this lives in the externals layer that unit
+    // tests do not execute. Sending userPrompt only on step 0 left the model
+    // with tool results and no request from step 1 onward: it read files, found
+    // nothing to act on, and answered "looks like you sent a blank message".
+    // Three stubbed smokes and 500+ tests missed it; one live run found it.
+    const { readFileSync } = await import('node:fs')
+    const { resolve } = await import('node:path')
+    const source = readFileSync(resolve(__dirname, 'gleam-externals/agent.mjs'), 'utf-8')
+    expect(source).not.toMatch(/userPrompt:\s*stepIndex\s*===\s*0/) // guard
+    // Both transports must pass it unconditionally.
+    const unconditional = source.match(/userPrompt:\s*turn\.userPrompt/g) ?? []
+    expect(unconditional.length).toBeGreaterThanOrEqual(2)
+  })
+})

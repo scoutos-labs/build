@@ -134,7 +134,10 @@ async function runStep(requestId, stepIndex) {
         messages: turn.messages,
         toolCalls: turn.toolCalls,
         toolResults: turn.toolResults,
-        userPrompt: stepIndex === 0 ? turn.userPrompt : undefined,
+        // EVERY step, not just the first. Dropping it after step 0 left the
+        // model with tool results and no request — it read files, found nothing
+        // to act on, and replied "looks like you sent a blank message".
+        userPrompt: turn.userPrompt,
         selectedElement: turn.selectedElement,
         elementComment: turn.elementComment,
         webRead: turn.webRead,
@@ -239,7 +242,8 @@ async function runByokStep(requestId, stepIndex, turn) {
     messages: prompt.buildToolModeMessages({
       files: globalThis.__buildProjectFiles ?? turn.files,
       messages: turn.messages,
-      userPrompt: stepIndex === 0 ? turn.userPrompt : undefined,
+      // EVERY step: see the managed path above.
+      userPrompt: turn.userPrompt,
       selectedElement: turn.selectedElement,
       elementComment: turn.elementComment,
       toolCalls: turn.toolCalls,

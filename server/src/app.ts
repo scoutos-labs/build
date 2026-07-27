@@ -3,7 +3,16 @@ import { getCookie } from 'hono/cookie'
 import type { Db, UserRow } from './db.js'
 import type { KeyCrypto } from './key-crypto.js'
 import type { OpenRouterClient } from './openrouter.js'
-import { buildModelMessages, extractJson, type AgentRequestBody, type ProjectFile } from './prompt.js'
+import {
+  adaptLegacyPatches,
+  buildModelMessages,
+  buildToolModeMessages,
+  extractJson,
+  type AgentRequestBody,
+  type ProjectFile,
+  type StepRequestBody,
+} from './prompt.js'
+import { CLIENT_TOOL_SPECS, MAX_CALLS_PER_STEP, STEP_BUDGET_NUDGE } from './agent-tools.js'
 import { checkSubdomain, packageProject } from './publish.js'
 import type { AgentRateLimiters, RateLimiter } from './rate-limit.js'
 import type { ScoutLiveClient } from './scoutlive.js'
@@ -105,6 +114,36 @@ function isValidAgentBody(body: unknown): body is AgentRequestBody {
     Array.isArray(candidate.messages) &&
     candidate.messages.every(
       m => (m?.role === 'user' || m?.role === 'assistant') && typeof m?.content === 'string',
+    )
+  )
+}
+
+function isFileList(value: unknown): value is ProjectFile[] {
+  return (
+    Array.isArray(value) &&
+    value.every(f => typeof f?.path === 'string' && typeof f?.content === 'string')
+  )
+}
+
+function isValidStepBody(body: unknown): body is StepRequestBody {
+  if (!body || typeof body !== 'object') return false
+  const c = body as Partial<StepRequestBody>
+  return (
+    typeof c.turnId === 'string' &&
+    c.turnId.length > 0 &&
+    typeof c.stepIndex === 'number' &&
+    Number.isInteger(c.stepIndex) &&
+    c.stepIndex >= 0 &&
+    Array.isArray(c.tree) &&
+    c.tree.every(entry => typeof entry?.path === 'string' && typeof entry?.bytes === 'number') &&
+    isFileList(c.fullFiles) &&
+    Array.isArray(c.messages) &&
+    c.messages.every(
+      m => (m?.role === 'user' || m?.role === 'assistant') && typeof m?.content === 'string',
+    ) &&
+    Array.isArray(c.toolResults) &&
+    c.toolResults.every(
+      r => typeof r?.toolCallId === 'string' && typeof r?.content === 'string',
     )
   )
 }
@@ -222,6 +261,145 @@ export function createApp(deps: AppDeps) {
         return c.json(errorBody('bad_model_output', 'Model returned unusable output'), 502)
       }
     }
+  })
+
+  /**
+   * One step of the agent harness.
+   *
+   * Stateless by design. The browser drives the loop (it owns the WebContainer,
+   * so `fs_*` and `exec` execute there) and carries the transcript in the request
+   * body. That keeps Build's "anonymous, local-first" promise intact: the server
+   * sees project bytes transiently, exactly as it already does for `/api/agent`,
+   * and persists nothing new. A server-side transcript store would mean Build's
+   * server holds users' source code.
+   *
+   * The bound on a client-driven loop is the step token (HMAC over stepIndex)
+   * plus the split rate limiter — and, honestly, the per-user OpenRouter key's
+   * monthly limit, which is the only hard ceiling on spend.
+   */
+  app.post('/api/agent/step', async c => {
+    const auth = await authenticate(c)
+    if (!auth) return c.json(errorBody('unauthorized', 'Missing or invalid session token'), 401)
+    if (!deps.stepTokens) return c.json(errorBody('not_configured', 'Agent harness unavailable'), 503)
+
+    const declaredLength = Number(c.req.header('content-length') ?? '0')
+    if (declaredLength > MAX_BODY_BYTES) {
+      return c.json(errorBody('payload_too_large', 'Request body exceeds 2MB'), 413)
+    }
+    const rawBody = await c.req.text()
+    if (rawBody.length > MAX_BODY_BYTES) {
+      return c.json(errorBody('payload_too_large', 'Request body exceeds 2MB'), 413)
+    }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(rawBody)
+    } catch {
+      return c.json(errorBody('bad_request', 'Body must be JSON'), 400)
+    }
+    if (!isValidStepBody(parsed)) {
+      return c.json(errorBody('bad_request', 'Body must include turnId, stepIndex, tree, fullFiles, messages'), 400)
+    }
+    const body = parsed
+
+    // Turn-starts and continuation steps have separate ceilings: one turn is up
+    // to MAX_TOOL_STEPS requests, so a single limiter would 429 the user's
+    // second turn within a minute.
+    const limiters = deps.agentLimiters
+    const limiter = limiters
+      ? body.stepIndex === 0
+        ? limiters.turns
+        : limiters.steps
+      : deps.rateLimiter
+    if (!limiter.check(auth.userId)) {
+      return c.json(errorBody('rate_limited', 'Too many requests; try again in a minute'), 429)
+    }
+
+    const maxSteps = maxStepsForTier(auth.tier)
+    if (body.stepIndex > 0) {
+      const verdict = deps.stepTokens.verify(body.stepToken ?? '', { maxSteps })
+      if (!verdict.ok) {
+        if (verdict.reason === 'budget_exceeded') {
+          return c.json(errorBody('step_budget_exceeded', 'This turn used its step budget'), 400)
+        }
+        return c.json(errorBody('unauthorized', 'Invalid or expired step token'), 401)
+      }
+      // A token minted for one user must not drive another user's turn.
+      if (verdict.claims.userId !== auth.userId || verdict.claims.turnId !== body.turnId) {
+        return c.json(errorBody('unauthorized', 'Step token does not match this turn'), 401)
+      }
+    }
+    if (body.stepIndex >= maxSteps) {
+      return c.json(errorBody('step_budget_exceeded', 'This turn used its step budget'), 400)
+    }
+
+    let user: UserRow
+    try {
+      user = await loadOrProvisionUser(deps, auth)
+    } catch (error) {
+      deps.log?.(`provisioning failed for ${auth.userId}: ${String(error)}`)
+      return c.json(errorBody('provisioning_failed', 'Could not provision account'), 503)
+    }
+    if (user.disabled) return c.json(errorBody('payment_failed', 'Account is disabled'), 402)
+
+    const modelMessages = buildToolModeMessages(body, { webTools: false })
+    const promptChars = modelMessages.reduce((total, m) => total + m.content.length, 0)
+    // Over budget mid-turn, forcing a final answer beats 413-ing: the work
+    // already done is not thrown away, and the user gets a usable reply.
+    const overBudget = promptChars > MAX_PROMPT_CHARS
+    if (overBudget) {
+      modelMessages.push({ role: 'system', content: STEP_BUDGET_NUDGE })
+    }
+    const lastStep = body.stepIndex + 1 >= maxSteps
+    if (lastStep && !overBudget) {
+      modelMessages.push({ role: 'system', content: STEP_BUDGET_NUDGE })
+    }
+
+    const apiKey = deps.keyCrypto.decrypt(user.or_key_enc)
+    const result = await deps.openrouter.toolCompletion({
+      apiKey,
+      model: user.model,
+      messages: modelMessages,
+      // Offering no tools on the final step is what makes the nudge binding
+      // rather than advisory.
+      tools: lastStep || overBudget ? [] : CLIENT_TOOL_SPECS,
+      maxCalls: MAX_CALLS_PER_STEP,
+    })
+
+    if (result.kind === 'budget_exhausted') return c.json(budgetExhaustedBody(), 402)
+    if (result.kind === 'error') {
+      deps.log?.(`openrouter step error for ${auth.userId}: ${result.status} ${result.message}`)
+      return c.json(errorBody('upstream_error', 'Model call failed'), 502)
+    }
+
+    // A model answering in the old JSON envelope is decoded into one synthetic
+    // fs_batch_write rather than failing the turn — one write path, no second
+    // protocol. See adaptLegacyPatches.
+    let toolCalls = result.toolCalls
+    let assistantContent = result.content
+    let usedLegacyAdapter = false
+    if (toolCalls.length === 0 && assistantContent) {
+      const adapted = adaptLegacyPatches(assistantContent, `${body.turnId}-${body.stepIndex}-legacy`)
+      if (adapted && adapted.toolCalls.length > 0) {
+        toolCalls = adapted.toolCalls
+        assistantContent = adapted.reply
+        usedLegacyAdapter = true
+        deps.log?.(`legacy patch envelope adapted for ${auth.userId} at step ${body.stepIndex}`)
+      }
+    }
+
+    return c.json({
+      toolCalls,
+      assistantContent,
+      done: toolCalls.length === 0,
+      usedLegacyAdapter,
+      stepToken: deps.stepTokens.issue({
+        userId: auth.userId,
+        turnId: body.turnId,
+        stepIndex: body.stepIndex + 1,
+      }),
+      maxToolSteps: maxSteps,
+    })
   })
 
   // ScoutOS publish keys are user-supplied and write-only: stored encrypted,

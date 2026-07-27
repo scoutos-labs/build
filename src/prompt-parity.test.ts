@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { buildSystemPrompt } from './agent'
+import { CLIENT_TOOL_SPECS } from './agent-tools'
 
 // The agent prompt is assembled in two places until the planned Phase-3
 // unification: src/agent.ts (client, non-managed mode) and
@@ -84,5 +85,81 @@ describe('client/server prompt parity', () => {
     const stubChars = (source: string, file: string) => constant(source, /STUB_MAX_CHARS = (\d+)/, file)
     expect(stubLines(clientSource, 'src/agent.ts')).toBe(stubLines(serverSource, 'server/src/prompt.ts'))
     expect(stubChars(clientSource, 'src/agent.ts')).toBe(stubChars(serverSource, 'server/src/prompt.ts'))
+  })
+
+  it('extracts the JSON-mode Rules block unambiguously', () => {
+    // The tool-mode rules live in a TS array (SHARED_RULES), not a second
+    // literal "Rules:" block, so the first-match extraction above stays
+    // unambiguous. If tool mode ever grows a literal block, this fails and the
+    // extraction must become mode-aware rather than order-dependent.
+    const literalBlocks = serverSource.match(/^Rules:\n(?:- .*\n)+/gm) ?? []
+    expect(literalBlocks).toHaveLength(1)
+  })
+})
+
+// The tool specs are the second intentionally-duplicated surface: the server
+// declares what the model may call (managed mode) and the client executes it
+// (src/agent-tools.ts). A disagreement means the model is offered a tool nothing
+// will run — which shows up as a stalled turn, not an error. Hence this guard.
+const serverToolSource = readFileSync(resolve(__dirname, '../server/src/agent-tools.ts'), 'utf-8')
+const agentActorSource = readFileSync(
+  resolve(__dirname, 'build/actors/agent.gleam'),
+  'utf-8',
+)
+
+// Rules that may appear ONLY server-side. Web tools live behind Clerk auth and
+// the server's SSRF guard, so BYOK is never offered them — and must never be
+// told about them, or the model will call a tool that does not exist.
+const SERVER_ONLY_RULE_MARKERS = ['web_search', 'web_fetch', 'web_post']
+
+describe('client/server tool-spec parity', () => {
+  it('offers exactly the same tool names on both sides', () => {
+    const clientNames = CLIENT_TOOL_SPECS.map(spec => spec.function.name)
+    const serverNames = [...serverToolSource.matchAll(/name: '([a-z_]+)'/g)].map(match => match[1])
+    expect(serverNames).toEqual(clientNames)
+  })
+
+  it('keeps every tool description identical', () => {
+    // A description is the model's entire understanding of a tool; drift here is
+    // silent and behavioural.
+    for (const spec of CLIENT_TOOL_SPECS) {
+      const { name, description } = spec.function
+      expect(
+        serverToolSource.includes(description),
+        `description for ${name} differs between src/agent-tools.ts and server/src/agent-tools.ts`,
+      ).toBe(true)
+    }
+  })
+
+  it('keeps MAX_CALLS_PER_STEP in step with the Gleam actor', () => {
+    const server = constant(serverToolSource, /MAX_CALLS_PER_STEP = (\d+)/, 'server/src/agent-tools.ts')
+    const gleam = constant(agentActorSource, /max_calls_per_step = (\d+)/, 'agent.gleam')
+    expect(server).toBe(gleam)
+  })
+
+  it('keeps MAX_TOOL_STEPS in step between the server token and the Gleam actor', () => {
+    const stepTokenSource = readFileSync(resolve(__dirname, '../server/src/step-token.ts'), 'utf-8')
+    const server = constant(stepTokenSource, /MAX_TOOL_STEPS = (\d+)/, 'server/src/step-token.ts')
+    const gleam = constant(agentActorSource, /max_tool_steps = (\d+)/, 'agent.gleam')
+    expect(server).toBe(gleam)
+  })
+
+  it('never names a web tool in the client tool surface', () => {
+    const clientToolSource = readFileSync(resolve(__dirname, 'agent-tools.ts'), 'utf-8')
+    for (const marker of SERVER_ONLY_RULE_MARKERS) {
+      // Allowed in the runTool refusal list (which explains they are
+      // unavailable); never as an offered spec.
+      const names = CLIENT_TOOL_SPECS.map(spec => spec.function.name)
+      expect(names).not.toContain(marker)
+      expect(clientToolSource.includes(`name: '${marker}'`)).toBe(false)
+    }
+  })
+
+  it('marks no client tool as approval-gated', () => {
+    // "Trust the sandbox": fs_* and exec run unattended. If a refactor ever
+    // inverts that, this is the tripwire.
+    for (const spec of CLIENT_TOOL_SPECS) {
+      expect(spec.function.description.toLowerCase()).not.toMatch(/requires the user to approve/)
+    }
   })
 })

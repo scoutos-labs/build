@@ -1,5 +1,6 @@
 import build/actors/agent
 import build/actors/chat
+import build/actors/settings
 import build/actors/interview
 import build/components/build_bolt
 import build/msg
@@ -25,6 +26,7 @@ pub fn view(
   interview_state: interview.State,
   preview_error: Option(String),
   agent_state: agent.State,
+  settings_state: settings.State,
 ) -> Element(msg.Msg) {
   let interviewing = interview.is_active(interview_state)
   fragment([
@@ -148,8 +150,48 @@ pub fn view(
           )
         False -> html.text("")
       },
+      // Model choice belongs where the work is chosen, not buried in settings:
+      // picking how hard to think is part of composing a request.
+      job_picker(settings_state, busy),
     ]),
   ])
+}
+
+/// The job picker.
+///
+/// Never shows a model id. A founder cannot evaluate "claude-sonnet-4.6 vs
+/// gpt-5.5", but they can tell you whether this is a small tweak or a hard
+/// problem — and the tradeoff they actually feel is their monthly budget, which
+/// is what the option text talks about.
+///
+/// Hidden for Ollama: it has no tool mode and no catalog, so a job picker there
+/// would promise a choice that does not exist.
+fn job_picker(state: settings.State, busy: Bool) -> Element(msg.Msg) {
+  case state.provider {
+    settings.Ollama -> html.text("")
+    settings.OpenRouter ->
+      html.label([attribute.class("jobPicker")], [
+        html.span([attribute.class("srOnly")], [html.text("How much thinking")]),
+        html.select(
+          [
+            attribute.disabled(busy),
+            attribute.title(settings.job_blurb(state.job)),
+            event.on_input(fn(value) {
+              msg.Settings(settings.JobChanged(settings.job_from_string(value)))
+            }),
+          ],
+          list.map(settings.all_jobs(), fn(job) {
+            html.option(
+              [
+                attribute.value(settings.job_to_string(job)),
+                attribute.selected(job == state.job),
+              ],
+              settings.job_label(job),
+            )
+          }),
+        ),
+      ])
+  }
 }
 
 // --- the onboarding interview, rendered as a conversation ---

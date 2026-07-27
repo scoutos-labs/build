@@ -163,3 +163,40 @@ describe('client/server tool-spec parity', () => {
     }
   })
 })
+
+// The job picker's model ids are a fourth duplicated surface: Gleam offers them
+// to the user, the server validates and uses them. A drift here means the picker
+// offers a model the server would reject as non-tool-capable — which surfaces as
+// a turn that will not start.
+describe('job picker / curated model parity', () => {
+  const settingsSource = readFileSync(resolve(__dirname, 'build/actors/settings.gleam'), 'utf-8')
+  const modelsSource = readFileSync(resolve(__dirname, '../server/src/models.ts'), 'utf-8')
+
+  /** `Quick -> "id"` pairs from settings.gleam's job_model. */
+  function gleamJobModels(): string[] {
+    const block = settingsSource.match(/pub fn job_model\(job: Job\) -> String \{[\s\S]*?\n\}/)
+    if (!block) throw new Error('job_model not found in settings.gleam')
+    return [...block[0].matchAll(/-> "([^"]+)"/g)].map(match => match[1]!)
+  }
+
+  /** First entry of each chain in server/src/models.ts CURATED_CHAINS. */
+  function serverFirstChoices(): string[] {
+    const choices = [...modelsSource.matchAll(/chain: \[\s*'([^']+)'/g)].map(match => match[1]!)
+    if (choices.length === 0) throw new Error('No CURATED_CHAINS chains found in server/src/models.ts')
+    return choices
+  }
+
+  it('offers exactly the server curated chains first choices, in order', () => {
+    expect(gleamJobModels()).toEqual(serverFirstChoices())
+  })
+
+  it('offers three jobs', () => {
+    expect(gleamJobModels()).toHaveLength(3)
+  })
+
+  it('never puts a model id in a job label', () => {
+    const labels = settingsSource.match(/pub fn job_label\(job: Job\) -> String \{[\s\S]*?\n\}/)![0]
+    for (const id of serverFirstChoices()) expect(labels).not.toContain(id)
+    expect(labels).not.toContain('/')
+  })
+})

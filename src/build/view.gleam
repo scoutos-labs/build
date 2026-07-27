@@ -90,6 +90,7 @@ pub fn view(app: model.Model) -> Element(msg.Msg) {
         app.interview,
         app.preview.last_preview_error,
         app.agent,
+        app.settings,
       ),
     ]),
     html.main(

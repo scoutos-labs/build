@@ -145,6 +145,14 @@ input:focus, textarea:focus, select:focus { border-color: transparent; box-shado
 .trailStep { font-size: .8rem; color: var(--hyper-charcoal); opacity: .78; line-height: 1.45; }
 /* A failed step is ink on white, like .previewErrorCard — never red. */
 .trailStepProblem { color: var(--hyper-ink); }
+/* The job picker sits with Send, not in settings: choosing how hard to think is
+   part of composing a request. Quiet by default — it is a choice, not a control
+   panel. */
+.jobPicker { margin-left: auto; display: inline-flex; align-items: center; }
+.jobPicker select { font-family: inherit; font-size: .78rem; color: var(--hyper-charcoal); background: #fff; border: 1px solid var(--hyper-line); border-radius: 999px; padding: 5px 9px; cursor: pointer; }
+.jobPicker select:hover:not(:disabled) { color: var(--hyper-ink); border-color: var(--hyper-slate); }
+.jobPicker select:disabled { opacity: .55; cursor: default; }
+.srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .budgetExhausted { color: #8a4b00; background: #fff7ed; border: 1px solid #f5c98a; border-radius: 12px; padding: 9px 11px; font-size: .84rem; box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
 /* Preview-error card: quiet ink-on-white with the amber rule — the bolt's
    "needs work" cousin, not a red alarm. */

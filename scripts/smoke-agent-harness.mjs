@@ -219,6 +219,33 @@ note('cancel leaves no turn state behind', canceled.pendingTurns === 0)
 note('cancel clears the working line', canceled.working === 0)
 await snap('after-cancel')
 
+// ── 8. The model picker names jobs, never models ───────────────────────────
+const picker = await page.evaluate(() => ({
+  options: [...document.querySelectorAll('.jobPicker option')].map(o => o.textContent.trim()),
+  selected: document.querySelector('.jobPicker select')?.value,
+  leaksAModelId: /\//.test(document.querySelector('.jobPicker')?.textContent ?? ''),
+}))
+note('three jobs are offered', picker.options.length === 3, picker.options.join(' / '))
+note('the picker never shows a model id', !picker.leaksAModelId)
+note('the default job is the middle one', picker.selected === 'standard')
+
+await page.selectOption('.jobPicker select', 'hard')
+await page.waitForTimeout(300)
+const picked = await page.evaluate(() => ({
+  stored: globalThis.localStorage?.getItem('build.job'),
+}))
+note('the choice persists', picked.stored === 'hard')
+await snap('job-picker')
+
+// Ollama has no tool mode and no catalog, so a picker there would promise a
+// choice that does not exist.
+await bridge(`bridge.dispatchSettingsLoaded({ provider: 'ollama', apiKey: '', model: 'glm-5:cloud' })`)
+await page.waitForTimeout(300)
+note(
+  'no job picker for Ollama, which has no tool mode',
+  (await page.locator('.jobPicker').count()) === 0,
+)
+
 await context.close()
 const videos = (await readdir(OUT)).filter(f => f.endsWith('.webm'))
 for (const file of videos) {

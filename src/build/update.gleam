@@ -592,7 +592,11 @@ fn improve_selected_element(
               chat.UserSentMessage("Selected element: " <> comment),
             )
           let #(agent_state, agent_effects) =
-            agent.update(app.agent, agent.AgentRequestStarted(request_id, now))
+            agent.update(
+          app.agent,
+          // The point undo returns to, captured before the turn writes anything.
+          agent.AgentRequestStarted(request_id, now, app.project.files),
+        )
           let call_agent =
             agent.CallAgent(
               request_id: request_id,
@@ -696,7 +700,11 @@ fn call_agent_with_prompt(
     False -> {
       let chat_state = chat.update(app.chat, chat.UserSentMessage(user_message))
       let #(agent_state, agent_effects) =
-        agent.update(app.agent, agent.AgentRequestStarted(request_id, now))
+        agent.update(
+          app.agent,
+          // The point undo returns to, captured before the turn writes anything.
+          agent.AgentRequestStarted(request_id, now, app.project.files),
+        )
       let call_agent =
         agent.CallAgent(
           request_id: request_id,

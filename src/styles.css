@@ -155,6 +155,9 @@ input:focus, textarea:focus, select:focus { border-color: transparent; box-shado
 .approvalCard pre { margin: 0; padding: 8px 10px; max-height: 120px; overflow: auto; font-family: var(--hyper-mono); font-size: .72rem; line-height: 1.45; white-space: pre-wrap; word-break: break-word; background: var(--hyper-soft); border-radius: 8px; }
 .approvalCard .actions { margin: 0; }
 .approvalBlocked { color: var(--hyper-charcoal); margin: 0 0 8px; }
+/* Undo sits under the summary, not beside it: it is a rare, deliberate action,
+   and putting it next to Show would make the row read as a toolbar. */
+.trailUndo { display: flex; justify-content: flex-end; }
 /* The job picker sits with Send, not in settings: choosing how hard to think is
    part of composing a request. Quiet by default — it is a choice, not a control
    panel. */

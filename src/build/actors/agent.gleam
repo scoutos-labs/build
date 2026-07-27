@@ -112,6 +112,14 @@ pub type State {
     /// Assistant prose accumulated across steps; the last non-empty value is the
     /// turn's reply.
     final_reply: String,
+    /// The project's files as they were when this turn started, and the paths it
+    /// went on to change.
+    ///
+    /// The counterweight to unattended writing: "trust the sandbox" means a turn
+    /// can rewrite six files without asking, so there has to be a way back. Only
+    /// the most recent turn is undoable — a stack would need persistence and a
+    /// UI, and the realistic regret is always "that last one made it worse".
+    snapshot: Option(List(ProjectFile)),
     /// A web_post waiting on the user. While set, the turn is paused rather
     /// than finished — the model is owed a result either way.
     pending_approval: Option(Approval),
@@ -122,7 +130,12 @@ pub type State {
 }
 
 pub type Msg {
-  AgentRequestStarted(request_id: String, started_at: Int)
+  /// `files` is the project as it stands right now — the point undo returns to.
+  AgentRequestStarted(
+    request_id: String,
+    started_at: Int,
+    files: List(ProjectFile),
+  )
   AgentElapsedTick(now: Int)
   AgentRequestFailed(request_id: String, message: String)
   AgentRequestCanceled
@@ -158,6 +171,8 @@ pub type Msg {
   AgentApprovalRequested(request_id: String, approval: Approval)
   /// The user decided. Either way the model is told what happened.
   AgentApprovalResolved(request_id: String, approved: Bool)
+  /// Put the project back as it was before the last turn.
+  AgentUndoRequested
   /// Expand or collapse the finished turn's trail. Pure UI.
   AgentTrailToggled
 }
@@ -181,6 +196,13 @@ pub type Effect {
   CallAgentStep(request_id: String, step: Int)
   /// Run one tool call against the WebContainer / project actor.
   ExecuteTool(request_id: String, call: ToolCall)
+  /// Put the project back to a snapshot.
+  ///
+  /// Carries the files explicitly because `project.RemountProject` discards its
+  /// argument at the interpreter and remounts a JS-side cache that is not
+  /// necessarily the project — restoring through it would silently mount
+  /// whatever was last *mounted*, possibly several turns stale.
+  RestoreSnapshot(files: List(ProjectFile))
   /// Kill any agent-owned process. Paired with `AbortAgent` on every terminal
   /// transition — without it a wedged command outlives the turn and quietly
   /// degrades the container.
@@ -213,6 +235,7 @@ pub fn init() -> State {
     pkg_dirty: False,
     pending_calls: [],
     final_reply: "",
+    snapshot: option.None,
     pending_approval: option.None,
     trail_expanded: False,
   )
@@ -249,6 +272,9 @@ fn clear_turn(state: State) -> State {
     final_reply: "",
     pending_approval: option.None,
     trail_expanded: False,
+    // `snapshot` is deliberately NOT cleared here: undo has to outlive the turn
+    // that produced it. It is replaced when the next turn starts, and dropped on
+    // project navigation (which resets the whole actor).
   )
 }
 
@@ -296,11 +322,12 @@ fn has_trail_entry(trail: List(TrailStep), call_id: String) -> Bool {
 
 pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
   case msg {
-    AgentRequestStarted(request_id, started_at) -> #(
+    AgentRequestStarted(request_id, started_at, files) -> #(
       State(
         ..clear_turn(state),
         lifecycle: Running(request_id, started_at),
         elapsed_seconds: 0,
+        snapshot: option.Some(files),
       ),
       [StartElapsedTimer],
     )
@@ -523,6 +550,17 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
         _, _ -> #(state, [])
       }
 
+    // Only offered between turns, and only when the turn actually wrote
+    // something — see `can_undo`.
+    AgentUndoRequested ->
+      case can_undo(state), state.snapshot {
+        True, option.Some(files) -> #(
+          State(..state, snapshot: option.None, touched_paths: [], trail: []),
+          [RestoreSnapshot(files)],
+        )
+        _, _ -> #(state, [])
+      }
+
     AgentTrailToggled -> #(
       State(..state, trail_expanded: !state.trail_expanded),
       [],
@@ -537,6 +575,13 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
         _ -> #(state, [])
       }
   }
+}
+
+/// Undo is offered only between turns, and only when the last one actually
+/// changed something — an undo button after a turn that just read files would
+/// promise to reverse nothing.
+pub fn can_undo(state: State) -> Bool {
+  !is_running(state) && state.snapshot != option.None && state.touched_paths != []
 }
 
 /// Collapsed one-line summary of a finished turn, e.g.

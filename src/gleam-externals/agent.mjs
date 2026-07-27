@@ -1,5 +1,5 @@
 import { runNpmInstall } from './webcontainer.mjs'
-import { dispatchAgentBudgetExhausted, dispatchAgentFailed, dispatchAgentApprovalRequested, dispatchAgentServerStepRecorded, dispatchAgentStepReturned, dispatchAgentTick, dispatchAgentTimeoutReached, dispatchAgentToolFinished, dispatchAgentToolStarted, dispatchProjectFileApplied, dispatchWebContainerLog } from './runtime_bridge.mjs'
+import { dispatchAgentBudgetExhausted, dispatchAgentFailed, dispatchAgentApprovalRequested, dispatchAgentServerStepRecorded, dispatchAgentStepReturned, dispatchAgentTick, dispatchAgentTimeoutReached, dispatchAgentToolFinished, dispatchAgentToolStarted, dispatchProjectFileApplied, dispatchProjectFilesUpdated, dispatchWebContainerLog, dispatchWebContainerRemountRequested } from './runtime_bridge.mjs'
 
 let elapsedTimer = null
 let activeController = null
@@ -402,6 +402,24 @@ function recordToolResult(requestId, callId, name, content) {
   const bucket = toolResults.get(requestId) ?? []
   bucket.push({ toolCallId: callId, name, content })
   toolResults.set(requestId, bucket)
+}
+
+/**
+ * Put the project back to a snapshot.
+ *
+ * Restores through `dispatchProjectFilesUpdated` (which updates the model and
+ * reseeds the agent's file snapshot) and then `dispatchWebContainerRemountRequested`,
+ * which is the ONLY remount path that actually carries files —
+ * `project.RemountProject` discards its argument at the interpreter and remounts
+ * a JS-side cache that may be several turns stale.
+ */
+export function restoreSnapshot(files) {
+  const restored = gleamListToArray(files).map(file => ({
+    path: file.path,
+    content: file.content,
+  }))
+  dispatchProjectFilesUpdated(restored, 'Undid the last build')
+  dispatchWebContainerRemountRequested(restored)
 }
 
 export function killExec() {

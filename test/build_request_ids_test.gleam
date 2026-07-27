@@ -61,7 +61,7 @@ pub fn elapsed_tick_counts_seconds_since_submit_test() {
   let #(running, _) =
     agent.update(
       agent.init(),
-      agent.AgentRequestStarted(ids.new_request_id(), started_at),
+      agent.AgentRequestStarted(ids.new_request_id(), started_at, []),
     )
   let #(ticked, _) =
     agent.update(running, agent.AgentElapsedTick(started_at + 2500))
@@ -76,7 +76,7 @@ pub fn canceled_request_late_response_is_discarded_test() {
   let #(running_a, _) =
     agent.update(
       agent.init(),
-      agent.AgentRequestStarted(request_a, ids.now_ms()),
+      agent.AgentRequestStarted(request_a, ids.now_ms(), []),
     )
   let #(canceled, cancel_effects) =
     agent.update(running_a, agent.AgentRequestCanceled)
@@ -87,7 +87,7 @@ pub fn canceled_request_late_response_is_discarded_test() {
     == [agent.StopElapsedTimer, agent.AbortAgent, agent.KillExec]
 
   let #(running_b, _) =
-    agent.update(canceled, agent.AgentRequestStarted(request_b, ids.now_ms()))
+    agent.update(canceled, agent.AgentRequestStarted(request_b, ids.now_ms(), []))
 
   // A's late response arrives after B started: ignored, B keeps running.
   // Under the harness this matters more than it did: a late step response that

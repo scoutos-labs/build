@@ -522,6 +522,22 @@ fn trail_working_view(state: agent.State, running: Bool) -> Element(msg.Msg) {
             ]),
           ],
         ),
+        // The counterweight to unattended writing. Offered only when the turn
+        // actually changed files, and only for the most recent one — the
+        // realistic regret is always "that last one made it worse".
+        case agent.can_undo(state) {
+          True ->
+            html.div([attribute.class("trailUndo")], [
+              button(
+                [
+                  attribute.class("ghost compact"),
+                  event.on_click(msg.Agent(agent.AgentUndoRequested)),
+                ],
+                "Undo this build",
+              ),
+            ])
+          False -> html.text("")
+        },
         case state.trail_expanded {
           True ->
             html.ol(

@@ -303,6 +303,65 @@ note('a tainted turn shows no send button', blocked.buttons.length === 1, blocke
 note('and says why', (blocked.reason ?? '').length > 0, blocked.reason)
 await snap('web-post-blocked')
 
+// ── 10. Undo puts the project back ─────────────────────────────────────────
+// The counterweight to unattended writing. Verified end to end because the
+// obvious mechanism (project.RemountProject) silently discards its files and
+// would have remounted a stale cache instead.
+await page.reload()
+await page.waitForSelector('.app', { timeout: 20000 })
+await bridge(`bridge.dispatchSettingsLoaded({ provider: 'openrouter', apiKey: 'sk-test', model: 'anthropic/claude-sonnet-4.6' })`)
+await page.waitForSelector('.modalBackdrop', { state: 'detached', timeout: 5000 })
+const dismiss2 = await page.$('text=Just describe it instead')
+if (dismiss2) { await dismiss2.click(); await page.waitForTimeout(400) }
+await page.evaluate(async () => {
+  const A = await import('/build/dev/javascript/build/build/actors/agent.mjs')
+  const M = await import('/build/dev/javascript/build/build/msg.mjs')
+  const L = await import('/build/dev/javascript/lustre/lustre.mjs')
+  const G = await import('/build/dev/javascript/prelude.mjs')
+  globalThis.__h = { A, M, toList: G.toList }
+  globalThis.__go = m => globalThis.__buildGleamRuntime.send(L.dispatch(m))
+})
+
+const originalMain = await page.evaluate(
+  () => (globalThis.__buildProjectFiles ?? []).find(f => f.path === 'src/main.tsx')?.content ?? '',
+)
+note('the project has a file to change', originalMain.length > 0)
+
+// Start a turn carrying the current files as its snapshot, then overwrite one.
+await page.evaluate(async () => {
+  const { A, M, toList } = globalThis.__h
+  const T = await import('/build/dev/javascript/build/build/pure/templates.mjs')
+  const snapshot = toList(
+    (globalThis.__buildProjectFiles ?? []).map(f => T.ProjectFile$ProjectFile(f.path, f.content)),
+  )
+  __go(M.Msg$Agent(A.Msg$AgentRequestStarted('undo', Date.now(), snapshot)))
+  __go(M.Msg$Agent(A.Msg$AgentStepReturned('undo',
+    toList([A.ToolCall$ToolCall('u1', 'fs_write',
+      JSON.stringify({ path: 'src/main.tsx', content: '// CLOBBERED\n' }))]), '')))
+})
+await page.waitForTimeout(800)
+await page.evaluate(() => {
+  const { A, M, toList } = globalThis.__h
+  __go(M.Msg$Agent(A.Msg$AgentStepReturned('undo', toList([]), 'Rewrote the entry file.')))
+})
+await page.waitForTimeout(500)
+
+const clobbered = await page.evaluate(
+  () => (globalThis.__buildProjectFiles ?? []).find(f => f.path === 'src/main.tsx')?.content ?? '',
+)
+note('the turn actually changed the file', clobbered.includes('CLOBBERED'))
+note('undo is offered after a writing turn', (await page.locator('.trailUndo button').count()) === 1)
+await snap('undo-offered')
+
+await page.click('.trailUndo button')
+await page.waitForTimeout(700)
+const restored = await page.evaluate(
+  () => (globalThis.__buildProjectFiles ?? []).find(f => f.path === 'src/main.tsx')?.content ?? '',
+)
+note('undo restores the exact pre-turn content', restored === originalMain)
+note('undo is one-shot', (await page.locator('.trailUndo button').count()) === 0)
+await snap('undo-applied')
+
 await context.close()
 const videos = (await readdir(OUT)).filter(f => f.endsWith('.webm'))
 for (const file of videos) {

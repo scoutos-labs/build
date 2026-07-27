@@ -61,7 +61,7 @@ pub fn chat_user_message_clears_prompt_test() {
 
 pub fn agent_ignores_stale_completion_test() {
   let #(running, _) =
-    agent.update(agent.init(), agent.AgentRequestStarted("new", 1000))
+    agent.update(agent.init(), agent.AgentRequestStarted("new", 1000, []))
   let #(next, effects) =
     agent.update(running, agent.AgentStepReturned("old", [], "ignored"))
 
@@ -71,7 +71,7 @@ pub fn agent_ignores_stale_completion_test() {
 
 pub fn agent_completion_stops_the_timer_test() {
   let #(running, _) =
-    agent.update(agent.init(), agent.AgentRequestStarted("req", 1000))
+    agent.update(agent.init(), agent.AgentRequestStarted("req", 1000, []))
   let #(next, effects) =
     agent.update(running, agent.AgentStepReturned("req", [], "done"))
 
@@ -190,7 +190,7 @@ fn append_logs(
 /// Start a turn and return the running state.
 fn running_turn() -> agent.State {
   let #(state, _) =
-    agent.update(agent.init(), agent.AgentRequestStarted("req", 1000))
+    agent.update(agent.init(), agent.AgentRequestStarted("req", 1000, []))
   state
 }
 
@@ -612,7 +612,7 @@ pub fn agent_new_turn_clears_the_previous_trail_test() {
     )
 
   let #(fresh, _) =
-    agent.update(dirty, agent.AgentRequestStarted("req2", 2000))
+    agent.update(dirty, agent.AgentRequestStarted("req2", 2000, []))
   assert fresh.trail == []
   assert fresh.touched_paths == []
   assert fresh.step == 0
@@ -700,7 +700,7 @@ pub fn agent_new_turn_recollapses_the_trail_test() {
   // A previous turn left expanded must not leave the next turn's trail open —
   // the summary is the resting state.
   let #(open, _) = agent.update(running_turn(), agent.AgentTrailToggled)
-  let #(fresh, _) = agent.update(open, agent.AgentRequestStarted("req2", 2000))
+  let #(fresh, _) = agent.update(open, agent.AgentRequestStarted("req2", 2000, []))
   assert !fresh.trail_expanded
 }
 
@@ -853,4 +853,109 @@ pub fn agent_steps_normally_when_no_approval_is_pending_test() {
   let #(_, effects) = finish(dispatched, "c1", "Read a file")
 
   assert effects == [agent.CallAgentStep("req", 1)]
+}
+
+// ── Undo: the counterweight to unattended writing ───────────────────────────
+
+fn file(path: String, content: String) -> templates.ProjectFile {
+  templates.ProjectFile(path, content)
+}
+
+fn turn_with_snapshot(files: List(templates.ProjectFile)) -> agent.State {
+  let #(state, _) =
+    agent.update(agent.init(), agent.AgentRequestStarted("req", 1000, files))
+  state
+}
+
+pub fn agent_undo_restores_the_pre_turn_files_test() {
+  let before = [file("src/App.tsx", "original")]
+  let #(dispatched, _) =
+    agent.update(
+      turn_with_snapshot(before),
+      agent.AgentStepReturned("req", [call("c1", "fs_write")], ""),
+    )
+  let #(wrote, _) =
+    agent.update(
+      dispatched,
+      agent.AgentToolFinished(
+        "req",
+        "c1",
+        agent.ToolDone,
+        "Wrote a file",
+        ["src/App.tsx"],
+        False,
+      ),
+    )
+  let #(finished, _) =
+    agent.update(wrote, agent.AgentStepReturned("req", [], "Rewrote it."))
+
+  assert agent.can_undo(finished)
+  let #(undone, effects) = agent.update(finished, agent.AgentUndoRequested)
+  // Files travel WITH the effect: project.RemountProject discards its argument,
+  // so restoring through it would remount a possibly-stale JS cache.
+  assert effects == [agent.RestoreSnapshot(before)]
+  // Undo is one-shot; a second click must not re-restore stale files.
+  assert !agent.can_undo(undone)
+}
+
+pub fn agent_undo_is_not_offered_while_a_turn_runs_test() {
+  let #(dispatched, _) =
+    agent.update(
+      turn_with_snapshot([file("a.ts", "x")]),
+      agent.AgentStepReturned("req", [call("c1", "fs_write")], ""),
+    )
+  let #(wrote, _) =
+    agent.update(
+      dispatched,
+      agent.AgentToolFinished("req", "c1", agent.ToolDone, "Wrote", ["a.ts"], False),
+    )
+  assert agent.is_running(wrote)
+  assert !agent.can_undo(wrote)
+}
+
+pub fn agent_undo_is_not_offered_for_a_read_only_turn_test() {
+  // An undo button after a turn that only read files would promise to reverse
+  // nothing.
+  let #(dispatched, _) =
+    agent.update(
+      turn_with_snapshot([file("a.ts", "x")]),
+      agent.AgentStepReturned("req", [call("c1", "fs_read")], ""),
+    )
+  let #(read, _) = finish(dispatched, "c1", "Read a file")
+  let #(finished, _) =
+    agent.update(read, agent.AgentStepReturned("req", [], "Had a look."))
+
+  assert !agent.can_undo(finished)
+  let #(_, effects) = agent.update(finished, agent.AgentUndoRequested)
+  assert effects == []
+}
+
+pub fn agent_undo_survives_the_turn_that_made_it_test() {
+  // clear_turn deliberately does NOT drop the snapshot — the whole point is to
+  // undo a turn after it has finished.
+  let before = [file("a.ts", "original")]
+  let #(dispatched, _) =
+    agent.update(
+      turn_with_snapshot(before),
+      agent.AgentStepReturned("req", [call("c1", "fs_write")], ""),
+    )
+  let #(wrote, _) =
+    agent.update(
+      dispatched,
+      agent.AgentToolFinished("req", "c1", agent.ToolDone, "Wrote", ["a.ts"], False),
+    )
+  let #(finished, _) = agent.update(wrote, agent.AgentStepReturned("req", [], "done"))
+  assert finished.snapshot == option.Some(before)
+}
+
+pub fn agent_next_turn_replaces_the_snapshot_test() {
+  // Only the most recent turn is undoable.
+  let first = [file("a.ts", "first")]
+  let second = [file("a.ts", "second")]
+  let #(fresh, _) =
+    agent.update(
+      turn_with_snapshot(first),
+      agent.AgentRequestStarted("req2", 2000, second),
+    )
+  assert fresh.snapshot == option.Some(second)
 }

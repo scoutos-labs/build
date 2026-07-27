@@ -13,6 +13,7 @@ pub fn interpret(effect: agent.Effect) -> Nil {
     agent.ExecuteTool(request_id, call) ->
       execute_tool(request_id, call.id, call.name, call.args_json)
     agent.KillExec -> kill_exec()
+    agent.RestoreSnapshot(files) -> restore_snapshot(files)
     agent.SendApprovedPost(request_id, call_id) ->
       send_approved_post(request_id, call_id)
     agent.DeclineApprovedPost(request_id, call_id) ->
@@ -42,6 +43,11 @@ fn execute_tool(
 
 @external(javascript, "../../gleam-externals/agent.mjs", "killExec")
 fn kill_exec() -> Nil
+
+/// Files travel with the effect: project.RemountProject discards its argument at
+/// the interpreter, so restoring through it would remount a stale JS cache.
+@external(javascript, "../../gleam-externals/agent.mjs", "restoreSnapshot")
+fn restore_snapshot(files: List(templates.ProjectFile)) -> Nil
 
 @external(javascript, "../../gleam-externals/agent.mjs", "sendApprovedPost")
 fn send_approved_post(request_id: String, call_id: String) -> Nil

@@ -53,8 +53,11 @@ export const MAX_EXEC_TIMEOUT_MS = 180_000
  * the ZIP, and every published deploy.
  */
 const DENIED_PREFIXES = ['node_modules/', 'dist/', '.git/', '.cache/', 'coverage/']
+// All case-insensitive: the asymmetry of some patterns carrying `i` and others
+// not made `.ENV` and `ID_RSA` writable, which reads as an oversight rather than
+// a decision.
 const DENIED_EXACT = new Set(['.env'])
-const DENIED_PATTERNS = [/^\.env($|\.)/, /\.pem$/i, /\.key$/i, /\.p12$/i, /^id_rsa/, /^\.npmrc$/]
+const DENIED_PATTERNS = [/^\.env($|\.)/i, /\.pem$/i, /\.key$/i, /\.p12$/i, /^id_rsa/i, /^\.npmrc$/i]
 
 /**
  * Files that may be written but never deleted: removing any of them breaks the
@@ -113,7 +116,7 @@ export function normalizePath(raw: unknown): PathVerdict {
     }
   }
   const name = segments[segments.length - 1] ?? ''
-  if (DENIED_EXACT.has(path) || DENIED_PATTERNS.some(pattern => pattern.test(name))) {
+  if (DENIED_EXACT.has(path.toLowerCase()) || DENIED_PATTERNS.some(pattern => pattern.test(name))) {
     return { ok: false, reason: 'That file holds secrets or keys; it is off limits.' }
   }
   return { ok: true, path }

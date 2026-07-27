@@ -100,7 +100,10 @@ export type ApprovalRequest = {
 }
 
 export type StepResponse = {
+  /** Calls the browser can actually run. Excludes the gated web_post. */
   toolCalls: { id: string; type: 'function'; function: { name: string; arguments: string } }[]
+  /** Everything the model emitted, for echoing back as assistant tool_calls. */
+  transcriptCalls: { id: string; type: 'function'; function: { name: string; arguments: string } }[]
   approval: ApprovalRequest | null
   serverSteps: { name: string; summary: string; warn?: string }[]
   assistantContent: string

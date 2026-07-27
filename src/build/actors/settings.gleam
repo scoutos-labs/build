@@ -98,6 +98,7 @@ pub type Msg {
     api_key: String,
     ollama_url: String,
     model: String,
+    job: String,
   )
   TestOllama
   AccountLoaded(plan: String, budget: String)
@@ -189,9 +190,10 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
       State(..state, connection_status: status),
       [],
     )
-    SettingsLoaded(provider, api_key, ollama_url, model) -> #(
+    SettingsLoaded(provider, api_key, ollama_url, model, job) -> #(
       State(
         ..state,
+        job: job_from_string(job),
         provider: provider_from_string(provider),
         api_key: api_key,
         ollama_url: case ollama_url == "" {

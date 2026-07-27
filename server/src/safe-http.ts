@@ -44,6 +44,14 @@ export function isPrivateIp(ip: string): boolean {
   // that address rather than the wrapper.
   const mapped = address.match(/^(?:::ffff:|64:ff9b::)([\d.]+)$/)
   if (mapped?.[1]) return isPrivateIp(mapped[1])
+  // Hex forms of the same wrappers: 64:ff9b::7f00:1 is 127.0.0.1, and the
+  // dotted-quad regex above would miss it.
+  const hexMapped = address.match(/^(?:::ffff:|64:ff9b::)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/)
+  if (hexMapped) {
+    const high = parseInt(hexMapped[1]!, 16)
+    const low = parseInt(hexMapped[2]!, 16)
+    return isPrivateIp(`${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`)
+  }
 
   if (address.includes(':')) return isPrivateIpV6(address)
   return isPrivateIpV4(address)
@@ -81,7 +89,16 @@ function isPrivateIpV6(address: string): boolean {
   if (Number.isNaN(group)) return true
   if ((group & 0xfe00) === 0xfc00) return true // unique-local fc00::/7
   if ((group & 0xffc0) === 0xfe80) return true // link-local fe80::/10
+  if ((group & 0xffc0) === 0xfec0) return true // site-local fec0::/10 (deprecated, still routed)
   if ((group & 0xff00) === 0xff00) return true // multicast ff00::/8
+  // 6to4: 2002::/16 embeds an IPv4 address in the next two groups, so
+  // 2002:7f00:1:: is 127.0.0.1 wearing a costume.
+  if (group === 0x2002) {
+    const parts = normalized.split(':')
+    const high = parseInt(parts[1] ?? '0', 16)
+    const low = parseInt(parts[2] ?? '0', 16)
+    return isPrivateIp(`${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`)
+  }
   return false
 }
 

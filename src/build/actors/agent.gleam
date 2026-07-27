@@ -147,6 +147,13 @@ pub type Msg {
     installed: Bool,
   )
   AgentStepBudgetReached(request_id: String)
+  /// A step the SERVER already ran (a web read, or an approved send).
+  ///
+  /// Distinct from AgentToolStarted because that one updates an existing row and
+  /// deliberately ignores unknown ids — server steps have no row to update, and
+  /// routing them through it silently discarded every web_search, every
+  /// web_fetch, and the injection warning with them.
+  AgentServerStepRecorded(request_id: String, name: String, summary: String)
   /// The model wants to send something out of the sandbox.
   AgentApprovalRequested(request_id: String, approval: Approval)
   /// The user decided. Either way the model is told what happened.
@@ -463,6 +470,28 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
             _ -> #(next, [])
           }
         }
+        _ -> #(state, [])
+      }
+
+    AgentServerStepRecorded(request_id, name, summary) ->
+      case state.lifecycle {
+        Running(active_id, _) if active_id == request_id -> #(
+          State(
+            ..state,
+            trail: list.append(state.trail, [
+              TrailStep(
+                // Server steps are already finished when we hear about them, so
+                // they carry no call id to correlate — the id only exists to keep
+                // rows distinct.
+                call_id: request_id <> "-srv-" <> int.to_string(list.length(state.trail)),
+                name: name,
+                summary: summary,
+                status: ToolDone,
+              ),
+            ]),
+          ),
+          [],
+        )
         _ -> #(state, [])
       }
 

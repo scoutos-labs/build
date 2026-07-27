@@ -32,6 +32,7 @@ pub fn settings_loads_from_storage_test() {
         api_key: "key",
         ollama_url: "http://ollama",
         model: "glm-5:cloud",
+        job: "",
       ),
     )
 
@@ -784,4 +785,51 @@ pub fn agent_cancel_drops_a_pending_approval_test() {
     agent.update(running_turn(), agent.AgentApprovalRequested("req", approval("")))
   let #(canceled, _) = agent.update(pending, agent.AgentRequestCanceled)
   assert canceled.pending_approval == option.None
+}
+
+pub fn agent_server_steps_reach_the_trail_test() {
+  // Server-run reads have no client call row to update, so routing them through
+  // AgentToolStarted silently discarded every web_search, every web_fetch, and
+  // the injection warning with them.
+  let #(next, effects) =
+    agent.update(
+      running_turn(),
+      agent.AgentServerStepRecorded(
+        "req",
+        "web_fetch",
+        "Read docs.stripe.com — ⚠ possible prompt-injection content",
+      ),
+    )
+
+  assert list.length(next.trail) == 1
+  assert effects == []
+  let assert Ok(row) = list.first(next.trail)
+  assert row.name == "web_fetch"
+  assert row.status == agent.ToolDone
+  assert row.summary
+    == "Read docs.stripe.com — ⚠ possible prompt-injection content"
+}
+
+pub fn agent_server_steps_interleave_with_client_steps_test() {
+  let #(dispatched, _) =
+    agent.update(running_turn(), agent.AgentStepReturned("req", [call("c1", "fs_read")], ""))
+  let #(with_server, _) =
+    agent.update(
+      dispatched,
+      agent.AgentServerStepRecorded("req", "web_search", "Searched the web"),
+    )
+  let #(done, _) = finish(with_server, "c1", "Read a file")
+
+  assert list.length(done.trail) == 2
+  // The client row still updates by id — the server row must not collide.
+  assert list.map(done.trail, fn(row) { row.summary })
+    == ["Read a file", "Searched the web"]
+}
+
+pub fn agent_server_steps_ignore_stale_request_ids_test() {
+  let state = running_turn()
+  let #(next, effects) =
+    agent.update(state, agent.AgentServerStepRecorded("old", "web_fetch", "x"))
+  assert next == state
+  assert effects == []
 }

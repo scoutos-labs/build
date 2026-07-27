@@ -1,5 +1,5 @@
 import { runNpmInstall } from './webcontainer.mjs'
-import { dispatchAgentBudgetExhausted, dispatchAgentFailed, dispatchAgentApprovalRequested, dispatchAgentStepReturned, dispatchAgentTick, dispatchAgentTimeoutReached, dispatchAgentToolFinished, dispatchAgentToolStarted, dispatchProjectFileApplied, dispatchWebContainerLog } from './runtime_bridge.mjs'
+import { dispatchAgentBudgetExhausted, dispatchAgentFailed, dispatchAgentApprovalRequested, dispatchAgentServerStepRecorded, dispatchAgentStepReturned, dispatchAgentTick, dispatchAgentTimeoutReached, dispatchAgentToolFinished, dispatchAgentToolStarted, dispatchProjectFileApplied, dispatchWebContainerLog } from './runtime_bridge.mjs'
 
 let elapsedTimer = null
 let activeController = null
@@ -14,8 +14,6 @@ const turns = new Map()
  * old per-request timeout were the same number; under a loop they are not. */
 const TURN_DEADLINE_MS = 300_000
 
-/** Distinguishes server-run trail rows within a turn. */
-let serverStepSeq = 0
 
 async function agentModule() {
   try { return await import('../agent') }
@@ -103,10 +101,12 @@ async function runStep(requestId, stepIndex) {
   try {
     const managed = managedAuth()
     if (!managed) {
-      // BYOK. Ollama has no tool mode (see LLMStepParams.provider), so it stays
-      // on the single-shot JSON protocol and its first step is also its last.
-      // Patches are applied through the ONE legal write path, not wc.fs, so the
-      // editor and the next turn's context stay in step either way.
+      // BYOK stays on the single-shot JSON protocol (Ollama has no tool mode
+      // at all; see LLMStepParams.provider). Its one response is adapted into
+      // the SAME synthetic fs_batch_write the managed legacy adapter uses, so
+      // BYOK goes through identical machinery — touched_paths, pkg_dirty, chips
+      // and the build log all populate. Applying patches directly instead left
+      // BYOK with no chips, no story paths, and no install trigger at all.
       const result = await (await agentModule()).runAgent({
         provider: turn.provider,
         apiKey: turn.apiKey,
@@ -119,11 +119,37 @@ async function runStep(requestId, stepIndex) {
         elementComment: turn.elementComment,
         signal: turn.controller.signal,
       })
-      // Apply through the one legal write path, then close the turn.
-      for (const patch of result.patches ?? []) {
-        dispatchProjectFileApplied(patch.path, patch.content)
+      const patches = (result.patches ?? []).filter(
+        patch => typeof patch?.path === 'string' && typeof patch?.content === 'string',
+      )
+      if (patches.length > 0) {
+        const callId = `${requestId}-byok`
+        // Drop the turn FIRST. AgentToolFinished emits CallAgentStep
+        // synchronously, and JSON mode has no next step — with the turn still
+        // registered that would fire a second provider call.
+        turns.delete(requestId)
+        dispatchAgentStepReturned(
+          requestId,
+          [{ id: callId, name: 'fs_batch_write', argsJson: JSON.stringify({ files: patches }) }],
+          result.reply ?? '',
+        )
+        // Apply through the one legal write path, then report it the same way a
+        // tool would — this is what populates chips, the build log, and
+        // pkg_dirty (and therefore the turn-end install).
+        for (const patch of patches) dispatchProjectFileApplied(patch.path, patch.content)
+        const paths = patches.map(patch => patch.path)
+        dispatchAgentToolFinished(
+          requestId,
+          callId,
+          true,
+          paths.length === 1 ? `Wrote ${paths[0].split('/').pop()}` : `Wrote ${paths.length} files`,
+          paths,
+          false,
+        )
+        dispatchAgentStepReturned(requestId, [], result.reply ?? '')
+      } else {
+        dispatchAgentStepReturned(requestId, [], result.reply ?? '')
       }
-      dispatchAgentStepReturned(requestId, [], result.reply)
       finishTurn(requestId)
       return
     }
@@ -155,13 +181,16 @@ async function runStep(requestId, stepIndex) {
     // Server-run reads already happened; show them in the trail so the user
     // sees what the agent looked at, with the injection label when flagged.
     for (const step of response.serverSteps ?? []) {
+      // The warning is a fixed content-free label, never page text.
       const summary = step.warn ? `${step.summary} — ${step.warn}` : step.summary
-      dispatchAgentToolStarted(requestId, `${requestId}-srv-${serverStepSeq++}`, summary)
+      dispatchAgentServerStepRecorded(requestId, step.name, summary)
     }
     // Results are consumed by the step that carried them; the next step reports
     // only its own.
     turn.toolResults = []
-    turn.toolCalls = response.toolCalls ?? []
+    // The FULL emitted set (including a gated web_post), because every tool
+    // result we send next step must have a matching call in this array.
+    turn.toolCalls = response.transcriptCalls ?? response.toolCalls ?? []
 
     // A web_post never arrives as a runnable call — the browser cannot send it.
     // It pauses the turn for the user, who sees the exact request.
@@ -326,7 +355,7 @@ export async function sendApprovedPost(requestId, callId) {
     content = `Could not send that request: ${message(error)}`
   }
   recordToolResult(requestId, callId, 'web_post', content)
-  dispatchAgentToolStarted(requestId, `${requestId}-post`, 'Sent the request')
+  dispatchAgentServerStepRecorded(requestId, 'web_post', 'Sent the request')
   void runStep(requestId, (turn.stepIndex ?? 0) + 1)
 }
 
@@ -341,7 +370,7 @@ export function declineApprovedPost(requestId, callId) {
     'web_post',
     'The user declined to send this request. Do not try again unless they ask; carry on with the rest of the work.',
   )
-  dispatchAgentToolStarted(requestId, `${requestId}-post`, 'Did not send the request')
+  dispatchAgentServerStepRecorded(requestId, 'web_post', 'Did not send the request')
   void runStep(requestId, (turn.stepIndex ?? 0) + 1)
 }
 

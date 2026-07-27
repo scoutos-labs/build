@@ -51,9 +51,20 @@ async function executeServerTool(
   if (call.function.name === 'web_search') {
     const query = typeof args.query === 'string' ? args.query : ''
     const result = await (deps.webSearchImpl ?? webSearch)(query, args.count)
+    if (!result.ok) {
+      return { content: result.content, step: { name: 'web_search', summary: 'Could not search the web' } }
+    }
+    // Titles and snippets are attacker-authored too — a result set gets the same
+    // sanitize/scan/wrap treatment as a page body.
+    const guarded = guardWebContent(result.content, `search: ${query.slice(0, 60)}`)
+    const warn = injectionLabel(guarded.findings)
     return {
-      content: result.content,
-      step: { name: 'web_search', summary: `Searched the web for “${query.slice(0, 60)}”` },
+      content: guarded.content,
+      step: {
+        name: 'web_search',
+        summary: `Searched the web for “${query.slice(0, 60)}”`,
+        ...(warn ? { warn } : {}),
+      },
     }
   }
 
@@ -559,6 +570,11 @@ export function createApp(deps: AppDeps) {
 
     return c.json({
       toolCalls: clientCalls,
+      // Everything the model emitted, including the gated call. The client
+      // echoes THIS back as the assistant `tool_calls` on the next step:
+      // answering a call the provider never saw requested is a 400, and it
+      // would land after the POST had already gone out.
+      transcriptCalls: toolCalls,
       approval: approval ? describeApproval(approval, webRead) : null,
       serverSteps,
       assistantContent,
@@ -616,7 +632,14 @@ export function createApp(deps: AppDeps) {
       body: payload,
       contentType: typeof body.contentType === 'string' ? body.contentType : 'application/json',
     })
-    return c.json({ ok: sent.ok, content: sent.content.slice(0, 4_000) })
+    // The POST target's response is model-bound content from a host the model
+    // chose, so it is guarded exactly like a page read.
+    const guarded = guardWebContent(sent.content, url)
+    return c.json({
+      ok: sent.ok,
+      content: guarded.content,
+      warn: injectionLabel(guarded.findings),
+    })
   })
 
   // ScoutOS publish keys are user-supplied and write-only: stored encrypted,

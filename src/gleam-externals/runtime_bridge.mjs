@@ -163,6 +163,14 @@ export function dispatchAgentToolFinished(requestId, callId, ok, summary, paths 
   )))
 }
 
+export function dispatchAgentServerStepRecorded(requestId, name, summary) {
+  sendMsg(Msg.Msg$Agent(Agent.Msg$AgentServerStepRecorded(
+    String(requestId),
+    String(name ?? ''),
+    String(summary ?? ''),
+  )))
+}
+
 export function dispatchAgentApprovalRequested(requestId, approval) {
   sendMsg(Msg.Msg$Agent(Agent.Msg$AgentApprovalRequested(
     String(requestId),
@@ -196,6 +204,7 @@ export function dispatchSettingsLoaded(settings) {
     settings.apiKey ?? settings.api_key ?? '',
     settings.ollamaUrl ?? settings.ollama_url ?? 'http://localhost:11434',
     settings.model ?? '',
+    settings.job ?? '',
   )))
 }
 export function dispatchSettingsStatus(status) { sendMsg(Msg.Msg$Settings(Settings.Msg$ConnectionStatusChanged(status))) }

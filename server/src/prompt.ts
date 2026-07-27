@@ -259,10 +259,10 @@ export const TOOL_MODE_WORKFLOW = `How to work:
 - Write whole files. fs_write and fs_batch_write replace a file completely; send the full content, never a fragment or a diff.
 - Group related changes into ONE fs_batch_write so a refactor cannot land half-applied.
 - Check your work before you finish. After changing code, run \`npx tsc --noEmit\` (and \`npm run build\` for anything substantial) with exec, read the real errors, fix them, and check again. Do not hand back work you have not verified.
+- exec runs exactly these and nothing else: \`npm install <package>\`, \`npm run build\`, \`npx tsc --noEmit\`, \`npx vite build\`, and \`node <file>\`. Anything else is refused and costs you a step, so do not guess at other commands.
 - The dev server is already running and reloads automatically. Never start it.
-- To add a dependency, write package.json and run \`npm install\` with exec.
 - The starter page is a placeholder, not the user's app. Replace it with what they asked for rather than describing it back to them.
-- When you are done, reply in plain language. Your final message is what the user reads, so do not describe tool calls or paste code into it.`
+- Your final message is plain conversational text shown as-is in a chat bubble. No markdown, no asterisks, no backticks, no bullet lists, no headings — they render as literal characters. Two or three short sentences saying what changed, in the user's terms, not the codebase's. Do not name files unless the user asked about them, and never paste code.`
 
 export const TOOL_MODE_RULES_HEADER = 'Rules:'
 

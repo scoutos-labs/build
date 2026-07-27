@@ -25,19 +25,20 @@
 </head>
 <body>
 <h1>Progress — agent-harness</h1>
-<p>Overall status: <span class="st planned">planned</span> · PRD: <code>agent-harness-prd.html</code> · handoff: <code>agent-harness-handoff.md</code> · branch <code>agent-harness</code> (off <code>8c9b385</code>)</p>
+<p>Overall status: <span class="st inprog">in-progress</span> — <strong>U1–U6 complete and green; the harness is fully built and deliberately dark.</strong> U7a/U7b flip it on. PRD: <code>agent-harness-prd.html</code> · handoff: <code>agent-harness-handoff.md</code> · branch <code>agent-harness</code> (6 commits off <code>8c9b385</code>)</p>
+<p class="muted">Stopping point is a designed one, not a half-state: the PRD's ordering principle was "the app is shippable after every unit, and the loop stays dark until U7a." Every existing behavior is byte-for-byte unchanged, both smokes are at full count, and <code>git diff</code> on <code>update.gleam</code> is empty.</p>
 <p class="muted">Goal: replace Build's single-shot <code>{reply, patches[]}</code> agent with a bounded tool-calling harness using the WebContainer as the control plane, plus a curated multi-model picker. Workspaces (agents / skills / workflow) designed in PRD §9, not built.</p>
 
 <h2>Step checklist</h2>
 <table>
 <p class="muted">Restructured after the plan gate (PRD §17): 13 steps → 12 units. <strong>Release 1 = U1–U9</strong>; U10–U12 are the declared cut line.</p>
 <tr><th>Unit</th><th>Layers</th><th>Status</th><th>Guarded surfaces</th><th>Evidence</th><th>Notes / deviations</th></tr>
-<tr><td>U1 · Server spine: models + limiter + step token</td><td><span class="layer">S</span></td><td><span class="st planned">planned</span></td><td>parity: untouched · templates: untouched</td><td>—</td><td>Merges old 1+2. Fixes F-c (10/min limiter would 429 a multi-step turn). Tool capability = curated allowlist (authoritative) + <code>supported_parameters</code> filter for the catalog (advisory A2). HKDF for the step-token key (A8).</td></tr>
-<tr><td>U2 · Loop as pure actor (unwired)</td><td><span class="layer">G</span></td><td><span class="st planned">planned</span></td><td>parity: untouched · templates: untouched</td><td>—</td><td>Must prove <code>update.gleam</code> diff is empty.</td></tr>
-<tr><td>U3 · <strong>Tool transport</strong></td><td><span class="layer">S</span><span class="layer">T</span></td><td><span class="st planned">planned</span></td><td>parity: untouched · templates: untouched</td><td>—</td><td><strong>New, from blocker B1.</strong> Neither client can send <code>tools</code> or receive <code>content: null</code> today. Ollama cut from tool mode (B2).</td></tr>
-<tr><td>U4 · Step endpoint + legacy adapter</td><td><span class="layer">S</span><span class="layer">T</span></td><td><span class="st planned">planned</span></td><td>parity: untouched (new export only) · templates: untouched</td><td>—</td><td>Wire shape pinned to <code>tree</code> + <code>fullFiles</code> (B3).</td></tr>
-<tr><td>U5 · fs executors + <code>exec</code></td><td><span class="layer">T</span><span class="layer">G</span></td><td><span class="st planned">planned</span></td><td>parity: untouched · templates: untouched</td><td>—</td><td>Merges old 5+8. Writes go through <code>project.FileApplied</code>, never <code>wc.fs.writeFile</code> (F-a / S5). Container writes batch, flushing before exec + at turn end (A6). <code>npx</code> narrowed to <code>{tsc, vite}</code> (B8).</td></tr>
-<tr><td>U6 · Tool-mode prompt + parity extension</td><td><span class="layer">S</span><span class="layer">T</span></td><td><span class="st planned">planned</span></td><td>parity: <strong>fires by design</strong> · templates: untouched</td><td>—</td><td>Extraction must be mode-aware, not order-dependent (A13).</td></tr>
+<tr><td>U1 · Server spine: models + limiter + step token</td><td><span class="layer">S</span></td><td><span class="st pass">pass</span></td><td>parity: untouched · templates: untouched</td><td><code>cd server &amp;&amp; npm test</code> → 198 (103 at merge-base); <code>npm run typecheck</code> clean. New <code>models.test.ts</code> (tools filter, chain fallback, TTL cache, stale-serve, feed-down allowlist), <code>step-token.test.ts</code> (tamper/expiry/budget/HKDF-no-leak), <code>models-routes.test.ts</code>, extended <code>rate-limit.test.ts</code>. <code>git diff</code> on the <code>/api/agent</code> handler body: empty.</td><td>Merges old 1+2. Fixes F-c (10/min limiter would 429 a multi-step turn). Tool capability = curated allowlist (authoritative) + <code>supported_parameters</code> filter for the catalog (advisory A2). HKDF for the step-token key (A8).</td></tr>
+<tr><td>U2 · Loop as pure actor (unwired)</td><td><span class="layer">G</span></td><td><span class="st pass">pass</span></td><td>parity: untouched · templates: untouched</td><td><code>npm test</code> → gleam 164 (140 at merge-base). <code>git diff --stat src/build/update.gleam</code>: <strong>empty</strong> — the unit is genuinely unwired.</td><td>Must prove <code>update.gleam</code> diff is empty.</td></tr>
+<tr><td>U3 · <strong>Tool transport</strong></td><td><span class="layer">S</span><span class="layer">T</span></td><td><span class="st pass">pass</span></td><td>parity: untouched · templates: untouched</td><td><code>cd server &amp;&amp; npm test</code> + root <code>npm test</code>. New <code>openrouter-tools.test.ts</code> (16) and <code>llm-client-step.test.ts</code> (16), both pinning <code>content: null</code> + tool_calls, no <code>response_format</code> beside <code>tools</code>, and the assistant/tool message pair surviving the transport.</td><td><strong>New, from blocker B1.</strong> Neither client can send <code>tools</code> or receive <code>content: null</code> today. Ollama cut from tool mode (B2).</td></tr>
+<tr><td>U4 · Step endpoint + legacy adapter</td><td><span class="layer">S</span><span class="layer">T</span></td><td><span class="st pass">pass</span></td><td>parity: untouched (new export only) · templates: untouched</td><td><code>cd server &amp;&amp; npm test</code> → new <code>agent-step.test.ts</code> (29, green first run): tool-call passthrough, done-with-answer, step-token turn/user binding, tier budget, binding nudge (tools withheld), legacy adapter, 400-file tree accepted.</td><td>Wire shape pinned to <code>tree</code> + <code>fullFiles</code> (B3).</td></tr>
+<tr><td>U5 · fs executors + <code>exec</code></td><td><span class="layer">T</span><span class="layer">G</span></td><td><span class="st pass">pass</span></td><td>parity: untouched · templates: untouched</td><td><code>npm test</code> → vitest 212 (108 at merge-base); new <code>agent-tools.test.ts</code> (81). Grep attestation: <code>agent-tools.ts</code> names <code>wc.fs.writeFile</code> only in the comment explaining why it must not call it; no <code>.fs.writeFile</code> outside <code>src/webcontainer.ts</code>.</td><td>Merges old 5+8. Writes go through <code>project.FileApplied</code>, never <code>wc.fs.writeFile</code> (F-a / S5). Container writes batch, flushing before exec + at turn end (A6). <code>npx</code> narrowed to <code>{tsc, vite}</code> (B8).</td></tr>
+<tr><td>U6 · Tool-mode prompt + parity extension</td><td><span class="layer">S</span><span class="layer">T</span></td><td><span class="st pass">pass</span></td><td>parity: <strong>fires by design</strong> · templates: untouched</td><td><code>npm test</code> → <code>prompt-parity.test.ts</code> 13 green. <strong>Guard proven to bite:</strong> drifting one server tool description fails with <code>description for fs_read differs between src/agent-tools.ts and server/src/agent-tools.ts</code>, then passes on restore.</td><td>Extraction must be mode-aware, not order-dependent (A13).</td></tr>
 <tr><td>U7a · Wire the loop + <strong>retire</strong> old write/install path</td><td><span class="layer">G</span></td><td><span class="st planned">planned</span></td><td>parity: untouched · templates: untouched</td><td>—</td><td>B4: <code>apply_patches</code> dies here or both paths double-install. A10: the element-picker path builds its own <code>CallAgent</code> and must convert too.</td></tr>
 <tr><td>U7b · Timeout / abort / transcript restructure</td><td><span class="layer">T</span><span class="layer">G</span></td><td><span class="st planned">planned</span></td><td>parity: untouched · templates: untouched</td><td>—</td><td>B6: timeout path is dead code — no dispatcher, no <code>update_agent</code> branch. B7: <code>ResetProject</code> bypasses the cancel path.</td></tr>
 <tr><td>U8 · Activity trail UI</td><td><span class="layer">G</span></td><td><span class="st planned">planned</span></td><td>parity: untouched · templates: untouched · <strong>layout smoke is the guard</strong> (A15)</td><td>—</td><td>Load-bearing taste call: one mutating line, not a growing list. Composer slot (B10).</td></tr>
@@ -63,14 +64,17 @@
 </table>
 
 <h2>Boundary attestations</h2>
-<p class="muted">One line per step confirming the invariants that can silently rot. A step without its attestation is incomplete.</p>
+<p class="muted">The invariants that can silently rot. Each is pinned by a test or a grep, not by a comment.</p>
 <ul>
-<li>No <code>fs_*</code>/<code>exec</code> tool became gated <em>or</em> un-denied — <span class="muted">pending</span></li>
-<li>No web tool leaked into BYOK mode — <span class="muted">pending</span></li>
-<li><code>bootGate</code> awaited on every new container path — <span class="muted">pending</span></li>
-<li>Transcript map empties on cancel / timeout / project-switch — <span class="muted">pending</span></li>
-<li>No direct <code>wc.fs.writeFile</code> outside <code>src/webcontainer.ts</code> — <span class="muted">pending</span></li>
-<li>No agent tool can publish — <span class="muted">pending</span></li>
+<li><span class="st pass">held</span> No <code>fs_*</code>/<code>exec</code> tool is gated — asserted in <code>agent-tools.test.ts</code> ("names no gated tool") and in <code>prompt-parity.test.ts</code> ("marks no client tool as approval-gated"). Deny list (<code>.env</code>, <code>*.pem</code>, <code>node_modules/</code>, …) covered by 20 path-policy cases.</li>
+<li><span class="st pass">held</span> No web tool leaks into BYOK — <code>prompt-parity.test.ts</code> "never names a web tool in the client tool surface"; <code>agent-step.test.ts</code> "never offers a web tool"; <code>runTool</code> refuses <code>web_fetch</code>/<code>web_search</code>/<code>web_post</code> by name.</li>
+<li><span class="st pass">held</span> Ollama is never offered tools — enforced by the literal type <code>LLMStepParams.provider: 'openrouter'</code> plus a <code>@ts-expect-error</code> test and a runtime assertion that the JSON path still forces <code>format: 'json'</code>.</li>
+<li><span class="st pass">held</span> <code>bootGate</code> awaited on every new container path — <code>spawnAgentCommand</code> and <code>flushContainerWrites</code> both await it before touching the container.</li>
+<li><span class="st pass">held</span> No direct <code>wc.fs.writeFile</code> outside <code>src/webcontainer.ts</code> — grep across <code>src/</code>; <code>agent-tools.ts</code> mentions it only in the comment explaining why it must not call it.</li>
+<li><span class="st pass">held</span> No agent tool can publish — <code>CLIENT_TOOL_SPECS</code> is exactly <code>[fs_list, fs_read, fs_write, fs_batch_write, exec]</code>, asserted; <code>runTool</code> refuses everything else.</li>
+<li><span class="st pass">held</span> Constants cannot drift — <code>MAX_CALLS_PER_STEP</code> and <code>MAX_TOOL_STEPS</code> compared across <code>agent.gleam</code>, <code>server/src/agent-tools.ts</code>, and <code>server/src/step-token.ts</code>.</li>
+<li><span class="st inprog">deferred</span> Transcript map empties on cancel / timeout / project-switch — the map and <code>clearTurnState()</code>/<code>pendingTurnCount()</code> seams exist in <code>agent.mjs</code>, but the assertions land with U7b (which also fixes the <code>ResetProject</code> bypass, blocker B7).</li>
+<li><span class="st inprog">deferred</span> Exactly one install trigger — <code>InstallDependencies</code> (pkg_dirty-driven) is in place and tested at the actor level, but the old <code>InstallIfNeeded(patches)</code> path is still live until U7a retires it. Both cannot fire today because nothing dispatches the new messages.</li>
 </ul>
 
 <h2>Research log</h2>
@@ -90,15 +94,43 @@
 </ul>
 
 <h2>Validation results</h2>
-<pre>npm test                              → pending
-npm run build                         → pending
-cd server &amp;&amp; npm test                 → pending
-node scripts/smoke-layout-modes.mjs   → pending
-node scripts/smoke-interview.mjs      → pending</pre>
+<pre>npm test                              → gleam 164 passed, vitest 212 passed (17 files)
+npm run build                         → gleam build + tsc -b + vite build ✓
+cd server &amp;&amp; npm test                 → 198 passed (10 files)
+cd server &amp;&amp; npm run typecheck        → clean   [added to the battery per advisory A12]
+node scripts/smoke-layout-modes.mjs   → 25/25 (incl. Focus-modal full-viewport, identical-DOM, iframe survival)
+node scripts/smoke-interview.mjs      → 14/14</pre>
+<p class="muted">Merge-base counts: gleam 140, vitest 108, server 103. Net new: <strong>+24 gleam, +104 vitest, +95 server = 223 tests.</strong> The two pre-existing build warnings (a Rolldown <code>@__PURE__</code> annotation and a <code>dict.delete</code> import) come from vendored Lustre output under <code>build/</code>, not from this work.</p>
+
+<h2>Live spike — OpenRouter catalog (advisory A2 / open question B3)</h2>
+<pre>GET https://openrouter.ai/api/v1/models      2026-07-27
+  342 models returned
+  342 carry supported_parameters   (so the field is reliable, not sporadic)
+  274 include "tools"
+  qwen/qwen3.6-35b-a3b         tools ✓   $0.14 / $1.00 per 1M   262k ctx
+  meta-llama/llama-4-maverick  tools ✓   $0.20 / $0.80          1.05M ctx
+  google/gemini-3.5-flash      tools ✓   $1.50 / $9.00          1.05M ctx
+  anthropic/claude-sonnet-4.6  tools ✓   $3.00 / $15.00         1M ctx
+  openai/gpt-5.5               tools ✓   $5.00 / $30.00         1.05M ctx</pre>
+<p><strong>Open question B3 is answered favourably:</strong> the free tier's existing default (<code>qwen/qwen3.6-35b-a3b</code>, chosen for JSON reliability) <em>is</em> tool-capable — so no cost-affecting model change is forced, and the free tier's unit economics are unchanged. Every curated chain id was verified present and tool-capable before being written into <code>server/src/models.ts</code>.</p>
+
+<h2>Bugs found while building (not pre-existing)</h2>
+<ul>
+<li><strong><code>exec</code> concurrency race.</strong> The slot was claimed only after <code>await ctx.spawn(...)</code>, so two calls in one step could both pass the guard and race two installs against <code>node_modules</code>. Now claimed synchronously, with a deferred kill so an abort landing mid-spawn is still honored. Surfaced by writing the concurrency test.</li>
+<li><strong><code>validateExec</code> rule ordering.</strong> The metacharacter sweep ran before the <code>node -e</code> rule, so <code>node -e 'console.log(1)'</code> was refused with the generic "contains shell characters" instead of the one that tells the model what to do instead. A refusal that does not teach invites a retry.</li>
+<li><strong><code>flushContainerWrites</code> data loss.</strong> First implementation cleared debounced editor writes instead of performing them — it would have silently dropped the user's in-flight keystrokes whenever the agent ran a command. Now the pending payload is tracked alongside the timer and written out.</li>
+</ul>
 
 <h2>Residual risks</h2>
 <ul>
-<li class="muted">Populated as steps complete. Carried in from PRD §11: injection→exec chain (R1), <code>.env</code> mechanism deviation (R2), Render custom-DNS-lookup assumption (A1/R3), WebContainer egress is unguardable by design (R5), <code>npm install</code> postinstall scripts accepted (R1).</li>
+<li><strong>The loop is not wired.</strong> U1–U6 are complete, tested, and inert. Nothing dispatches the new actor messages, so the app behaves exactly as it did at the merge-base. This is the designed stopping point, but it means none of the harness's value is user-visible yet.</li>
+<li><strong>A6 — dev-server restart cadence, partially mitigated.</strong> <code>webcontainer.ts</code> notes that container writes do not reliably trigger vite's watcher, so the dev server exits and auto-restarts after 1s. Today a turn writes once; under the loop it writes in bursts. <code>flushWrites</code> before <code>exec</code> is in place, but suppressing preview-error capture while the agent runs belongs to U7a. Until then, a multi-step turn could flood <code>[preview error]</code> lines and pop the Try-to-fix card mid-work — which would make S2 <em>worse</em> from cadence alone.</li>
+<li><strong>R1 injection→exec chain is not yet live</strong> and will not be until U11 adds web tools. Shipping U1–U9 without web tools keeps that entire surface out of release 1 — the reason the plan gate recommended deferring it.</li>
+<li><strong>R2 — <code>.env</code> deviation.</strong> Denied rather than approval-gated, because the mechanism the locked decision would gate does not exist (no env channel in the Gleam effects or the request body). Strictly stronger than gating; recorded as a mechanism deviation, not a scope change.</li>
+<li><strong>The <code>npx</code> boundary is reliability, not security.</strong> Narrowed to <code>{tsc, vite}</code> so it no longer defeats the <code>node -e</code> denial beside it, but <code>npm install</code> still runs postinstall scripts and the container still has open egress. Recorded in the source, not just here.</li>
+<li><strong>A1 unproven</strong> — the Render Node runtime's tolerance of a custom <code>dns.lookup</code> (needed for anti-DNS-rebinding) is still an assumption; it only becomes load-bearing at U11.</li>
+<li><strong>The tool specs are a new duplicated surface</strong> (client executes / server declares). Guarded by <code>prompt-parity.test.ts</code>, and the guard was verified to bite — but it is a third pair to keep honest alongside the prompt and the starter template.</li>
+<li><strong>Server <code>typecheck</code> excludes test files</strong> (<code>tsconfig.json</code> <code>exclude</code>), so a fake that drifts from an interface — e.g. a <code>Db</code> stub missing <code>updateModel</code> — is caught only at runtime. Two fakes needed manual updating this loop for exactly that reason.</li>
 </ul>
 
 </body>

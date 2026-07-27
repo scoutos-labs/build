@@ -17,7 +17,23 @@ export type SelectedPreviewElement = {
   computedStyles: Record<string, string>
 }
 
-export type ModelMessage = { role: 'system' | 'user' | 'assistant'; content: string }
+/**
+ * A message on the wire to the provider.
+ *
+ * The `tool` role plus the two optional fields are what make a tool loop
+ * expressible: an assistant turn that called tools carries `tool_calls`, and
+ * each result comes back as a `tool` message whose `tool_call_id` references it.
+ * Providers reject a `tool_calls` array with no matching `tool` message, so the
+ * two must always be emitted as a pair.
+ */
+export type ModelMessage = {
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  content: string
+  /** Present on an assistant message that requested tool calls. */
+  tool_calls?: { id: string; type: 'function'; function: { name: string; arguments: string } }[]
+  /** Required on a `tool` message; references the call it answers. */
+  tool_call_id?: string
+}
 
 const anthropicBrandGuidelines = `Anthropic brand guide:
 - Main colors: Dark #141413, Light #faf9f5, Mid Gray #b0aea5, Light Gray #e8e6dc.

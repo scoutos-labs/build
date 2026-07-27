@@ -104,6 +104,7 @@ function createFakeOpenRouter(): OpenRouterClient {
     updateKey: vi.fn(async () => {}),
     deleteKey: vi.fn(async () => {}),
     chatCompletion: vi.fn(async () => ({ kind: 'ok' as const, content: '{}' })),
+    toolCompletion: vi.fn(async () => ({ kind: 'ok' as const, content: 'done', toolCalls: [] })),
   }
 }
 

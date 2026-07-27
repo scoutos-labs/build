@@ -113,10 +113,25 @@ const agentActorSource = readFileSync(
 const SERVER_ONLY_RULE_MARKERS = ['web_search', 'web_fetch', 'web_post']
 
 describe('client/server tool-spec parity', () => {
-  it('offers exactly the same tool names on both sides', () => {
-    const clientNames = CLIENT_TOOL_SPECS.map(spec => spec.function.name)
-    const serverNames = [...serverToolSource.matchAll(/name: '([a-z_]+)'/g)].map(match => match[1])
-    expect(serverNames).toEqual(clientNames)
+  /** Names inside the server's CLIENT_TOOL_SPECS array only — the web specs
+   * that follow it are server-only by design and must not be compared. */
+  function serverClientToolNames(): string[] {
+    const start = serverToolSource.indexOf('export const CLIENT_TOOL_SPECS')
+    const end = serverToolSource.indexOf('export const CLIENT_TOOL_NAMES')
+    if (start === -1 || end === -1 || end < start) {
+      throw new Error('Could not isolate CLIENT_TOOL_SPECS in server/src/agent-tools.ts')
+    }
+    return [...serverToolSource.slice(start, end).matchAll(/name: '([a-z_]+)'/g)].map(m => m[1]!)
+  }
+
+  it('offers exactly the same client tool names on both sides', () => {
+    expect(serverClientToolNames()).toEqual(CLIENT_TOOL_SPECS.map(spec => spec.function.name))
+  })
+
+  it('keeps the web tools out of the client tool set entirely', () => {
+    for (const marker of SERVER_ONLY_RULE_MARKERS) {
+      expect(serverClientToolNames()).not.toContain(marker)
+    }
   })
 
   it('keeps every tool description identical', () => {
@@ -142,6 +157,42 @@ describe('client/server tool-spec parity', () => {
     const server = constant(stepTokenSource, /MAX_TOOL_STEPS = (\d+)/, 'server/src/step-token.ts')
     const gleam = constant(agentActorSource, /max_tool_steps = (\d+)/, 'agent.gleam')
     expect(server).toBe(gleam)
+  })
+
+  it('declares the web tools ONLY server-side', () => {
+    // The whole D3 asymmetry: managed mode has the SSRF guard, a server-held
+    // search key, and an authenticated caller. BYOK has none of those, so it is
+    // never offered — and never told — that these exist.
+    const clientToolSource = readFileSync(resolve(__dirname, 'agent-tools.ts'), 'utf-8')
+    for (const marker of SERVER_ONLY_RULE_MARKERS) {
+      expect(
+        serverToolSource.includes(`name: '${marker}'`),
+        `${marker} must be declared in server/src/agent-tools.ts`,
+      ).toBe(true)
+      expect(
+        clientToolSource.includes(`name: '${marker}'`),
+        `${marker} must NOT be declared in src/agent-tools.ts`,
+      ).toBe(false)
+    }
+  })
+
+  it('gates web_post and nothing else', () => {
+    // "Trust the sandbox" keeps fs_*/exec unattended because they cannot escape
+    // the WebContainer. web_post reaches out of it, so it is the one that asks.
+    const gated = serverToolSource.match(/GATED_TOOLS = new Set\(\[([^\]]*)\]\)/)
+    expect(gated?.[1]?.trim()).toBe("'web_post'")
+  })
+
+  it('runs only the read tools inline on the server', () => {
+    const inline = serverToolSource.match(/SERVER_INLINE_TOOLS = new Set\(\[([^\]]*)\]\)/)?.[1] ?? ''
+    expect(inline).toContain('web_search')
+    expect(inline).toContain('web_fetch')
+    expect(inline).not.toContain('web_post')
+  })
+
+  it('keeps the tainted-turn rule present', () => {
+    // Read the web or write the web, never both in one turn.
+    expect(serverToolSource).toContain('MSG_TAINTED_TURN')
   })
 
   it('never names a web tool in the client tool surface', () => {

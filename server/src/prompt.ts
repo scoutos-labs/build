@@ -342,6 +342,10 @@ export type StepRequestBody = {
   userPrompt?: string
   selectedElement?: SelectedPreviewElement
   elementComment?: string
+  /** True once anything has been read from the web in this turn. Carried by the
+   * client across steps because the server holds no turn state; re-checked
+   * server-side before any web_post actually sends. */
+  webRead?: boolean
 }
 
 export function buildToolModeMessages(

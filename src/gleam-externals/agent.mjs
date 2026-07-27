@@ -14,6 +14,9 @@ const turns = new Map()
  * old per-request timeout were the same number; under a loop they are not. */
 const TURN_DEADLINE_MS = 300_000
 
+/** Distinguishes server-run trail rows within a turn. */
+let serverStepSeq = 0
+
 async function agentModule() {
   try { return await import('../agent') }
   catch { return { runAgent: async () => ({ reply: 'Agent unavailable outside browser bundle.', patches: [] }) } }
@@ -83,6 +86,9 @@ export async function callAgent(requestId, provider, model, userPrompt, apiKey =
     toolCalls: [],
     toolResults: [],
     stepToken: undefined,
+    // Read the web or write the web, never both in one turn. Carried here
+    // because the server keeps no turn state; it re-checks before sending.
+    webRead: false,
   })
 
   await runStep(requestId, 0)
@@ -134,11 +140,21 @@ async function runStep(requestId, stepIndex) {
         userPrompt: stepIndex === 0 ? turn.userPrompt : undefined,
         selectedElement: turn.selectedElement,
         elementComment: turn.elementComment,
+        webRead: turn.webRead,
       },
       { getToken: managed.getToken, signal: turn.controller.signal },
     )
 
     turn.stepToken = response.stepToken
+    // Once tainted, a turn stays tainted.
+    turn.webRead = turn.webRead || response.webRead === true
+
+    // Server-run reads already happened; show them in the trail so the user
+    // sees what the agent looked at, with the injection label when flagged.
+    for (const step of response.serverSteps ?? []) {
+      const summary = step.warn ? `${step.summary} — ${step.warn}` : step.summary
+      dispatchAgentToolStarted(requestId, `${requestId}-srv-${serverStepSeq++}`, summary)
+    }
     // Results are consumed by the step that carried them; the next step reports
     // only its own.
     turn.toolResults = []

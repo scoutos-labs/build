@@ -80,13 +80,33 @@ export type StepPayload = {
   userPrompt?: string
   selectedElement?: SelectedPreviewElement
   elementComment?: string
+  /** True once anything has been read from the web this turn. The server holds
+   * no turn state, so the client carries the taint between steps — and the
+   * server re-checks it before any web_post actually sends. */
+  webRead?: boolean
+}
+
+/** A web_post the model wants to make, paused for the user. */
+export type ApprovalRequest = {
+  toolCallId: string
+  tool: 'web_post'
+  url: string
+  method: string
+  body: string
+  contentType: string
+  title: string
+  /** Non-empty when the request cannot proceed at all (tainted turn). */
+  blocked: string
 }
 
 export type StepResponse = {
   toolCalls: { id: string; type: 'function'; function: { name: string; arguments: string } }[]
+  approval: ApprovalRequest | null
+  serverSteps: { name: string; summary: string; warn?: string }[]
   assistantContent: string
   done: boolean
   usedLegacyAdapter: boolean
+  webRead: boolean
   stepToken: string
   maxToolSteps: number
 }

@@ -12,7 +12,106 @@ import {
   type ProjectFile,
   type StepRequestBody,
 } from './prompt.js'
-import { CLIENT_TOOL_SPECS, MAX_CALLS_PER_STEP, STEP_BUDGET_NUDGE } from './agent-tools.js'
+import {
+  CLIENT_TOOL_SPECS,
+  GATED_TOOLS,
+  MAX_CALLS_PER_STEP,
+  MSG_TAINTED_TURN,
+  SERVER_INLINE_TOOLS,
+  STEP_BUDGET_NUDGE,
+  WEB_TOOL_SPECS,
+} from './agent-tools.js'
+import { guardWebContent, injectionLabel } from './injection-guard.js'
+import { safeHttp, type SafeHttpResult } from './safe-http.js'
+import { webFetch, webSearch } from './web-search.js'
+import type { ProviderToolCall } from './openrouter.js'
+
+/**
+ * Run a server-owned read tool and turn it into a tool message.
+ *
+ * Every web read goes through `guardWebContent`, which is the single choke point
+ * where hostile page text is sanitized, scanned, and wrapped as untrusted data.
+ * The trail summary carries only a fixed content-free label — never page text,
+ * or an injection attempt would be re-displayed to the user verbatim.
+ */
+async function executeServerTool(
+  call: ProviderToolCall,
+  deps: AppDeps,
+): Promise<{ content: string; step: { name: string; summary: string; warn?: string } }> {
+  let args: Record<string, unknown> = {}
+  try {
+    args = JSON.parse(call.function.arguments || '{}') as Record<string, unknown>
+  } catch {
+    return {
+      content: 'Those arguments were not valid JSON. Send a JSON object.',
+      step: { name: call.function.name, summary: 'Sent a malformed request' },
+    }
+  }
+
+  if (call.function.name === 'web_search') {
+    const query = typeof args.query === 'string' ? args.query : ''
+    const result = await (deps.webSearchImpl ?? webSearch)(query, args.count)
+    return {
+      content: result.content,
+      step: { name: 'web_search', summary: `Searched the web for “${query.slice(0, 60)}”` },
+    }
+  }
+
+  const url = typeof args.url === 'string' ? args.url : ''
+  const fetched = await (deps.webFetchImpl ?? webFetch)(url)
+  if (!fetched.ok) {
+    return {
+      content: fetched.content,
+      step: { name: 'web_fetch', summary: `Could not read ${hostOf(url)}` },
+    }
+  }
+  const guarded = guardWebContent(fetched.content, url)
+  const warn = injectionLabel(guarded.findings)
+  return {
+    content: guarded.content,
+    step: { name: 'web_fetch', summary: `Read ${hostOf(url)}`, ...(warn ? { warn } : {}) },
+  }
+}
+
+/** Host only, for trail copy — a full URL reads as noise in chat. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return 'that page'
+  }
+}
+
+/**
+ * What the user is shown before anything is sent.
+ *
+ * The whole request — method, URL, and the exact body — because an approval card
+ * that summarizes is an approval card that hides something.
+ */
+function describeApproval(call: ProviderToolCall, webRead: boolean) {
+  let args: Record<string, unknown> = {}
+  try {
+    args = JSON.parse(call.function.arguments || '{}') as Record<string, unknown>
+  } catch {
+    /* shown as an empty request below */
+  }
+  const url = typeof args.url === 'string' ? args.url : ''
+  const body = typeof args.body === 'string' ? args.body : ''
+  const method = typeof args.method === 'string' ? args.method.toUpperCase() : 'POST'
+  const contentType = typeof args.content_type === 'string' ? args.content_type : 'application/json'
+  return {
+    toolCallId: call.id,
+    tool: 'web_post',
+    url,
+    method,
+    body,
+    contentType,
+    title: `Send data to ${hostOf(url)}?`,
+    // Refused up front rather than at send time, so the user is never shown a
+    // card for something that cannot go through.
+    blocked: webRead ? MSG_TAINTED_TURN : '',
+  }
+}
 import { checkSubdomain, packageProject } from './publish.js'
 import type { AgentRateLimiters, RateLimiter } from './rate-limit.js'
 import type { ScoutLiveClient } from './scoutlive.js'
@@ -56,6 +155,17 @@ export type AppDeps = {
   /** Separate ceilings for turn-starts vs. continuation steps. Falls back to
    * `rateLimiter` for both when absent. */
   agentLimiters?: AgentRateLimiters
+  /** Set false to withhold the web tools entirely (they need the SSRF guard and
+   * an authenticated caller, so they are managed-mode only). */
+  webTools?: boolean
+  /** Test seams for the server-owned tools. */
+  webSearchImpl?: (query: unknown, count: unknown) => Promise<{ ok: boolean; content: string }>
+  webFetchImpl?: (url: unknown) => Promise<{ ok: boolean; content: string }>
+  safeHttpImpl?: (
+    url: string,
+    method: string,
+    options?: { body?: string; contentType?: string },
+  ) => Promise<SafeHttpResult>
   /** Verify a Clerk session JWT; throw on anything invalid. */
   verifyToken(token: string): Promise<AuthResult>
   /** Verify a svix-signed webhook; throw on bad signature. */
@@ -342,7 +452,11 @@ export function createApp(deps: AppDeps) {
     }
     if (user.disabled) return c.json(errorBody('payment_failed', 'Account is disabled'), 402)
 
-    const modelMessages = buildToolModeMessages(body, { webTools: false })
+    // Web tools exist only here: they need the SSRF guard, a server-held search
+    // key, and an authenticated caller. BYOK gets the fs/exec loop and is never
+    // told these exist.
+    const webTools = deps.webTools !== false
+    const modelMessages = buildToolModeMessages(body, { webTools })
     const promptChars = modelMessages.reduce((total, m) => total + m.content.length, 0)
     // Over budget mid-turn, forcing a final answer beats 413-ing: the work
     // already done is not thrown away, and the user gets a usable reply.
@@ -356,15 +470,65 @@ export function createApp(deps: AppDeps) {
     }
 
     const apiKey = deps.keyCrypto.decrypt(user.or_key_enc)
-    const result = await deps.openrouter.toolCompletion({
+
+    // Once anything has been read from the web this turn, web_post is gone.
+    // Carried by the client across steps because the server holds no turn state.
+    let webRead = body.webRead === true
+
+    const offeredTools = () => {
+      // Offering no tools on the final step is what makes the nudge binding
+      // rather than advisory.
+      if (lastStep || overBudget) return []
+      const web = webTools ? WEB_TOOL_SPECS.filter(spec => !(webRead && spec.function.name === 'web_post')) : []
+      return [...CLIENT_TOOL_SPECS, ...web]
+    }
+
+    /**
+     * Server-owned read tools run inline and loop again in the same request, so
+     * a search-then-read never costs the browser a round trip. Capped, because
+     * one HTTP request must not become an unbounded chain of model calls.
+     */
+    const INNER_CAP = 4
+    let result = await deps.openrouter.toolCompletion({
       apiKey,
       model: user.model,
       messages: modelMessages,
-      // Offering no tools on the final step is what makes the nudge binding
-      // rather than advisory.
-      tools: lastStep || overBudget ? [] : CLIENT_TOOL_SPECS,
+      tools: offeredTools(),
       maxCalls: MAX_CALLS_PER_STEP,
     })
+    const serverSteps: { name: string; summary: string; warn?: string }[] = []
+
+    for (let inner = 0; inner < INNER_CAP; inner++) {
+      if (result.kind !== 'ok') break
+      const inlineCalls = result.toolCalls.filter(call => SERVER_INLINE_TOOLS.has(call.function.name))
+      if (inlineCalls.length === 0) break
+
+      modelMessages.push({ role: 'assistant', content: result.content, tool_calls: result.toolCalls })
+      for (const call of result.toolCalls) {
+        if (!SERVER_INLINE_TOOLS.has(call.function.name)) {
+          // Every emitted call needs an answering tool message or the provider
+          // rejects the next request; client tools are resolved by the browser,
+          // so tell the model that is what is happening.
+          modelMessages.push({
+            role: 'tool',
+            content: 'Deferred: this runs in the browser and its result arrives next step.',
+            tool_call_id: call.id,
+          })
+          continue
+        }
+        const executed = await executeServerTool(call, deps)
+        webRead = true
+        serverSteps.push(executed.step)
+        modelMessages.push({ role: 'tool', content: executed.content, tool_call_id: call.id })
+      }
+      result = await deps.openrouter.toolCompletion({
+        apiKey,
+        model: user.model,
+        messages: modelMessages,
+        tools: offeredTools(),
+        maxCalls: MAX_CALLS_PER_STEP,
+      })
+    }
 
     if (result.kind === 'budget_exhausted') return c.json(budgetExhaustedBody(), 402)
     if (result.kind === 'error') {
@@ -388,11 +552,19 @@ export function createApp(deps: AppDeps) {
       }
     }
 
+    // web_post never reaches the client as a runnable call: the browser cannot
+    // execute it. It comes back as an approval request the chat renders.
+    const approval = toolCalls.find(call => GATED_TOOLS.has(call.function.name))
+    const clientCalls = toolCalls.filter(call => !GATED_TOOLS.has(call.function.name))
+
     return c.json({
-      toolCalls,
+      toolCalls: clientCalls,
+      approval: approval ? describeApproval(approval, webRead) : null,
+      serverSteps,
       assistantContent,
-      done: toolCalls.length === 0,
+      done: clientCalls.length === 0 && !approval,
       usedLegacyAdapter,
+      webRead,
       stepToken: deps.stepTokens.issue({
         userId: auth.userId,
         turnId: body.turnId,
@@ -400,6 +572,51 @@ export function createApp(deps: AppDeps) {
       }),
       maxToolSteps: maxSteps,
     })
+  })
+
+  /**
+   * Execute an approved `web_post`.
+   *
+   * Separate from the step endpoint because approval is a *user* action with its
+   * own round trip: the chat shows the exact URL and body, the user clicks, and
+   * only then does anything leave the server. The taint rule is re-checked here
+   * rather than trusted from the client — a client that "forgot" it had read the
+   * web must not be able to unlock the write.
+   */
+  app.post('/api/agent/tool/web_post', async c => {
+    const auth = await authenticate(c)
+    if (!auth) return c.json(errorBody('unauthorized', 'Missing or invalid session token'), 401)
+    if (deps.webTools === false) {
+      return c.json(errorBody('not_configured', 'Web tools are unavailable'), 503)
+    }
+    if (!deps.rateLimiter.check(auth.userId)) {
+      return c.json(errorBody('rate_limited', 'Too many requests; try again in a minute'), 429)
+    }
+
+    let body: { url?: unknown; method?: unknown; body?: unknown; contentType?: unknown; webRead?: unknown }
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json(errorBody('bad_request', 'Body must be JSON'), 400)
+    }
+    if (body.webRead === true) {
+      return c.json(errorBody('tainted_turn', MSG_TAINTED_TURN), 400)
+    }
+    const url = typeof body.url === 'string' ? body.url : ''
+    const payload = typeof body.body === 'string' ? body.body : ''
+    if (!url || !payload) {
+      return c.json(errorBody('bad_request', 'web_post needs a url and a body'), 400)
+    }
+    const method = typeof body.method === 'string' ? body.method.toUpperCase() : 'POST'
+    if (!['POST', 'PUT', 'PATCH'].includes(method)) {
+      return c.json(errorBody('bad_request', 'Method must be POST, PUT, or PATCH'), 400)
+    }
+
+    const sent = await (deps.safeHttpImpl ?? safeHttp)(url, method, {
+      body: payload,
+      contentType: typeof body.contentType === 'string' ? body.contentType : 'application/json',
+    })
+    return c.json({ ok: sent.ok, content: sent.content.slice(0, 4_000) })
   })
 
   // ScoutOS publish keys are user-supplied and write-only: stored encrypted,

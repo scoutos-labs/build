@@ -78,3 +78,10 @@ services:
         generateValue: true
       - key: PGLITE_DATA_DIR
         value: /var/data/pglite
+      # Optional. Without it web_search reports itself unavailable rather than
+      # returning nothing — web_fetch and web_post are unaffected. Keyless
+      # DuckDuckGo is deliberately NOT the fallback here: it would scrape from
+      # this service's shared egress IP, so throttling would hit every user at
+      # once (set BUILD_ALLOW_KEYLESS_SEARCH=1 only if you accept that).
+      - key: BRAVE_SEARCH_API_KEY
+        sync: false

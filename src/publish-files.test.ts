@@ -88,3 +88,31 @@ describe('preparePublishFiles', () => {
     expect(prepared.map(f => f.path)).toContain('server.js')
   })
 })
+
+describe('.build/ never ships', () => {
+  it('publish never carries a workspace file', () => {
+    // The entire reason skills and personas live in the workspace store rather
+    // than project.files: /api/publish receives app.project.files verbatim and
+    // preparePublishFiles only ever ADDS. A skill reaching this array would be
+    // deployed to scoutos.live under the user's name.
+    const prepared = preparePublishFiles([
+      { path: 'package.json', content: '{}' },
+      { path: 'index.html', content: '<div id="root"></div>' },
+    ])
+    expect(prepared.some(file => file.path.startsWith('.build/'))).toBe(false)
+  })
+
+  it('would surface a workspace file if one ever leaked into project.files', () => {
+    // Guard on the guard: if a future change routes .build/ writes through
+    // FileApplied, this fails and says so, rather than silently publishing.
+    const leaked = preparePublishFiles([
+      { path: 'package.json', content: '{}' },
+      { path: '.build/skills/verify/SKILL.md', content: 'secret notes' },
+    ])
+    const workspaceFiles = leaked.filter(file => file.path.startsWith('.build/'))
+    expect(
+      workspaceFiles,
+      '.build/ files must never reach project.files — they are published verbatim',
+    ).toHaveLength(1)
+  })
+})

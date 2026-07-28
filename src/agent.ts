@@ -328,10 +328,16 @@ export type ToolModeStepArgs = {
    * reject a `tool` message with no matching call, so the pair travels together. */
   toolCalls?: ToolCall[]
   toolResults?: { toolCallId: string; content: string }[]
+  /** Names and descriptions of the user's saved skills — untrusted DATA. */
+  skillsManifest?: string
 }
 
 export function buildToolModeMessages(args: ToolModeStepArgs): PortMessage[] {
   const messages: PortMessage[] = [{ role: 'system', content: buildToolModePrompt() }]
+
+  if (args.skillsManifest) {
+    messages.push({ role: 'system', content: args.skillsManifest })
+  }
 
   if (args.files.length > 0) {
     const tree = args.files.map(file => ({ path: file.path, bytes: file.content.length }))

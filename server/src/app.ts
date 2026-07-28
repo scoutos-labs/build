@@ -262,6 +262,7 @@ function isValidStepBody(body: unknown): body is StepRequestBody {
     c.messages.every(
       m => (m?.role === 'user' || m?.role === 'assistant') && typeof m?.content === 'string',
     ) &&
+    (c.skillsManifest === undefined || typeof c.skillsManifest === 'string') &&
     Array.isArray(c.toolResults) &&
     c.toolResults.every(
       r => typeof r?.toolCallId === 'string' && typeof r?.content === 'string',

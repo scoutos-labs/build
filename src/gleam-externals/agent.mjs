@@ -73,6 +73,13 @@ export async function callAgent(requestId, provider, model, userPrompt, apiKey =
     dispatchAgentTimeoutReached(requestId)
   }, TURN_DEADLINE_MS)
 
+  // Seeded once, and only when genuinely absent — a user who edited or deleted
+  // `verify` made a choice.
+  try {
+    const skills = await import('../skills')
+    await skills.ensureBuiltInSkills()
+  } catch { /* no workspace store (tests, non-browser) — no skills */ }
+
   turns.set(requestId, {
     provider,
     model,
@@ -141,6 +148,7 @@ async function runStep(requestId, stepIndex) {
         selectedElement: turn.selectedElement,
         elementComment: turn.elementComment,
         webRead: turn.webRead,
+        skillsManifest: await skillsManifest(),
       },
       { getToken: managed.getToken, signal: turn.controller.signal },
     )
@@ -248,6 +256,7 @@ async function runByokStep(requestId, stepIndex, turn) {
       elementComment: turn.elementComment,
       toolCalls: turn.toolCalls,
       toolResults: turn.toolResults,
+      skillsManifest: await skillsManifest(),
     }),
     tools: tools.CLIENT_TOOL_SPECS,
     maxCalls: MAX_CALLS_PER_STEP,
@@ -370,6 +379,17 @@ function finishTurn(requestId) {
   }
 }
 
+/** Names and descriptions only — bodies are pulled on demand with fs_read.
+ * Empty string when there are none, so the prompt gains nothing. */
+async function skillsManifest() {
+  try {
+    const skills = await import('../skills')
+    return skills.buildSkillsManifest(await skills.listSkills())
+  } catch {
+    return ''
+  }
+}
+
 /** Paths + sizes only. Contents reach the model through fs_read, which is what
  * makes a multi-step turn affordable. */
 function fileTree() {
@@ -395,6 +415,25 @@ function alwaysFullFiles() {
 // on every terminal transition (see clearTurnState).
 const toolResults = new Map()
 
+/** Workspace store (`.build/` paths). Falls back to an in-memory map outside a
+ * browser so the executors stay usable in tests and non-browser bundles. */
+async function workspaceStore() {
+  try {
+    return await import('../workspace-store')
+  } catch {
+    const mem = (globalThis.__buildWorkspaceFallback ??= new Map())
+    return {
+      readWorkspaceFile: async path => mem.get(path),
+      writeWorkspaceFile: async (path, content) => void mem.set(path, content),
+      deleteWorkspaceFile: async path => void mem.delete(path),
+      listWorkspaceFiles: async prefix =>
+        [...mem.entries()]
+          .filter(([path]) => path.startsWith(prefix))
+          .map(([path, content]) => ({ path, bytes: content.length })),
+    }
+  }
+}
+
 /** The seam between the tool executors and the browser. */
 async function toolContext() {
   const wc = await import('./webcontainer.mjs')
@@ -408,6 +447,11 @@ async function toolContext() {
       // The ONLY legal write path — see dispatchProjectFileApplied.
       applyFile: (path, content) => dispatchProjectFileApplied(path, content),
       removeFile: path => dispatchProjectFileRemoved(path),
+      readWorkspace: async path => (await workspaceStore()).readWorkspaceFile(path),
+      writeWorkspace: async (path, content) =>
+        (await workspaceStore()).writeWorkspaceFile(path, content),
+      deleteWorkspace: async path => (await workspaceStore()).deleteWorkspaceFile(path),
+      listWorkspace: async prefix => (await workspaceStore()).listWorkspaceFiles(prefix),
       readContainerFile: async path => {
         const m = await import('../webcontainer')
         return m.readProjectFile ? m.readProjectFile(path) : undefined

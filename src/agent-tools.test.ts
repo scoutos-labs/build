@@ -57,10 +57,14 @@ function fakeProcess(opts: { exitCode?: number; output?: string; hang?: boolean 
 
 function makeContext(
   files: ProjectFile[] = [],
-  overrides: Partial<ToolContext> & { process?: ReturnType<typeof fakeProcess> } = {},
+  overrides: Partial<ToolContext> & {
+    process?: ReturnType<typeof fakeProcess>
+    workspaceSeed?: [string, string][]
+  } = {},
 ) {
   const applied: { path: string; content: string }[] = []
   const removed: string[] = []
+  const workspace = new Map<string, string>(overrides.workspaceSeed ?? [])
   const logs: string[] = []
   const spawned: { command: string; args: string[] }[] = []
   const flushes: number[] = []
@@ -78,6 +82,21 @@ function makeContext(
       removed.push(path)
       current = current.filter(file => file.path !== path)
     },
+    async readWorkspace(path) {
+      return workspace.get(path)
+    },
+    async writeWorkspace(path, content) {
+      workspace.set(path, content)
+    },
+    async deleteWorkspace(path) {
+      workspace.delete(path)
+    },
+    async listWorkspace(prefix) {
+      return [...workspace.entries()]
+        .filter(([path]) => path.startsWith(prefix))
+        .map(([path, content]) => ({ path, bytes: content.length }))
+        .sort((a, b) => a.path.localeCompare(b.path))
+    },
     async readContainerFile(path) {
       return path === 'dist/index.js' ? 'built output' : undefined
     },
@@ -93,7 +112,7 @@ function makeContext(
     },
     ...overrides,
   }
-  return { ctx, applied, removed, logs, spawned, flushes, files: () => current }
+  return { ctx, applied, removed, workspace, logs, spawned, flushes, files: () => current }
 }
 
 beforeEach(() => {
@@ -159,12 +178,12 @@ describe('normalizePath — the single path policy', () => {
 })
 
 describe('fs_list', () => {
-  it('returns paths with sizes, sorted', () => {
+  it('returns paths with sizes, sorted', async () => {
     const { ctx } = makeContext([
       { path: 'src/b.ts', content: 'xx' },
       { path: 'src/a.ts', content: 'x' },
     ])
-    const result = fsList(ctx, {})
+    const result = await fsList(ctx, {})
     expect(result.ok).toBe(true)
     expect(JSON.parse(result.content)).toEqual([
       { path: 'src/a.ts', bytes: 1 },
@@ -172,24 +191,24 @@ describe('fs_list', () => {
     ])
   })
 
-  it('filters by prefix', () => {
+  it('filters by prefix', async () => {
     const { ctx } = makeContext([
       { path: 'src/a.ts', content: 'x' },
       { path: 'public/b.svg', content: 'y' },
     ])
-    expect(JSON.parse(fsList(ctx, { prefix: 'src/' }).content)).toHaveLength(1)
+    expect(JSON.parse((await fsList(ctx, { prefix: 'src/' })).content)).toHaveLength(1)
   })
 
-  it('says so plainly when nothing matches', () => {
+  it('says so plainly when nothing matches', async () => {
     const { ctx } = makeContext([{ path: 'src/a.ts', content: 'x' }])
-    const result = fsList(ctx, { prefix: 'nope/' })
+    const result = await fsList(ctx, { prefix: 'nope/' })
     expect(result.ok).toBe(true)
     expect(result.content).toMatch(/No files under/)
   })
 
-  it('never names a tool in its trail copy', () => {
+  it('never names a tool in its trail copy', async () => {
     const { ctx } = makeContext([{ path: 'a.ts', content: 'x' }])
-    expect(fsList(ctx, {}).summary).not.toMatch(/fs_list/)
+    expect((await fsList(ctx, {})).summary).not.toMatch(/fs_list/)
   })
 })
 
@@ -236,9 +255,9 @@ describe('fs_read', () => {
 })
 
 describe('fs_write', () => {
-  it('applies through the project actor and reports size, never content', () => {
+  it('applies through the project actor and reports size, never content', async () => {
     const { ctx, applied } = makeContext([])
-    const result = fsWrite(ctx, { path: 'src/App.tsx', content: 'hello' })
+    const result = await fsWrite(ctx, { path: 'src/App.tsx', content: 'hello' })
     expect(applied).toEqual([{ path: 'src/App.tsx', content: 'hello' }])
     expect(result.paths).toEqual(['src/App.tsx'])
     expect(result.content).toMatch(/^ok · 5 bytes/)
@@ -246,22 +265,22 @@ describe('fs_write', () => {
     expect(result.content).not.toContain('hello')
   })
 
-  it('refuses a denied path without applying', () => {
+  it('refuses a denied path without applying', async () => {
     const { ctx, applied } = makeContext([])
-    const result = fsWrite(ctx, { path: '.env', content: 'SECRET=1' })
+    const result = await fsWrite(ctx, { path: '.env', content: 'SECRET=1' })
     expect(result.ok).toBe(false)
     expect(applied).toEqual([])
   })
 
-  it('refuses non-string content', () => {
+  it('refuses non-string content', async () => {
     const { ctx, applied } = makeContext([])
-    expect(fsWrite(ctx, { path: 'a.ts', content: 42 }).ok).toBe(false)
+    expect((await fsWrite(ctx, { path: 'a.ts', content: 42 })).ok).toBe(false)
     expect(applied).toEqual([])
   })
 
-  it('refuses a file over the size cap', () => {
+  it('refuses a file over the size cap', async () => {
     const { ctx, applied } = makeContext([])
-    const result = fsWrite(ctx, { path: 'a.ts', content: 'x'.repeat(MAX_FILE_BYTES + 1) })
+    const result = await fsWrite(ctx, { path: 'a.ts', content: 'x'.repeat(MAX_FILE_BYTES + 1) })
     expect(result.ok).toBe(false)
     expect(result.content).toMatch(/limit/)
     expect(applied).toEqual([])
@@ -269,9 +288,9 @@ describe('fs_write', () => {
 })
 
 describe('fs_batch_write — atomicity', () => {
-  it('writes every file when all are valid', () => {
+  it('writes every file when all are valid', async () => {
     const { ctx, applied } = makeContext([])
-    const result = fsBatchWrite(ctx, {
+    const result = await fsBatchWrite(ctx, {
       files: [
         { path: 'src/a.ts', content: 'a' },
         { path: 'src/b.ts', content: 'b' },
@@ -283,11 +302,11 @@ describe('fs_batch_write — atomicity', () => {
     expect(result.summary).toBe('Wrote 2 files')
   })
 
-  it('writes NOTHING when one entry is invalid', () => {
+  it('writes NOTHING when one entry is invalid', async () => {
     // Half a refactor is worse than none: the model's next step would reason
     // about a file set that never existed as a coherent whole.
     const { ctx, applied } = makeContext([])
-    const result = fsBatchWrite(ctx, {
+    const result = await fsBatchWrite(ctx, {
       files: [
         { path: 'src/a.ts', content: 'a' },
         { path: '../escape.ts', content: 'b' },
@@ -299,9 +318,9 @@ describe('fs_batch_write — atomicity', () => {
     expect(applied).toEqual([])
   })
 
-  it('refuses duplicate paths in one batch', () => {
+  it('refuses duplicate paths in one batch', async () => {
     const { ctx, applied } = makeContext([])
-    const result = fsBatchWrite(ctx, {
+    const result = await fsBatchWrite(ctx, {
       files: [
         { path: 'src/a.ts', content: 'first' },
         { path: 'src/a.ts', content: 'second' },
@@ -312,21 +331,21 @@ describe('fs_batch_write — atomicity', () => {
     expect(applied).toEqual([])
   })
 
-  it('refuses a batch over the file-count cap', () => {
+  it('refuses a batch over the file-count cap', async () => {
     const { ctx, applied } = makeContext([])
     const files = Array.from({ length: MAX_BATCH_FILES + 1 }, (_, i) => ({
       path: `src/f${i}.ts`,
       content: 'x',
     }))
-    expect(fsBatchWrite(ctx, { files }).ok).toBe(false)
+    expect((await fsBatchWrite(ctx, { files })).ok).toBe(false)
     expect(applied).toEqual([])
   })
 
-  it('refuses a non-array or empty files argument', () => {
+  it('refuses a non-array or empty files argument', async () => {
     const { ctx } = makeContext([])
-    expect(fsBatchWrite(ctx, { files: 'nope' }).ok).toBe(false)
-    expect(fsBatchWrite(ctx, { files: [] }).ok).toBe(false)
-    expect(fsBatchWrite(ctx, {}).ok).toBe(false)
+    expect((await fsBatchWrite(ctx, { files: 'nope' })).ok).toBe(false)
+    expect((await fsBatchWrite(ctx, { files: [] })).ok).toBe(false)
+    expect((await fsBatchWrite(ctx, {})).ok).toBe(false)
   })
 })
 
@@ -402,7 +421,7 @@ describe('exec', () => {
     // Otherwise the command typechecks the previous version and reports
     // phantom errors the agent then "fixes".
     const { ctx, flushes, spawned } = makeContext([])
-    fsWrite(ctx, { path: 'src/App.tsx', content: 'x' })
+    await fsWrite(ctx, { path: 'src/App.tsx', content: 'x' })
     await exec(ctx, { command: 'npx', args: ['tsc', '--noEmit'] })
     expect(flushes).toEqual([1])
     expect(spawned).toEqual([{ command: 'npx', args: ['tsc', '--noEmit'] }])
@@ -663,36 +682,36 @@ describe('undeletable set', () => {
 
 
 describe('fs_delete', () => {
-  it('removes a file through the project actor', () => {
+  it('removes a file through the project actor', async () => {
     const { ctx, removed } = makeContext([{ path: 'src/OldCard.tsx', content: 'x' }])
-    const result = fsDelete(ctx, { path: 'src/OldCard.tsx' })
+    const result = await fsDelete(ctx, { path: 'src/OldCard.tsx' })
     expect(result.ok).toBe(true)
     expect(removed).toEqual(['src/OldCard.tsx'])
     expect(result.paths).toEqual(['src/OldCard.tsx'])
     expect(result.summary).toBe('Deleted OldCard.tsx')
   })
 
-  it('refuses a file the app needs to run, and says why', () => {
+  it('refuses a file the app needs to run, and says why', async () => {
     // A bare "no" invites a retry; these are writable but not removable.
     for (const path of ['src/main.tsx', 'index.html', 'src/db.ts', 'package.json', 'vite.config.ts']) {
       const { ctx, removed } = makeContext([{ path, content: 'x' }])
-      const result = fsDelete(ctx, { path })
+      const result = await fsDelete(ctx, { path })
       expect(result.ok).toBe(false)
       expect(result.content).toMatch(/part of how the app runs/)
       expect(removed).toEqual([])
     }
   })
 
-  it('refuses a path the policy denies', () => {
+  it('refuses a path the policy denies', async () => {
     const { ctx, removed } = makeContext([])
-    expect(fsDelete(ctx, { path: '.env' }).ok).toBe(false)
-    expect(fsDelete(ctx, { path: '../escape.ts' }).ok).toBe(false)
+    expect((await fsDelete(ctx, { path: '.env' })).ok).toBe(false)
+    expect((await fsDelete(ctx, { path: '../escape.ts' })).ok).toBe(false)
     expect(removed).toEqual([])
   })
 
-  it('refuses a file that does not exist rather than silently succeeding', () => {
+  it('refuses a file that does not exist rather than silently succeeding', async () => {
     const { ctx, removed } = makeContext([{ path: 'a.ts', content: 'x' }])
-    const result = fsDelete(ctx, { path: 'src/Ghost.tsx' })
+    const result = await fsDelete(ctx, { path: 'src/Ghost.tsx' })
     expect(result.ok).toBe(false)
     expect(removed).toEqual([])
   })
@@ -714,5 +733,86 @@ describe('BYOK offers no web tools', () => {
     for (const web of ['web_search', 'web_fetch', 'web_post']) {
       expect(names).not.toContain(web)
     }
+  })
+})
+
+describe('the .build/ workspace namespace', () => {
+  it('reads a saved note from the workspace, not the project', async () => {
+    const { ctx } = makeContext([{ path: 'src/App.tsx', content: 'app' }], {
+      workspaceSeed: [['.build/skills/verify/SKILL.md', 'skill body']],
+    })
+    const result = await fsRead(ctx, { path: '.build/skills/verify/SKILL.md' })
+    expect(result.ok).toBe(true)
+    expect(result.content).toBe('skill body')
+  })
+
+  it('writes a note to the workspace and NOT through the project actor', async () => {
+    // The whole point: anything reaching project.files is published to
+    // scoutos.live, exported in the ZIP, mounted into the container, and sent
+    // as context every turn. A skill must not be any of those.
+    const { ctx, applied } = makeContext([], {})
+    const result = await fsWrite(ctx, {
+      path: '.build/skills/tone/SKILL.md',
+      content: '---\nname: tone\n---',
+    })
+    expect(result.ok).toBe(true)
+    expect(applied).toEqual([])
+    // And no narration chips: a saved note is not part of the app.
+    expect(result.paths).toBeUndefined()
+  })
+
+  it('deletes a saved note', async () => {
+    const { ctx, workspace, removed } = makeContext([], {
+      workspaceSeed: [['.build/skills/old/SKILL.md', 'x']],
+    })
+    const result = await fsDelete(ctx, { path: '.build/skills/old/SKILL.md' })
+    expect(result.ok).toBe(true)
+    expect(workspace.has('.build/skills/old/SKILL.md')).toBe(false)
+    // Not through project.FileRemoved either.
+    expect(removed).toEqual([])
+  })
+
+  it('refuses to delete a note that does not exist', async () => {
+    const { ctx } = makeContext([], {})
+    expect((await fsDelete(ctx, { path: '.build/skills/ghost/SKILL.md' })).ok).toBe(false)
+  })
+
+  it('lists the workspace when asked for the .build/ prefix', async () => {
+    const { ctx } = makeContext([{ path: 'src/App.tsx', content: 'app' }], {
+      workspaceSeed: [['.build/skills/a/SKILL.md', 'a']],
+    })
+    const entries = JSON.parse((await fsList(ctx, { prefix: '.build/' })).content)
+    expect(entries.map((e: { path: string }) => e.path)).toEqual(['.build/skills/a/SKILL.md'])
+  })
+
+  it('surfaces saved notes in a bare listing so the agent knows they exist', async () => {
+    const { ctx } = makeContext([{ path: 'src/App.tsx', content: 'app' }], {
+      workspaceSeed: [['.build/skills/a/SKILL.md', 'a']],
+    })
+    const entries = JSON.parse((await fsList(ctx, {})).content)
+    const paths = entries.map((e: { path: string }) => e.path)
+    expect(paths).toContain('src/App.tsx')
+    expect(paths).toContain('.build/skills/a/SKILL.md')
+  })
+
+  it('refuses to mix app files and notes in one atomic batch', async () => {
+    // Two stores with no shared transaction — refuse rather than half-apply.
+    const { ctx, applied, workspace } = makeContext([], {})
+    const result = await fsBatchWrite(ctx, {
+      files: [
+        { path: 'src/App.tsx', content: 'app' },
+        { path: '.build/skills/a/SKILL.md', content: 'skill' },
+      ],
+    })
+    expect(result.ok).toBe(false)
+    expect(result.content).toMatch(/separate calls/)
+    expect(applied).toEqual([])
+    expect(workspace.size).toBe(0)
+  })
+
+  it('still applies the path policy inside .build/', async () => {
+    const { ctx } = makeContext([], {})
+    expect((await fsWrite(ctx, { path: '.build/../.env', content: 'x' })).ok).toBe(false)
+    expect((await fsRead(ctx, { path: '.build/../../etc/passwd' })).ok).toBe(false)
   })
 })

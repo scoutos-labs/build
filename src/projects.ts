@@ -22,9 +22,18 @@ export type SavedProject = {
 }
 
 const DB_NAME = 'build-db'
-const DB_VERSION = 1
+/**
+ * Bumped to 2 for the `workspace` store (skills, agent personas — see
+ * `src/workspace-store.ts`). `onupgradeneeded` only creates what is missing, so
+ * an existing database upgrades in place with no migration and no data loss.
+ *
+ * This module owns the schema: `build-db` must be opened at ONE version, and
+ * two modules opening it at different versions throws on whichever is second.
+ */
+const DB_VERSION = 2
 const PROJECTS_STORE = 'projects'
 const META_STORE = 'meta'
+export const WORKSPACE_STORE = 'workspace'
 const CURRENT_PROJECT_ID_KEY = 'current-project-id'
 
 type MetaRecord = { key: string; value: string | null }
@@ -39,6 +48,7 @@ export function openBuildDb(): Promise<IDBDatabase> {
       const db = request.result
       if (!db.objectStoreNames.contains(PROJECTS_STORE)) db.createObjectStore(PROJECTS_STORE, { keyPath: 'id' })
       if (!db.objectStoreNames.contains(META_STORE)) db.createObjectStore(META_STORE, { keyPath: 'key' })
+      if (!db.objectStoreNames.contains(WORKSPACE_STORE)) db.createObjectStore(WORKSPACE_STORE, { keyPath: 'id' })
     }
 
     request.onsuccess = () => resolve(request.result)

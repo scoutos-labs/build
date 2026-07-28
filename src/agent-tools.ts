@@ -1,3 +1,4 @@
+import { WORKSPACE_PREFIX, isWorkspacePath } from './workspace-store'
 /**
  * The agent's tools — the WebContainer as control plane.
  *
@@ -133,6 +134,15 @@ export type ProjectFile = { path: string; content: string }
 export type ToolContext = {
   /** Current project files — the source of truth, not the container. */
   files(): ProjectFile[]
+  /**
+   * The workspace: `.build/` paths (skills, personas) that belong to the user
+   * rather than to their app, and must never reach publish, the ZIP, or the
+   * container. See `src/workspace-store.ts`.
+   */
+  readWorkspace(path: string): Promise<string | undefined>
+  writeWorkspace(path: string, content: string): Promise<void>
+  deleteWorkspace(path: string): Promise<void>
+  listWorkspace(prefix: string): Promise<{ path: string; bytes: number }[]>
   /** Write through the project actor (`project.FileApplied`). */
   applyFile(path: string, content: string): void
   /** Remove through the project actor (`project.FileRemoved`). */
@@ -193,13 +203,24 @@ function basename(path: string): string {
 
 // ── fs_list ──────────────────────────────────────────────────────────────────
 
-export function fsList(ctx: ToolContext, args: { prefix?: unknown }): ToolResult {
+export async function fsList(ctx: ToolContext, args: { prefix?: unknown }): Promise<ToolResult> {
   const prefix = typeof args.prefix === 'string' ? args.prefix.trim() : ''
+  // `.build/` is a virtual namespace over the workspace store, so a listing of
+  // it must not consult project.files at all.
+  if (isWorkspacePath(prefix)) {
+    const entries = await ctx.listWorkspace(prefix)
+    return {
+      ok: true,
+      content: entries.length ? cap(JSON.stringify(entries)) : `No saved files under "${prefix}".`,
+      summary: 'Looked through your saved notes',
+    }
+  }
   const matched = ctx
     .files()
     .filter(file => !prefix || file.path.startsWith(prefix))
     .map(file => ({ path: file.path, bytes: byteLength(file.content) }))
     .sort((a, b) => a.path.localeCompare(b.path))
+  const workspace = prefix ? [] : await ctx.listWorkspace(WORKSPACE_PREFIX)
 
   if (matched.length === 0) {
     return {
@@ -210,7 +231,7 @@ export function fsList(ctx: ToolContext, args: { prefix?: unknown }): ToolResult
   }
   return {
     ok: true,
-    content: cap(JSON.stringify(matched)),
+    content: cap(JSON.stringify([...matched, ...workspace])),
     summary: prefix ? `Looked in ${prefix}` : `Listed ${matched.length} files`,
   }
 }
@@ -223,6 +244,14 @@ export async function fsRead(
 ): Promise<ToolResult> {
   const verdict = normalizePath(args.path)
   if (!verdict.ok) return refuse(verdict.reason, 'Tried to read a file it may not open')
+
+  if (isWorkspacePath(verdict.path)) {
+    const saved = await ctx.readWorkspace(verdict.path)
+    if (saved === undefined) {
+      return refuse(`Nothing saved at ${verdict.path}.`, `Looked for ${basename(verdict.path)}`)
+    }
+    return { ok: true, content: cap(saved), summary: `Read your ${basename(verdict.path)} note` }
+  }
 
   if (args.from_container === true) {
     const content = await ctx.readContainerFile(verdict.path)
@@ -299,15 +328,46 @@ function applyAll(ctx: ToolContext, files: WriteEntry[]): ToolResult {
   return { ok: true, content, summary, paths }
 }
 
-export function fsWrite(ctx: ToolContext, args: { path?: unknown; content?: unknown }): ToolResult {
+export async function fsWrite(
+  ctx: ToolContext,
+  args: { path?: unknown; content?: unknown },
+): Promise<ToolResult> {
   const validated = validateBatch([{ path: args.path, content: args.content }])
   if (!validated.ok) return refuse(validated.reason, 'Tried to write a file it may not change')
+  const target = validated.files[0]!
+  if (isWorkspacePath(target.path)) {
+    await ctx.writeWorkspace(target.path, target.content)
+    return {
+      ok: true,
+      content: `ok · saved ${byteLength(target.content)} bytes to ${target.path}`,
+      summary: `Saved a note`,
+      // Deliberately no `paths`: workspace files are not part of the app, so
+      // they must not appear in the turn's narration chips or the Build Story.
+    }
+  }
   return applyAll(ctx, validated.files)
 }
 
-export function fsBatchWrite(ctx: ToolContext, args: { files?: unknown }): ToolResult {
+export async function fsBatchWrite(ctx: ToolContext, args: { files?: unknown }): Promise<ToolResult> {
   const validated = validateBatch(args.files)
   if (!validated.ok) return refuse(validated.reason, 'Tried to write files it may not change')
+  // Mixing app files and saved notes in one atomic batch would mean two stores
+  // with no shared transaction — refuse rather than half-apply.
+  const workspace = validated.files.filter(file => isWorkspacePath(file.path))
+  if (workspace.length > 0 && workspace.length !== validated.files.length) {
+    return refuse(
+      'Save app files and .build/ notes in separate calls; they cannot be written together.',
+      'Tried to mix app files and notes',
+    )
+  }
+  if (workspace.length > 0) {
+    for (const file of workspace) await ctx.writeWorkspace(file.path, file.content)
+    return {
+      ok: true,
+      content: `ok · saved ${workspace.length} notes`,
+      summary: `Saved ${workspace.length} notes`,
+    }
+  }
   return applyAll(ctx, validated.files)
 }
 
@@ -324,9 +384,16 @@ export function fsBatchWrite(ctx: ToolContext, args: { files?: unknown }): ToolR
  * Bounded hard: one path per call, no directories, and the guarded set refuses
  * with an explanation rather than a bare no.
  */
-export function fsDelete(ctx: ToolContext, args: { path?: unknown }): ToolResult {
+export async function fsDelete(ctx: ToolContext, args: { path?: unknown }): Promise<ToolResult> {
   const verdict = normalizePath(args.path)
   if (!verdict.ok) return refuse(verdict.reason, 'Tried to delete a file it may not touch')
+  if (isWorkspacePath(verdict.path)) {
+    if ((await ctx.readWorkspace(verdict.path)) === undefined) {
+      return refuse(`Nothing saved at ${verdict.path}.`, `Looked for ${basename(verdict.path)}`)
+    }
+    await ctx.deleteWorkspace(verdict.path)
+    return { ok: true, content: `ok · deleted ${verdict.path}`, summary: 'Deleted a note' }
+  }
   if (UNDELETABLE.has(verdict.path)) {
     return refuse(
       `${verdict.path} is part of how the app runs — it can be changed but not removed.`,

@@ -344,6 +344,10 @@ export type StepRequestBody = {
   userPrompt?: string
   selectedElement?: SelectedPreviewElement
   elementComment?: string
+  /** Names and descriptions of the user's saved skills. Injected as untrusted
+   * DATA — a skill file is writable by the agent itself, so a persisted
+   * injection must never carry authority. Bodies are pulled with fs_read. */
+  skillsManifest?: string
   /** True once anything has been read from the web in this turn. Carried by the
    * client across steps because the server holds no turn state; re-checked
    * server-side before any web_post actually sends. */
@@ -357,6 +361,10 @@ export function buildToolModeMessages(
   const messages: ModelMessage[] = [
     { role: 'system', content: buildToolModePrompt(opts) },
   ]
+
+  if (body.skillsManifest) {
+    messages.push({ role: 'system', content: body.skillsManifest })
+  }
 
   if (body.tree.length > 0) {
     messages.push({

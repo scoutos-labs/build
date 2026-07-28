@@ -348,6 +348,10 @@ export type StepRequestBody = {
    * DATA — a skill file is writable by the agent itself, so a persisted
    * injection must never carry authority. Bodies are pulled with fs_read. */
   skillsManifest?: string
+  /** The user's standing instructions — trusted guidance, unlike the skills
+   * manifest. Trusted because `.build/agents/` is refused by every write tool,
+   * so only the account owner can author it. See `src/agents.ts`. */
+  persona?: string
   /** True once anything has been read from the web in this turn. Carried by the
    * client across steps because the server holds no turn state; re-checked
    * server-side before any web_post actually sends. */
@@ -362,6 +366,11 @@ export function buildToolModeMessages(
     { role: 'system', content: buildToolModePrompt(opts) },
   ]
 
+  // Persona before skills: the user's own standing instructions outrank a saved
+  // note, and the ordering says so before either is read.
+  if (body.persona) {
+    messages.push({ role: 'system', content: body.persona })
+  }
   if (body.skillsManifest) {
     messages.push({ role: 'system', content: body.skillsManifest })
   }

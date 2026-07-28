@@ -263,6 +263,7 @@ function isValidStepBody(body: unknown): body is StepRequestBody {
       m => (m?.role === 'user' || m?.role === 'assistant') && typeof m?.content === 'string',
     ) &&
     (c.skillsManifest === undefined || typeof c.skillsManifest === 'string') &&
+    (c.persona === undefined || typeof c.persona === 'string') &&
     Array.isArray(c.toolResults) &&
     c.toolResults.every(
       r => typeof r?.toolCallId === 'string' && typeof r?.content === 'string',

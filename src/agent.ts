@@ -330,11 +330,19 @@ export type ToolModeStepArgs = {
   toolResults?: { toolCallId: string; content: string }[]
   /** Names and descriptions of the user's saved skills — untrusted DATA. */
   skillsManifest?: string
+  /** The user's standing instructions — trusted guidance. Trusted precisely
+   * because `.build/agents/` is not writable by any tool; see `agents.ts`. */
+  persona?: string
 }
 
 export function buildToolModeMessages(args: ToolModeStepArgs): PortMessage[] {
   const messages: PortMessage[] = [{ role: 'system', content: buildToolModePrompt() }]
 
+  // Persona before skills: the user's own standing instructions outrank a saved
+  // note, and the ordering says so before either is read.
+  if (args.persona) {
+    messages.push({ role: 'system', content: args.persona })
+  }
   if (args.skillsManifest) {
     messages.push({ role: 'system', content: args.skillsManifest })
   }

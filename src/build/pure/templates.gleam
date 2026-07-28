@@ -13,6 +13,7 @@ pub type FileTree {
 pub fn starter_files() -> List(ProjectFile) {
   [
     ProjectFile("package.json", package_json()),
+    ProjectFile("tsconfig.json", tsconfig_json()),
     ProjectFile(
       "index.html",
       "<div id=\"root\"></div><script type=\"module\" src=\"/src/main.tsx\"></script>\n",
@@ -150,13 +151,46 @@ fn strip_leading_slashes(path: String) -> String {
   }
 }
 
+fn tsconfig_json() -> String {
+  // Load-bearing, not boilerplate. `npx tsc --noEmit` is the verify skill's
+  // headline command, and with no tsconfig.json tsc does not typecheck at all
+  // — it prints its help text and exits 1.
+  "{\n  \"compilerOptions\": {\n    \"target\": \"ES2022\",\n    \"lib\": [\n      \"ES2022\",\n      \"DOM\",\n      \"DOM.Iterable\"\n    ],\n    \"module\": \"ESNext\",\n    \"moduleResolution\": \"bundler\",\n    \"types\": [\n      \"vite/client\"\n    ],\n    \"jsx\": \"react-jsx\",\n    \"strict\": true,\n    \"noEmit\": true,\n    \"skipLibCheck\": true,\n    \"allowJs\": true,\n    \"checkJs\": false,\n    \"resolveJsonModule\": true,\n    \"isolatedModules\": true\n  },\n  \"include\": [\n    \"src\",\n    \"vite.config.ts\"\n  ]\n}"
+}
+
 fn package_json() -> String {
   // vite pinned below 8: Vite 8 bundles via rolldown, whose WASM binding
   // (emnapi) crashes inside WebContainers. Tailwind v3 + shadcn helpers are
   // pre-baked so the agent doesn't have to bootstrap styling on the first
   // build (avoids a package.json change → reinstall → dev-server restart /
   // preview flicker).
-  "{\n  \"scripts\": {\n    \"dev\": \"vite --host 0.0.0.0\",\n    \"build\": \"vite build\",\n    \"start\": \"node server.js\"\n  },\n  \"dependencies\": {\n    \"@vitejs/plugin-react\": \"^4.3.4\",\n    \"class-variance-authority\": \"^0.7.1\",\n    \"clsx\": \"^2.1.1\",\n    \"hyper-zepto\": \"^0.1.0\",\n    \"lucide-react\": \"^0.468.0\",\n    \"react\": \"^18.3.1\",\n    \"react-dom\": \"^18.3.1\",\n    \"tailwind-merge\": \"^2.6.0\",\n    \"typescript\": \"latest\",\n    \"vite\": \"^7.3.2\"\n  },\n  \"devDependencies\": {\n    \"autoprefixer\": \"^10.4.20\",\n    \"postcss\": \"^8.4.49\",\n    \"tailwindcss\": \"^3.4.17\"\n  },\n  \"type\": \"module\"\n}"
+  "{
+  \"scripts\": {
+    \"dev\": \"vite --host 0.0.0.0\",
+    \"build\": \"vite build\",
+    \"start\": \"node server.js\"
+  },
+  \"dependencies\": {
+    \"@vitejs/plugin-react\": \"^4.3.4\",
+    \"class-variance-authority\": \"^0.7.1\",
+    \"clsx\": \"^2.1.1\",
+    \"hyper-zepto\": \"^0.1.0\",
+    \"lucide-react\": \"^0.468.0\",
+    \"react\": \"^18.3.1\",
+    \"react-dom\": \"^18.3.1\",
+    \"tailwind-merge\": \"^2.6.0\",
+    \"typescript\": \"^5.7.2\",
+    \"vite\": \"^7.3.2\"
+  },
+  \"devDependencies\": {
+    \"@types/react\": \"^18.3.12\",
+    \"@types/react-dom\": \"^18.3.1\",
+    \"autoprefixer\": \"^10.4.20\",
+    \"postcss\": \"^8.4.49\",
+    \"tailwindcss\": \"^3.4.17\"
+  },
+  \"type\": \"module\"
+}"
 }
 
 fn tailwind_config_js() -> String {

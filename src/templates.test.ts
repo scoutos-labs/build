@@ -125,3 +125,36 @@ describe('project templates', () => {
     ])
   })
 })
+
+describe('the starter can actually be verified', () => {
+  // The agent is told to run `npx tsc --noEmit` (see the built-in verify skill
+  // in src/skills.ts). A live run showed that command printing tsc's help text
+  // and exiting 1 on every turn, because none of the three pieces below were
+  // there. They look like boilerplate; they are the difference between the
+  // agent checking its work and burning a step pretending to.
+  const byPath = new Map(starterFiles.map(file => [file.path, file.content]))
+
+  it('ships a tsconfig.json, without which tsc does not typecheck at all', () => {
+    const raw = byPath.get('tsconfig.json')
+    expect(raw, 'no tsconfig.json — `tsc --noEmit` will just print its help').toBeDefined()
+    const config = JSON.parse(raw!)
+    expect(config.include).toContain('src')
+    // Declares `*.css`, or a side-effect style import reads as TS2882.
+    expect(config.compilerOptions.types).toContain('vite/client')
+    expect(config.compilerOptions.jsx).toBe('react-jsx')
+  })
+
+  it('ships React type declarations, without which real errors drown in noise', () => {
+    const pkg = JSON.parse(byPath.get('package.json')!)
+    expect(pkg.devDependencies['@types/react']).toBeDefined()
+    expect(pkg.devDependencies['@types/react-dom']).toBeDefined()
+  })
+
+  it('pins typescript instead of tracking latest', () => {
+    // `latest` silently became TypeScript 7, the native rewrite — a major
+    // version change under existing projects with no signal.
+    const pkg = JSON.parse(byPath.get('package.json')!)
+    expect(pkg.dependencies.typescript).not.toBe('latest')
+    expect(pkg.dependencies.typescript).toMatch(/^\^?\d/)
+  })
+})

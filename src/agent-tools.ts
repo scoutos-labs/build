@@ -68,6 +68,10 @@ const DENIED_PATTERNS = [/^\.env($|\.)/i, /\.pem$/i, /\.key$/i, /\.p12$/i, /^id_
  */
 export const UNDELETABLE = new Set([
   'package.json',
+  // Deleting it does not break the app — it breaks the agent's ability to
+  // CHECK the app. `npx tsc --noEmit` silently stops typechecking and starts
+  // printing help text, and the loop goes on reporting that it verified.
+  'tsconfig.json',
   'vite.config.ts',
   'zepto-bridge.js',
   'server.js',
@@ -121,6 +125,23 @@ export function normalizePath(raw: unknown): PathVerdict {
     return { ok: false, reason: 'That file holds secrets or keys; it is off limits.' }
   }
   return { ok: true, path }
+}
+
+/**
+ * The one workspace subtree the agent may read but never write.
+ *
+ * `.build/agents/**` holds personas, which are injected into every prompt as
+ * *trusted guidance* rather than as untrusted data. That framing is only
+ * defensible while the agent cannot author them: a writable persona would let a
+ * single prompt injection plant standing instructions that carry authority on
+ * every future turn — a one-shot compromise made durable.
+ *
+ * Read stays open; reading its own instructions is the point. See `agents.ts`.
+ */
+export const AGENT_OWNED_PREFIX = '.build/agents/'
+
+function isAgentOwned(path: string): boolean {
+  return path === AGENT_OWNED_PREFIX.slice(0, -1) || path.startsWith(AGENT_OWNED_PREFIX)
 }
 
 export type ProjectFile = { path: string; content: string }
@@ -296,6 +317,12 @@ function validateBatch(raw: unknown): { ok: true; files: WriteEntry[] } | { ok: 
     const item = entry as { path?: unknown; content?: unknown } | null
     const verdict = normalizePath(item?.path)
     if (!verdict.ok) return { ok: false, reason: `${verdict.reason} (nothing was written)` }
+    if (isAgentOwned(verdict.path)) {
+      return {
+        ok: false,
+        reason: `${verdict.path} holds instructions only the person you are building for can change. You can read it, not write it. (nothing was written)`,
+      }
+    }
     if (typeof item?.content !== 'string') {
       return { ok: false, reason: `Content for ${verdict.path} must be a string (nothing was written).` }
     }
@@ -387,6 +414,12 @@ export async function fsBatchWrite(ctx: ToolContext, args: { files?: unknown }):
 export async function fsDelete(ctx: ToolContext, args: { path?: unknown }): Promise<ToolResult> {
   const verdict = normalizePath(args.path)
   if (!verdict.ok) return refuse(verdict.reason, 'Tried to delete a file it may not touch')
+  if (isAgentOwned(verdict.path)) {
+    return refuse(
+      `${verdict.path} holds instructions only the person you are building for can change. You can read it, not delete it.`,
+      'Tried to delete its own instructions',
+    )
+  }
   if (isWorkspacePath(verdict.path)) {
     if ((await ctx.readWorkspace(verdict.path)) === undefined) {
       return refuse(`Nothing saved at ${verdict.path}.`, `Looked for ${basename(verdict.path)}`)

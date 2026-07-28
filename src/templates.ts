@@ -22,15 +22,54 @@ export const starterFiles: ProjectFile[] = [
           react: '^18.3.1',
           'react-dom': '^18.3.1',
           'tailwind-merge': '^2.6.0',
-          typescript: 'latest',
+          // Pinned like everything else here. As `latest` this silently became
+          // TypeScript 7 — the native rewrite — changing the compiler under
+          // existing projects across a major boundary with no signal.
+          typescript: '^5.7.2',
           vite: '^7.3.2',
         },
         devDependencies: {
+          // Without these, `npx tsc --noEmit` — the check the agent is told to
+          // run — buries any real error under a wall of TS7016/TS7026 noise
+          // about React having no declarations.
+          '@types/react': '^18.3.12',
+          '@types/react-dom': '^18.3.1',
           autoprefixer: '^10.4.20',
           postcss: '^8.4.49',
           tailwindcss: '^3.4.17',
         },
         type: 'module',
+      },
+      null,
+      2,
+    ),
+  },
+  {
+    // Load-bearing, not boilerplate. `npx tsc --noEmit` is the verify skill's
+    // headline command, and with no tsconfig.json tsc does not typecheck at
+    // all — it prints its help text and exits 1. Every turn that tried to
+    // verify burned a step on a command that could not succeed.
+    path: 'tsconfig.json',
+    content: JSON.stringify(
+      {
+        compilerOptions: {
+          target: 'ES2022',
+          lib: ['ES2022', 'DOM', 'DOM.Iterable'],
+          module: 'ESNext',
+          moduleResolution: 'bundler',
+          // Declares `*.css` and friends, so a side-effect style import is not
+          // reported as a missing module (TS2882).
+          types: ['vite/client'],
+          jsx: 'react-jsx',
+          strict: true,
+          noEmit: true,
+          skipLibCheck: true,
+          allowJs: true,
+          checkJs: false,
+          resolveJsonModule: true,
+          isolatedModules: true,
+        },
+        include: ['src', 'vite.config.ts'],
       },
       null,
       2,

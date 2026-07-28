@@ -149,6 +149,7 @@ async function runStep(requestId, stepIndex) {
         elementComment: turn.elementComment,
         webRead: turn.webRead,
         skillsManifest: await skillsManifest(),
+        persona: await persona(),
       },
       { getToken: managed.getToken, signal: turn.controller.signal },
     )
@@ -257,6 +258,7 @@ async function runByokStep(requestId, stepIndex, turn) {
       toolCalls: turn.toolCalls,
       toolResults: turn.toolResults,
       skillsManifest: await skillsManifest(),
+      persona: await persona(),
     }),
     tools: tools.CLIENT_TOOL_SPECS,
     maxCalls: MAX_CALLS_PER_STEP,
@@ -390,6 +392,17 @@ async function skillsManifest() {
   }
 }
 
+/** The user's standing instructions, framed as guidance. Empty string when the
+ * user has never written one, so the prompt gains nothing. */
+async function persona() {
+  try {
+    const agents = await import('../agents')
+    return agents.buildPersonaPrompt(await agents.readPersona())
+  } catch {
+    return ''
+  }
+}
+
 /** Paths + sizes only. Contents reach the model through fs_read, which is what
  * makes a multi-step turn affordable. */
 function fileTree() {
@@ -486,6 +499,17 @@ export async function executeTool(requestId, callId, name, argsJson) {
     // and the turn hangs until the deadline.
     result = { ok: false, content: `Tool failed: ${message(error)}`, summary: 'A step failed' }
   }
+  // Refusals are otherwise invisible past a one-line trail summary: "Tried to
+  // write files it may not change" does not say WHICH file or why, so a live
+  // run can only guess. The model gets the reason; now a debugger can see it
+  // too. Failures only, reason truncated, ring-buffered — file bodies from a
+  // successful fs_read have no business accumulating on a global.
+  if (!result.ok) {
+    const log = (globalThis.__buildToolLog ??= [])
+    log.push({ name, reason: String(result.content ?? '').slice(0, 300) })
+    if (log.length > 50) log.shift()
+  }
+
   const bucket = toolResults.get(requestId) ?? []
   bucket.push({ toolCallId: callId, name, content: result.content })
   toolResults.set(requestId, bucket)

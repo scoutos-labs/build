@@ -182,5 +182,64 @@ node scripts/smoke-agent-harness.mjs  → 37/37  [NEW — drives a real multi-st
 <li><strong>Server <code>typecheck</code> excludes test files</strong> (<code>tsconfig.json</code> <code>exclude</code>), so a fake that drifts from an interface — e.g. a <code>Db</code> stub missing <code>updateModel</code> — is caught only at runtime. Two fakes needed manual updating this loop for exactly that reason.</li>
 </ul>
 
+<h2>Agent workspace — first slice (personas)</h2>
+<p>One file: <code>.build/agents/hyper/user.md</code>, global scope, injected at the top of every
+turn ahead of the skills manifest. It carries the things a user would otherwise retype — "I use
+Tailwind", "keep copy lowercase".</p>
+<p><strong>The design point is the asymmetry.</strong> A persona is injected as <em>trusted
+guidance</em>; the skills manifest, three feet away in the same prompt, is injected as
+<em>untrusted data</em>. That is defensible for exactly one reason: <strong>the agent cannot write
+a persona.</strong> <code>.build/agents/**</code> is refused by <code>fs_write</code>,
+<code>fs_batch_write</code> and <code>fs_delete</code> while staying open to <code>fs_read</code>.
+A skill file <em>is</em> agent-writable, which is why a prompt injection reaching one tool call
+could plant one and have it re-read with authority every turn afterwards — a one-shot compromise
+made durable. If that write ban is ever lifted, the trusted framing must go with it; the two facts
+move together and there are tests on both halves.</p>
+<table>
+<tr><th>Check</th><th>Evidence</th></tr>
+<tr><td>Persona reaches the prompt, ahead of skills</td><td>Browser probe: <code>personaInPrompt</code>, <code>personaBeforeSkills</code> both true; parity test pins the order on both client and server builders</td></tr>
+<tr><td>Write ban holds through the real executor stack</td><td>Browser probe: <code>fs_write</code> and <code>fs_delete</code> refused, <code>fs_read</code> allowed, file intact after the attempt</td></tr>
+<tr><td>Persona actually steers the model</td><td>Live run, <code>PERSONA_MARKER</code>: <strong>4/5</strong> files the agent wrote carried the required header line. The miss is <code>style.css</code>, where <code>//</code> is not a valid CSS comment — correct judgment, not disobedience.</td></tr>
+</table>
+
+<h2>The bug the persona run found: verification was never running</h2>
+<p>Seeding a persona was incidental to the real find. The new refusal log surfaced
+<code>exec: [exit 1]</code> followed by tsc's help text — and reproducing it outside the browser was
+decisive:</p>
+<ul>
+<li>The starter template shipped <strong>no <code>tsconfig.json</code></strong>. With no config and
+no file arguments, <code>tsc</code> does not typecheck at all: it prints its usage banner and exits
+1. <code>npx tsc --noEmit</code> is the headline command of the built-in <code>verify</code> skill,
+so <em>every turn that tried to verify burned a step on a command that could not succeed.</em></li>
+<li>It also shipped no <code>@types/react</code> / <code>@types/react-dom</code>, so even with a
+config a real error drowns under TS7016/TS7026 noise about React having no declarations.</li>
+<li><code>typescript: "latest"</code> had silently resolved to <strong>TypeScript 7.0.2</strong>, the
+native rewrite — a major version change under existing projects, in the one dependency this template
+left unpinned while carefully pinning everything else.</li>
+</ul>
+<p>Fixed on both duplicated template surfaces (the drift guard caught the Gleam side, as designed):
+a <code>tsconfig.json</code> with <code>types: ["vite/client"]</code> so side-effect CSS imports are
+not reported as TS2882, React type declarations, and <code>typescript</code> pinned to
+<code>^5.7.2</code>. <code>tsconfig.json</code> joins <code>UNDELETABLE</code> — deleting it does not
+break the app, it breaks the agent's ability to <em>check</em> the app, which is worse because the
+loop keeps reporting that it verified.</p>
+<p><strong>Measured before/after on the same live turn:</strong></p>
+<table>
+<tr><th></th><th>Steps</th><th>Provider calls</th><th>Wall</th><th>Trail says</th></tr>
+<tr><td>Before</td><td>8</td><td>7</td><td>100s</td><td>"Checked the code — found problems"</td></tr>
+<tr><td>After</td><td>5</td><td>4</td><td>58s</td><td>"Checked the code — no problems"</td></tr>
+</table>
+<p>Verification now genuinely runs, and the turn is shorter because the agent is no longer fighting a
+command that structurally could not work. Three regression tests in
+<code>templates.test.ts</code> pin the reason each of the three pieces exists, so a future cleanup
+does not read them as boilerplate.</p>
+
+<h2>Refusals are now visible</h2>
+<p>The trail showed <code>Tried to write files it may not change</code> and nothing else — no file,
+no reason — so a live run could only guess at what a guard had blocked. <code>executeTool</code> now
+ring-buffers failed tool results (failures only, reason truncated to 300 chars, capped at 50) and the
+live suite prints them. That is what turned an unexplained <code>exit 1</code> into the tsconfig
+finding above.</p>
+
 </body>
 </html>

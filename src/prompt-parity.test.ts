@@ -114,6 +114,33 @@ describe('client/server prompt parity', () => {
     expect(CLIENT_SHARED_RULES).toEqual(SERVER_SHARED_RULES)
   })
 
+  it('injects persona and skills in the same order on both sides', () => {
+    // Ordering is the only thing telling the model which outranks which when a
+    // saved note contradicts a standing instruction. If the two modes disagree,
+    // the same account gets different precedence depending on how it signed in.
+    // Scoped to the builder body on purpose: both files also *declare* these
+    // fields in a type above, in the other order, so a whole-file scan measures
+    // the declaration rather than the injection.
+    const order = (source: string, file: string) => {
+      const body = source.slice(source.indexOf('export function buildToolModeMessages'))
+      expect(body, `${file}: builder not found`).not.toBe('')
+      const persona = body.indexOf('.persona')
+      const skills = body.indexOf('.skillsManifest')
+      expect(persona, `${file}: persona is never injected`).toBeGreaterThan(-1)
+      expect(skills, `${file}: skills manifest is never injected`).toBeGreaterThan(-1)
+      return persona < skills
+    }
+    expect(order(clientSource, 'src/agent.ts')).toBe(true)
+    expect(order(serverSource, 'server/src/prompt.ts')).toBe(true)
+  })
+
+  it('keeps the persona trusted on the server too', () => {
+    // The client builds the persona block and the server merely forwards it, so
+    // the server must not re-wrap it in the skills-style untrusted framing.
+    const block = serverSource.slice(serverSource.indexOf('body.persona'))
+    expect(block.slice(0, 200)).not.toContain('untrusted')
+  })
+
   it('extracts the JSON-mode Rules block unambiguously', () => {
     // The tool-mode rules live in a TS array (SHARED_RULES), not a second
     // literal "Rules:" block, so the first-match extraction above stays

@@ -81,6 +81,13 @@ pub type State {
     /// The user's chosen job. Drives `model` for OpenRouter; Ollama keeps its
     /// own model field because it has no tool mode and no catalog.
     job: Job,
+    /// Standing instructions for the agent — "I use Tailwind", "keep copy
+    /// lowercase". Injected into every turn as trusted guidance, which is only
+    /// safe because this is the ONLY writer: the agent's own tools refuse
+    /// `.build/agents/`. See src/agents.ts.
+    persona: String,
+    /// Unsaved edits in the persona box, so Save has something to be enabled by.
+    persona_dirty: Bool,
   )
 }
 
@@ -104,6 +111,10 @@ pub type Msg {
   AccountLoaded(plan: String, budget: String)
   JobChanged(Job)
   SignOutRequested
+  PersonaChanged(String)
+  PersonaLoaded(String)
+  PersonaSaveRequested
+  PersonaSaved
 }
 
 pub type Effect {
@@ -121,6 +132,10 @@ pub type Effect {
   /// re-validates tool capability and refuses a model that cannot call tools.
   PersistJob(job: String, model: String)
   SignOut
+  LoadPersona
+  /// Written to the workspace store, never to project.files: standing
+  /// instructions are the user's, not their app's, and must not publish or ZIP.
+  PersistPersona(text: String)
 }
 
 pub fn init() -> State {
@@ -134,6 +149,8 @@ pub fn init() -> State {
     account_plan: "",
     account_budget: "",
     job: default_job,
+    persona: "",
+    persona_dirty: False,
   )
 }
 
@@ -165,6 +182,21 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
       }
       #(State(..state, provider: provider, model: next_model), [])
     }
+    PersonaChanged(text) -> #(
+      State(..state, persona: text, persona_dirty: True),
+      [],
+    )
+    PersonaLoaded(text) ->
+      // Never clobber an in-progress edit with a late load.
+      case state.persona_dirty {
+        True -> #(state, [])
+        False -> #(State(..state, persona: text), [])
+      }
+    // Its own save, not a piggyback on Save settings: the managed panel has no
+    // Save button at all, and standing instructions are worth keeping whether
+    // or not the provider fields are valid.
+    PersonaSaveRequested -> #(state, [PersistPersona(state.persona)])
+    PersonaSaved -> #(State(..state, persona_dirty: False), [])
     ApiKeyChanged(api_key) -> #(State(..state, api_key: api_key), [])
     OllamaUrlChanged(url) -> #(State(..state, ollama_url: url), [])
     ModelChanged(model) -> #(State(..state, model: model), [])
@@ -180,11 +212,14 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
           ])
         }
       }
-    SettingsOpened -> #(State(..state, settings_open: True), [])
-    SettingsToggled -> #(
-      State(..state, settings_open: !state.settings_open),
-      [],
-    )
+    // Load on open, not at boot: the persona is only needed when the panel is
+    // about to show it, and the agent reads it straight from the store.
+    SettingsOpened -> #(State(..state, settings_open: True), [LoadPersona])
+    SettingsToggled ->
+      case state.settings_open {
+        True -> #(State(..state, settings_open: False), [])
+        False -> #(State(..state, settings_open: True), [LoadPersona])
+      }
     SettingsClosed -> #(State(..state, settings_open: False), [])
     ConnectionStatusChanged(status) -> #(
       State(..state, connection_status: status),

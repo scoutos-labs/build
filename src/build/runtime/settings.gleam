@@ -15,8 +15,19 @@ pub fn interpret(effect: settings.Effect) -> Nil {
     settings.PurgeLegacySettings -> purge_legacy_settings()
     settings.PersistJob(job, model) -> persist_job(job, model)
     settings.SignOut -> managed_sign_out()
+    settings.LoadPersona -> load_persona()
+    settings.PersistPersona(text) -> persist_persona(text)
   }
 }
+
+/// The workspace store, not localStorage and not project.files: standing
+/// instructions belong to the user rather than to any one app, and must never
+/// reach publish, the ZIP, or the container.
+@external(javascript, "../../gleam-externals/workspace.mjs", "loadPersona")
+fn load_persona() -> Nil
+
+@external(javascript, "../../gleam-externals/workspace.mjs", "persistPersona")
+fn persist_persona(text: String) -> Nil
 
 @external(javascript, "../../gleam-externals/managed.mjs", "fetchAccountInfo")
 fn fetch_account_info() -> Nil

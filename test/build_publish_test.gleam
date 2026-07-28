@@ -320,6 +320,7 @@ pub fn managed_init_fetches_key_status_test() {
     == [
       effect.Settings(settings.PurgeLegacySettings),
       effect.Settings(settings.FetchAccountInfo),
+      effect.Settings(settings.LoadPersona),
       effect.Publish(publish.FetchKeyStatus),
       effect.Project(project.LoadInitialProject),
     ]

@@ -22,15 +22,54 @@ export const starterFiles: ProjectFile[] = [
           react: '^18.3.1',
           'react-dom': '^18.3.1',
           'tailwind-merge': '^2.6.0',
-          typescript: 'latest',
+          // Pinned like everything else here. As `latest` this silently became
+          // TypeScript 7 — the native rewrite — changing the compiler under
+          // existing projects across a major boundary with no signal.
+          typescript: '^5.7.2',
           vite: '^7.3.2',
         },
         devDependencies: {
+          // Without these, `npx tsc --noEmit` — the check the agent is told to
+          // run — buries any real error under a wall of TS7016/TS7026 noise
+          // about React having no declarations.
+          '@types/react': '^18.3.12',
+          '@types/react-dom': '^18.3.1',
           autoprefixer: '^10.4.20',
           postcss: '^8.4.49',
           tailwindcss: '^3.4.17',
         },
         type: 'module',
+      },
+      null,
+      2,
+    ),
+  },
+  {
+    // Load-bearing, not boilerplate. `npx tsc --noEmit` is the verify skill's
+    // headline command, and with no tsconfig.json tsc does not typecheck at
+    // all — it prints its help text and exits 1. Every turn that tried to
+    // verify burned a step on a command that could not succeed.
+    path: 'tsconfig.json',
+    content: JSON.stringify(
+      {
+        compilerOptions: {
+          target: 'ES2022',
+          lib: ['ES2022', 'DOM', 'DOM.Iterable'],
+          module: 'ESNext',
+          moduleResolution: 'bundler',
+          // Declares `*.css` and friends, so a side-effect style import is not
+          // reported as a missing module (TS2882).
+          types: ['vite/client'],
+          jsx: 'react-jsx',
+          strict: true,
+          noEmit: true,
+          skipLibCheck: true,
+          allowJs: true,
+          checkJs: false,
+          resolveJsonModule: true,
+          isolatedModules: true,
+        },
+        include: ['src', 'vite.config.ts'],
       },
       null,
       2,
@@ -424,4 +463,57 @@ export function upsertFile(files: ProjectFile[], path: string, content: string):
   const existing = files.find(file => file.path === normalized)
   if (existing) return files.map(file => file.path === normalized ? { path: normalized, content } : file)
   return [...files, { path: normalized, content }].sort((a, b) => a.path.localeCompare(b.path))
+}
+
+/**
+ * Backfill the pieces that make `npx tsc --noEmit` mean something.
+ *
+ * The starter now ships a tsconfig.json and React type declarations, but
+ * projects created before that do not — and for them the agent's verify step
+ * stays exactly as broken as it was: tsc prints its usage banner, exits 1, and
+ * the loop reports that it checked its work. New-projects-only would have left
+ * the entire existing user base on the broken path.
+ *
+ * Strictly additive, and silent when there is nothing to add — an untouched
+ * project must come back as the SAME array so callers can use identity to
+ * decide whether anything needs saving. `typescript` itself is deliberately not
+ * repinned: an existing project already installed whatever it resolved, and
+ * changing it would force a reinstall on open.
+ */
+export const VERIFY_TYPES = ['@types/react', '@types/react-dom'] as const
+
+export function ensureVerifiable(files: ProjectFile[]): ProjectFile[] {
+  // An empty project is about to be seeded from starterFiles; nothing to fix.
+  if (files.length === 0) return files
+  let next = files
+
+  if (!next.some(file => file.path === 'tsconfig.json')) {
+    const template = starterFiles.find(file => file.path === 'tsconfig.json')
+    if (template) next = upsertFile(next, 'tsconfig.json', template.content)
+  }
+
+  const pkg = next.find(file => file.path === 'package.json')
+  if (pkg) {
+    try {
+      const parsed = JSON.parse(pkg.content) as Record<string, unknown>
+      const starterPkg = JSON.parse(
+        starterFiles.find(file => file.path === 'package.json')!.content,
+      ) as { devDependencies: Record<string, string> }
+      const dev = { ...((parsed.devDependencies as Record<string, string>) ?? {}) }
+      const deps = (parsed.dependencies as Record<string, string>) ?? {}
+      const missing = VERIFY_TYPES.filter(name => !dev[name] && !deps[name])
+      if (missing.length > 0) {
+        for (const name of missing) dev[name] = starterPkg.devDependencies[name]!
+        next = upsertFile(
+          next,
+          'package.json',
+          JSON.stringify({ ...parsed, devDependencies: dev }, null, 2),
+        )
+      }
+    } catch {
+      // Unparseable package.json is the user's to fix; do not clobber it.
+    }
+  }
+
+  return next
 }

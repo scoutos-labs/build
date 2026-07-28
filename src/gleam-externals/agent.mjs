@@ -149,6 +149,7 @@ async function runStep(requestId, stepIndex) {
         elementComment: turn.elementComment,
         webRead: turn.webRead,
         skillsManifest: await skillsManifest(),
+        persona: await persona(),
       },
       { getToken: managed.getToken, signal: turn.controller.signal },
     )
@@ -257,6 +258,7 @@ async function runByokStep(requestId, stepIndex, turn) {
       toolCalls: turn.toolCalls,
       toolResults: turn.toolResults,
       skillsManifest: await skillsManifest(),
+      persona: await persona(),
     }),
     tools: tools.CLIENT_TOOL_SPECS,
     maxCalls: MAX_CALLS_PER_STEP,
@@ -339,9 +341,16 @@ async function runJsonModeTurn(requestId, turn, agentModuleExports) {
     elementComment: turn.elementComment,
     signal: turn.controller.signal,
   })
-  const patches = (result.patches ?? []).filter(
+  // Validated through the SAME batch policy as every other write. This loop used
+  // to apply model-supplied paths straight to the project actor — no path
+  // normalization, no denied prefixes, no size cap, and no `.build/agents` ban.
+  // Nothing here could reach the workspace store (personas live in IndexedDB),
+  // but it could drop a file at that literal path into project.files, which
+  // publish ships verbatim. One write path means one policy.
+  const proposed = (result.patches ?? []).filter(
     patch => typeof patch?.path === 'string' && typeof patch?.content === 'string',
   )
+  const patches = await filterWritablePatches(proposed, requestId)
   if (patches.length > 0) {
     const callId = `${requestId}-json`
     // Drop the turn FIRST: AgentToolFinished emits CallAgentStep synchronously,
@@ -367,6 +376,37 @@ async function runJsonModeTurn(requestId, turn, agentModuleExports) {
   finishTurn(requestId)
 }
 
+/**
+ * Drop patches the fs policy would refuse, and tell the user which and why.
+ *
+ * JSON mode has no next step, so a refusal cannot be handed back to the model to
+ * retry — the honest thing is to apply the rest and surface the rejection in the
+ * trail rather than silently writing a file the tool path would have blocked.
+ */
+async function filterWritablePatches(patches, requestId) {
+  let tools
+  try {
+    tools = await import('../agent-tools')
+  } catch {
+    return patches // outside the browser bundle; nothing to enforce against
+  }
+  const kept = []
+  for (const patch of patches) {
+    const verdict = tools.normalizePath(patch.path)
+    const denied = !verdict.ok
+      ? verdict.reason
+      : tools.isAgentOwnedPath(verdict.path)
+        ? `${verdict.path} holds instructions only the person you are building for can change.`
+        : undefined
+    if (denied) {
+      dispatchWebContainerLog(`[agent] refused ${patch.path}: ${denied}`)
+      continue
+    }
+    kept.push({ path: verdict.path, content: patch.content })
+  }
+  return kept
+}
+
 /** Everything a finished turn was holding. */
 function finishTurn(requestId) {
   clearTurnState(requestId)
@@ -385,6 +425,19 @@ async function skillsManifest() {
   try {
     const skills = await import('../skills')
     return skills.buildSkillsManifest(await skills.listSkills())
+  } catch {
+    return ''
+  }
+}
+
+/** The user's standing instructions, RAW. The framing and the cap belong to
+ * whichever prompt builder ends up using them — the server authors its own
+ * trusted block rather than trusting one assembled here. Empty string when the
+ * user has never written one, so the prompt gains nothing. */
+async function persona() {
+  try {
+    const agents = await import('../agents')
+    return await agents.readPersona()
   } catch {
     return ''
   }
@@ -475,6 +528,12 @@ export function callAgentStep(requestId, step) {
   void runStep(requestId, step)
 }
 
+/** Called on project switch: one project's failure text has no business being
+ * readable while working in another. */
+export function clearToolLog() {
+  globalThis.__buildToolLog = []
+}
+
 export async function executeTool(requestId, callId, name, argsJson) {
   let result
   try {
@@ -486,6 +545,20 @@ export async function executeTool(requestId, callId, name, argsJson) {
     // and the turn hangs until the deadline.
     result = { ok: false, content: `Tool failed: ${message(error)}`, summary: 'A step failed' }
   }
+  // Refusals are otherwise invisible past a one-line trail summary: "Tried to
+  // write files it may not change" does not say WHICH file or why, so a live
+  // run can only guess. The model gets the reason; now a debugger can see it
+  // too. Failures only, reason truncated, ring-buffered — file bodies from a
+  // successful fs_read have no business accumulating on a global.
+  if (!result.ok) {
+    const log = (globalThis.__buildToolLog ??= [])
+    // Same-origin, never persisted, never transmitted — but a failed `npm
+    // install` puts registry URLs and absolute paths in here, so it is scoped to
+    // the project that produced it (see clearToolLog on project switch).
+    log.push({ name, reason: String(result.content ?? '').slice(0, 300) })
+    if (log.length > 50) log.shift()
+  }
+
   const bucket = toolResults.get(requestId) ?? []
   bucket.push({ toolCallId: callId, name, content: result.content })
   toolResults.set(requestId, bucket)

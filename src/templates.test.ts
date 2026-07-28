@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filesToTree, starterFiles, upsertFile } from './templates'
+import { ensureVerifiable, filesToTree, starterFiles, upsertFile } from './templates'
 
 describe('project templates', () => {
   it('includes a runnable React/hyper-zepto starter project', () => {
@@ -123,5 +123,94 @@ describe('project templates', () => {
       { path: 'a.ts', content: 'a' },
       { path: 'z.ts', content: 'z' },
     ])
+  })
+})
+
+describe('the starter can actually be verified', () => {
+  // The agent is told to run `npx tsc --noEmit` (see the built-in verify skill
+  // in src/skills.ts). A live run showed that command printing tsc's help text
+  // and exiting 1 on every turn, because none of the three pieces below were
+  // there. They look like boilerplate; they are the difference between the
+  // agent checking its work and burning a step pretending to.
+  const byPath = new Map(starterFiles.map(file => [file.path, file.content]))
+
+  it('ships a tsconfig.json, without which tsc does not typecheck at all', () => {
+    const raw = byPath.get('tsconfig.json')
+    expect(raw, 'no tsconfig.json — `tsc --noEmit` will just print its help').toBeDefined()
+    const config = JSON.parse(raw!)
+    expect(config.include).toContain('src')
+    // Declares `*.css`, or a side-effect style import reads as TS2882.
+    expect(config.compilerOptions.types).toContain('vite/client')
+    expect(config.compilerOptions.jsx).toBe('react-jsx')
+  })
+
+  it('ships React type declarations, without which real errors drown in noise', () => {
+    const pkg = JSON.parse(byPath.get('package.json')!)
+    expect(pkg.devDependencies['@types/react']).toBeDefined()
+    expect(pkg.devDependencies['@types/react-dom']).toBeDefined()
+  })
+
+  it('pins typescript instead of tracking latest', () => {
+    // `latest` silently became TypeScript 7, the native rewrite — a major
+    // version change under existing projects with no signal.
+    const pkg = JSON.parse(byPath.get('package.json')!)
+    expect(pkg.dependencies.typescript).not.toBe('latest')
+    expect(pkg.dependencies.typescript).toMatch(/^\^?\d/)
+  })
+})
+
+describe('ensureVerifiable — existing projects, not just new ones', () => {
+  const pkg = (over: object = {}) =>
+    JSON.stringify({ dependencies: { react: '^18.3.1' }, devDependencies: { postcss: '^8' }, ...over }, null, 2)
+
+  it('returns the SAME array when nothing is missing, so nothing is re-saved', () => {
+    const files = ensureVerifiable([
+      { path: 'tsconfig.json', content: '{}' },
+      { path: 'package.json', content: pkg({ devDependencies: { '@types/react': '^18', '@types/react-dom': '^18' } }) },
+    ])
+    const again = ensureVerifiable(files)
+    expect(again).toBe(files)
+  })
+
+  it('adds a tsconfig.json to a project that predates it', () => {
+    const out = ensureVerifiable([{ path: 'src/main.tsx', content: 'x' }])
+    const added = out.find(f => f.path === 'tsconfig.json')
+    expect(added, 'an old project would keep failing every verify step').toBeDefined()
+    expect(JSON.parse(added!.content).include).toContain('src')
+  })
+
+  it('adds the React types without disturbing the rest of package.json', () => {
+    const out = ensureVerifiable([{ path: 'package.json', content: pkg() }])
+    const parsed = JSON.parse(out.find(f => f.path === 'package.json')!.content)
+    expect(parsed.devDependencies['@types/react']).toBeDefined()
+    expect(parsed.devDependencies['@types/react-dom']).toBeDefined()
+    expect(parsed.devDependencies.postcss).toBe('^8')
+    expect(parsed.dependencies.react).toBe('^18.3.1')
+  })
+
+  it('does not repin typescript — an open should not force a reinstall', () => {
+    const out = ensureVerifiable([
+      { path: 'package.json', content: pkg({ dependencies: { typescript: 'latest' } }) },
+    ])
+    const parsed = JSON.parse(out.find(f => f.path === 'package.json')!.content)
+    expect(parsed.dependencies.typescript).toBe('latest')
+  })
+
+  it('respects types already declared as regular dependencies', () => {
+    const out = ensureVerifiable([
+      { path: 'package.json', content: pkg({ dependencies: { '@types/react': '^17', '@types/react-dom': '^17' } }) },
+    ])
+    const parsed = JSON.parse(out.find(f => f.path === 'package.json')!.content)
+    expect(parsed.devDependencies['@types/react']).toBeUndefined()
+    expect(parsed.dependencies['@types/react']).toBe('^17')
+  })
+
+  it('leaves an unparseable package.json alone rather than clobbering it', () => {
+    const broken = [{ path: 'package.json', content: '{ not json' }]
+    expect(ensureVerifiable(broken).find(f => f.path === 'package.json')!.content).toBe('{ not json')
+  })
+
+  it('leaves an empty project alone — it is about to be seeded', () => {
+    expect(ensureVerifiable([])).toEqual([])
   })
 })

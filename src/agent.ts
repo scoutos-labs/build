@@ -315,6 +315,39 @@ export function buildFileTree(files: { path: string; bytes: number }[]): string 
     .join('\n')
 }
 
+/**
+ * Cap on the persona. It rides in EVERY turn, so unlike a skill body — pulled
+ * only when relevant — its cost is unconditional.
+ */
+export const MAX_PERSONA_CHARS = 4000
+
+/**
+ * Frame the user's standing instructions as trusted guidance.
+ *
+ * Deliberately the opposite of `buildSkillsManifest`, and safe for exactly one
+ * reason: `.build/agents/` is refused by every write tool, so only the account
+ * owner can author this. See `src/agents.ts`.
+ *
+ * Lives here rather than in `agents.ts` so that BOTH prompt builders — this one
+ * and `server/src/prompt.ts` — author the block themselves. The client sends
+ * raw text; neither side accepts a pre-framed system message from the other.
+ */
+export function buildPersonaPrompt(source: string): string {
+  const text = source.trim()
+  if (!text) return ''
+  const body =
+    text.length > MAX_PERSONA_CHARS
+      ? `${text.slice(0, MAX_PERSONA_CHARS)}\n\n[...truncated — the rest was over the ${MAX_PERSONA_CHARS}-character limit. Move standing detail into a skill instead.]`
+      : text
+  return [
+    'The person you are building for wrote the following standing instructions.',
+    'They apply to every turn. Follow them as you would the rules above; where they',
+    'conflict with a specific request in this turn, the request wins.',
+    '',
+    body,
+  ].join('\n')
+}
+
 /** Files worth shipping unasked on every step. */
 const TOOL_MODE_ALWAYS_FULL = ['package.json', 'BRAIN.md', 'src/db.ts']
 
@@ -330,11 +363,22 @@ export type ToolModeStepArgs = {
   toolResults?: { toolCallId: string; content: string }[]
   /** Names and descriptions of the user's saved skills — untrusted DATA. */
   skillsManifest?: string
+  /** The user's standing instructions, RAW. Framed here rather than accepted
+   * pre-framed, so the module that decides the trust wording is the same one
+   * that emits it. Trusted because `.build/agents/` is not writable by any
+   * tool; see `agents.ts`. */
+  persona?: string
 }
 
 export function buildToolModeMessages(args: ToolModeStepArgs): PortMessage[] {
   const messages: PortMessage[] = [{ role: 'system', content: buildToolModePrompt() }]
 
+  // Persona before skills: the user's own standing instructions outrank a saved
+  // note, and the ordering says so before either is read.
+  const persona = args.persona ? buildPersonaPrompt(args.persona) : ''
+  if (persona) {
+    messages.push({ role: 'system', content: persona })
+  }
   if (args.skillsManifest) {
     messages.push({ role: 'system', content: args.skillsManifest })
   }

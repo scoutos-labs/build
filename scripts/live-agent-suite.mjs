@@ -89,6 +89,18 @@ await page.evaluate(([key, model]) => {
   globalThis.__liveKey = key
   globalThis.__liveModel = model
 }, [KEY, MODEL])
+// LIVE_PERSONA="..." seeds the user's standing instructions before the run, so
+// the suite can check the persona actually steered the model rather than just
+// reaching the prompt. Seeded before the first turn; it applies to all of them.
+if (process.env.LIVE_PERSONA) {
+  await page.evaluate(async text => {
+    const agents = await import('/src/agents.ts')
+    const ws = await import('/src/workspace-store.ts')
+    await ws.writeWorkspaceFile(agents.PERSONA_PATH, text)
+  }, process.env.LIVE_PERSONA)
+  console.log(`▸ persona seeded (${process.env.LIVE_PERSONA.length} chars)`)
+}
+
 await bridge(`bridge.dispatchSettingsLoaded({ provider: 'openrouter', apiKey: globalThis.__liveKey, model: globalThis.__liveModel, job: 'standard' })`)
 await page.waitForSelector('.modalBackdrop', { state: 'detached', timeout: 8000 })
 const optOut = await page.$('text=Just describe it instead')
@@ -114,6 +126,12 @@ let shot = 0
 for (const turn of TURNS) {
   const callsBefore = providerCalls
   const errorsBefore = previewErrors.length
+  // Snapshot before the turn so persona adherence is measured against files the
+  // agent actually WROTE. Scoring every file in the project counts untouched
+  // starter files as violations and reports 4/13 for a turn that was 4/4.
+  const filesBefore = await page.evaluate(() =>
+    Object.fromEntries((globalThis.__buildProjectFiles ?? []).map(f => [f.path, f.content])),
+  )
   console.log(`── ${turn.label} ──`)
   console.log(`   "${turn.prompt.slice(0, 78)}${turn.prompt.length > 78 ? '…' : ''}"`)
   console.log(`   watching: ${turn.watch}`)
@@ -167,6 +185,13 @@ for (const turn of TURNS) {
     rows: [...document.querySelectorAll('.trailStep')].map(r => r.textContent.trim()),
     reply: [...document.querySelectorAll('.msg.assistant')].pop()?.textContent?.trim() ?? '',
     files: (globalThis.__buildProjectFiles ?? []).map(f => f.path),
+    refusals: (globalThis.__buildToolLog ?? []).map(r => `${r.name}: ${r.reason}`),
+    // Full first lines, so a persona rule about file headers is checkable.
+    firstLines: (globalThis.__buildProjectFiles ?? []).map(f => ({
+      path: f.path,
+      head: (f.content ?? '').split('\n')[0] ?? '',
+      full: f.content ?? '',
+    })),
   }))
   shot += 1
   await page.screenshot({ path: join(OUT, `suite-${shot}-${turn.label.replace(/\s+/g, '-')}.png`) })
@@ -185,6 +210,9 @@ for (const turn of TURNS) {
     previewErrors: previewErrors.length - errorsBefore,
     batched: info.rows.some(r => /Wrote \d+ files/.test(r)),
     summary: info.summary,
+    firstLines: info.firstLines,
+    refusals: info.refusals,
+    written: info.firstLines.filter(f => filesBefore[f.path] === undefined || filesBefore[f.path] !== f.full),
     rows: info.rows,
     reply: info.reply,
     fileCount: info.files.length,
@@ -202,6 +230,26 @@ for (const r of results) {
 }
 const verifiedCount = results.filter(r => r.verified).length
 console.log(`\nS1 verification rate: ${verifiedCount}/${results.length} turns ran a check`)
+
+// PERSONA_MARKER="// crafted for tom" asserts the seeded persona actually
+// steered the output. Reaching the prompt is not the same as being obeyed, and
+// only the second one is the feature.
+if (process.env.PERSONA_MARKER) {
+  const marker = process.env.PERSONA_MARKER
+  const last = results[results.length - 1]
+  const src = (last?.written ?? []).filter(f => /\.(tsx?|jsx?|css)$/.test(f.path))
+  const hit = src.filter(f => f.head.includes(marker))
+  console.log(
+    `persona adherence: ${hit.length}/${src.length} files the agent WROTE start with ${JSON.stringify(marker)}`,
+  )
+  for (const f of src) console.log(`   ${f.head.includes(marker) ? '\u2713' : '\u2717'} ${f.path}`)
+}
+
+const refusals = results.flatMap(r => r.refusals ?? [])
+if (refusals.length) {
+  console.log(`\nrefusals (${refusals.length}) — what the guards actually blocked`)
+  for (const r of refusals) console.log(`   \u00b7 ${r}`)
+}
 console.log(`final project: ${results.at(-1)?.fileCount} files`)
 
 for (const r of results) {

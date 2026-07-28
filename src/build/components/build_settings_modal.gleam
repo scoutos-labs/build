@@ -30,6 +30,7 @@ pub fn view(
               provider_field(state.provider),
               provider_specific_fields(state),
               model_field(state),
+              persona_section(state),
               html.div([attribute.class("modalActions")], [
                 html.button(
                   [
@@ -45,6 +46,53 @@ pub fn view(
         ],
       )
   }
+}
+
+/// Standing instructions for the agent.
+///
+/// Shown in both panels, because this is the ONLY way a persona can be
+/// authored: the agent's own write tools refuse `.build/agents/`, which is
+/// exactly what lets the prompt treat what you type here as guidance to follow
+/// rather than as untrusted data. Without this box the file has no writer and
+/// the feature is dead prompt plumbing.
+fn persona_section(state: settings.State) -> Element(msg.Msg) {
+  html.div([attribute.class("personaSection")], [
+    html.label([attribute.for("persona-input")], [
+      html.text("Standing instructions"),
+    ]),
+    html.p([attribute.class("fieldHint")], [
+      html.text(
+        "Things you would otherwise repeat every time — how you like code written, your tone, what to avoid. Build follows these on every turn.",
+      ),
+    ]),
+    html.textarea(
+      [
+        attribute.id("persona-input"),
+        attribute.class("personaInput"),
+        attribute.rows(5),
+        attribute.placeholder(
+          "e.g. Use plain CSS, not Tailwind. Keep button labels lowercase.",
+        ),
+        event.on_input(fn(value) {
+          msg.Settings(settings.PersonaChanged(value))
+        }),
+      ],
+      state.persona,
+    ),
+    html.div([attribute.class("personaActions")], [
+      html.button(
+        [
+          attribute.type_("button"),
+          attribute.class("secondary"),
+          attribute.disabled(!state.persona_dirty),
+          event.on_click(msg.Settings(settings.PersonaSaveRequested)),
+        ],
+        // Always the same label. A disabled "Saved" on a box the user has never
+        // touched claims something that never happened.
+        [html.text("Save instructions")],
+      ),
+    ]),
+  ])
 }
 
 /// Managed mode: no providers or models — plan, budget, the user-supplied
@@ -98,6 +146,7 @@ fn account_panel(
             ]),
           ]),
           scoutos_key_section(publish_state),
+          persona_section(state),
           html.div([attribute.class("modalActions")], [
             html.button(
               [

@@ -25,14 +25,20 @@ pub fn update(
     msg.NoOp -> #(app, [])
     msg.InitApp ->
       case app.managed {
+        // LoadPersona at boot as well as on SettingsOpened: the panel starts
+        // open (settings_open defaults to True), so no Opened message is ever
+        // sent on a fresh load and the box would come back empty — reading as
+        // "your standing instructions are gone" when they are on disk.
         True -> #(app, [
           effect.Settings(settings.PurgeLegacySettings),
           effect.Settings(settings.FetchAccountInfo),
+          effect.Settings(settings.LoadPersona),
           effect.Publish(publish.FetchKeyStatus),
           effect.Project(project.LoadInitialProject),
         ])
         False -> #(app, [
           effect.Settings(settings.LoadSettings),
+          effect.Settings(settings.LoadPersona),
           effect.Project(project.LoadInitialProject),
         ])
       }

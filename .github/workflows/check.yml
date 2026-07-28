@@ -1,0 +1,143 @@
+# The merge gate.
+#
+# Until now there was none: PR #37 merged to main — which Render auto-deploys —
+# with a local test run as the only thing standing between the branch and
+# production. That worked because the run happened; it is not a control.
+#
+# Gleam is pinned to the same version render.yaml installs, so a build that
+# passes here is the build that ships.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # A new push supersedes an in-flight run for the same ref.
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GLEAM_VERSION: "1.16.0"
+
+jobs:
+  app:
+    name: app (gleam + vitest + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Gleam
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.gleam/bin"
+          curl -fsSL "https://github.com/gleam-lang/gleam/releases/download/v${GLEAM_VERSION}/gleam-v${GLEAM_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            | tar -xz -C "$HOME/.gleam/bin" gleam
+          chmod +x "$HOME/.gleam/bin/gleam"
+          echo "$HOME/.gleam/bin" >> "$GITHUB_PATH"
+
+      - run: gleam --version
+
+      - run: npm ci
+
+      # Must be `npm test`, not bare vitest: it runs `gleam test` first, and the
+      # starter-template drift test compares against the COMPILED Gleam module.
+      - name: npm test (gleam test + vitest)
+        run: npm test
+
+      - name: typecheck
+        run: npx tsc -b
+
+      - name: build
+        run: npm run build
+
+  server:
+    name: server (vitest + typecheck)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - run: npm ci
+
+      - run: npm test
+
+      # Not covered by `npm test` (vitest does not typecheck) and not by the
+      # app job (root `npm run build` does not build server/).
+      - name: typecheck
+        run: npm run typecheck
+
+  smoke:
+    name: smoke (real browser)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Gleam
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.gleam/bin"
+          curl -fsSL "https://github.com/gleam-lang/gleam/releases/download/v${GLEAM_VERSION}/gleam-v${GLEAM_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            | tar -xz -C "$HOME/.gleam/bin" gleam
+          chmod +x "$HOME/.gleam/bin/gleam"
+          echo "$HOME/.gleam/bin" >> "$GITHUB_PATH"
+
+      - run: npm ci
+
+      - name: Install Chrome for Playwright
+        run: npx playwright install --with-deps chrome
+
+      - name: Build (the smokes run against the compiled Gleam output)
+        run: npm run build
+
+      # Non-managed, matching production's VITE_MANAGED_AUTH=false.
+      - name: Start dev server
+        run: |
+          set -euo pipefail
+          VITE_MANAGED_AUTH=false npx vite --port 5199 > /tmp/vite.log 2>&1 &
+          up=0
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:5199; then up=1; break; fi
+            sleep 2
+          done
+          # `break`, not `exit 0`: ending the step's shell early can tear down
+          # the backgrounded dev server the later steps depend on.
+          if [ "$up" -ne 1 ]; then echo "dev server never came up"; cat /tmp/vite.log; exit 1; fi
+          echo "dev server up"
+
+      - run: node scripts/smoke-layout-modes.mjs
+      - run: node scripts/smoke-interview.mjs
+
+      # Drives a real multi-step agent turn with the real executors against real
+      # project state; only the model is injected. This is the one that catches
+      # desync between project.files and what the agent can see.
+      - run: node scripts/smoke-agent-harness.mjs
+
+      - name: Upload smoke artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-output
+          path: |
+            scripts/.smoke/**
+            /tmp/vite.log
+          retention-days: 7

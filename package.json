@@ -29,6 +29,7 @@
   "devDependencies": {
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^29.1.1",
+    "playwright": "^1.56.0",
     "typescript": "latest",
     "vite": "latest",
     "vitest": "^4.1.7"

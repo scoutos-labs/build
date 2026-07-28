@@ -91,6 +91,20 @@ create table users (
 3. `gleam-externals/agent.mjs`: fetch a fresh token via `clerk.session.getToken()` per request (Clerk tokens are short-lived) and send `Authorization: Bearer <jwt>` to `/api/agent`.
 
 > **Status (2026-06-10):** Code side implemented behind `VITE_MANAGED_AUTH` (off by default; old behavior unchanged): bundled `@clerk/clerk-js` (code-split chunk, no CDN script), boot gate in `src/main-gleam.ts` (`src/managed-auth.ts`), fresh `getToken()` per request to `/api/agent` (`src/managed-agent-client.ts`, unit-tested incl. 402 code mapping). Spike **validation** still requires a Render preview deploy with a Clerk dev instance — runbook in `docs/phase2-coep-spike.md`.
+>
+> **Status (2026-07-28): the COEP half of the spike PASSES.** Measured by serving
+> a real `VITE_MANAGED_AUTH=true` production build behind the same
+> `COEP: require-corp` + `COOP: same-origin` headers `render.yaml` sets, then
+> driving it in Chrome: `crossOriginIsolated === true` (so WebContainers still
+> work), Clerk's chunks load and initialize, **zero external origins are
+> requested**, and nothing is blocked by COEP. The `no-rhc` + bundled
+> `@clerk/ui` approach does what it was supposed to. Managed auth also builds
+> cleanly — ~240 code-split chunks, 4.4 MB total, none of it in the entry chunk.
+>
+> Still unvalidated, and needing real credentials: the **OAuth redirect
+> round-trip** (it leaves the origin and comes back, which a placeholder key
+> cannot exercise) and the **managed agent loop** — `/api/agent/step`,
+> `web_search`, `web_fetch`, `web_post` have only ever seen fixtures.
 
 **Success criteria (spike — gate for the rest of the phase):**
 

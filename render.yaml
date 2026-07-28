@@ -5,12 +5,21 @@ services:
     envVars:
       - key: GLEAM_VERSION
         value: 1.16.0
-      # Phase 5 rollout switch: off in production until the COEP spike passes
-      # and dogfooding is done; PR previews get the managed flow automatically.
-      # The production flip is: change this value to "true" (and the rollback
-      # is flipping it back — one deploy each way).
+      # Phase 5 rollout switch, flipped on 2026-07-28. Managed mode: users sign
+      # in with Clerk and the server provisions a per-user OpenRouter key, so
+      # nobody pastes their own.
+      #
+      # ROLLBACK is this value back to "false" — one deploy, no data migration
+      # (projects live in IndexedDB and are untouched either way).
+      #
+      # Two things must be true in the dashboards or this is not what it looks
+      # like: VITE_CLERK_PUBLISHABLE_KEY must be set below — unset silently
+      # falls back to BYOK, because isManagedAuthEnabled() requires BOTH — and
+      # Google must be enabled as a Clerk social connection, which on a
+      # production instance needs your own Google OAuth credentials rather than
+      # Clerk's shared development ones.
       - key: VITE_MANAGED_AUTH
-        value: "false"
+        value: "true"
         previewValue: "true"
       - key: VITE_CLERK_PUBLISHABLE_KEY
         sync: false

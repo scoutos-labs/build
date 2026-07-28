@@ -740,7 +740,9 @@ pub fn agent_approval_send_dispatches_the_post_test() {
     agent.update(pending, agent.AgentApprovalResolved("req", True))
 
   assert next.pending_approval == option.None
-  assert effects == [agent.SendApprovedPost("req", "p1")]
+  // Nothing else is pending, so the approval drives the next step itself.
+  assert effects
+    == [agent.SendApprovedPost("req", "p1"), agent.CallAgentStep("req", 0)]
 }
 
 pub fn agent_approval_decline_still_answers_the_model_test() {
@@ -751,7 +753,8 @@ pub fn agent_approval_decline_still_answers_the_model_test() {
     agent.update(pending, agent.AgentApprovalResolved("req", False))
 
   assert next.pending_approval == option.None
-  assert effects == [agent.DeclineApprovedPost("req", "p1")]
+  assert effects
+    == [agent.DeclineApprovedPost("req", "p1"), agent.CallAgentStep("req", 0)]
 }
 
 pub fn agent_blocked_approval_can_never_send_test() {
@@ -766,7 +769,8 @@ pub fn agent_blocked_approval_can_never_send_test() {
     agent.update(pending, agent.AgentApprovalResolved("req", True))
 
   assert next.pending_approval == option.None
-  assert effects == [agent.DeclineApprovedPost("req", "p1")]
+  assert effects
+    == [agent.DeclineApprovedPost("req", "p1"), agent.CallAgentStep("req", 0)]
 }
 
 pub fn agent_approval_ignores_stale_request_ids_test() {
@@ -1006,4 +1010,70 @@ pub fn templates_remove_file_normalizes_leading_slashes_test() {
   assert templates.remove_file(files, "/src/a.ts") == [file("src/b.ts", "y")]
   // Removing something absent is a no-op, not an error.
   assert templates.remove_file(files, "nope.ts") == files
+}
+
+pub fn agent_navigation_drops_the_undo_snapshot_test() {
+  // AgentRequestCanceled is what project new/open/reset dispatch, and between
+  // turns the lifecycle is Idle. Leaving the snapshot behind let a finished
+  // turn's Undo button survive a project switch and restore the OLD project's
+  // files over the new one.
+  let #(dispatched, _) =
+    agent.update(
+      turn_with_snapshot([file("src/App.tsx", "project A")]),
+      agent.AgentStepReturned("req", [call("c1", "fs_write")], ""),
+    )
+  let #(wrote, _) =
+    agent.update(
+      dispatched,
+      agent.AgentToolFinished("req", "c1", agent.ToolDone, "Wrote", ["src/App.tsx"], False),
+    )
+  let #(finished, _) = agent.update(wrote, agent.AgentStepReturned("req", [], "done"))
+  assert agent.can_undo(finished)
+
+  // Project switch, while idle.
+  let #(navigated, _) = agent.update(finished, agent.AgentRequestCanceled)
+  assert !agent.can_undo(navigated)
+  assert navigated.snapshot == option.None
+  assert navigated.trail == []
+
+  // And an undo message after navigation restores nothing.
+  let #(_, effects) = agent.update(navigated, agent.AgentUndoRequested)
+  assert effects == []
+}
+
+pub fn agent_approval_waits_for_running_tools_before_stepping_test() {
+  // Approving while a client tool from the SAME step is still running must not
+  // step the turn: the transcript would carry a call with no answering result,
+  // which the provider rejects outright.
+  let #(dispatched, _) =
+    agent.update(
+      running_turn(),
+      agent.AgentStepReturned("req", [call("c1", "exec")], ""),
+    )
+  let #(waiting, _) =
+    agent.update(dispatched, agent.AgentApprovalRequested("req", approval("")))
+  let #(resolved, effects) =
+    agent.update(waiting, agent.AgentApprovalResolved("req", True))
+
+  // Records the decision only — no step yet.
+  assert effects == [agent.SendApprovedPost("req", "p1")]
+  assert resolved.pending_calls == [call("c1", "exec")]
+
+  // The tool finishing is what drives it, exactly once.
+  let #(_, after) = finish(resolved, "c1", "Built cleanly")
+  assert after == [agent.CallAgentStep("req", 1)]
+}
+
+pub fn agent_approval_with_nothing_pending_drives_the_step_itself_test() {
+  // The common case: web_post alone. Nothing else will drive the turn, so the
+  // approval must.
+  let #(dispatched, _) =
+    agent.update(running_turn(), agent.AgentStepReturned("req", [call("c1", "fs_read")], ""))
+  let #(cleared, _) = finish(dispatched, "c1", "Read a file")
+  let #(waiting, _) =
+    agent.update(cleared, agent.AgentApprovalRequested("req", approval("")))
+  let #(_, effects) = agent.update(waiting, agent.AgentApprovalResolved("req", False))
+
+  assert effects
+    == [agent.DeclineApprovedPost("req", "p1"), agent.CallAgentStep("req", 1)]
 }

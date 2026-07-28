@@ -782,3 +782,66 @@ describe('server web reads survive into the next step', () => {
     expect(messages.some(m => m.role === 'tool' && m.content === 'page text')).toBe(true)
   })
 })
+
+describe('every emitted call is answerable — the transcript invariant', () => {
+  it('carries a client call emitted alongside a server-run web tool', async () => {
+    // The inner loop overwrites `result`, so without carrying these forward the
+    // model was told "your result arrives next step" and the call vanished —
+    // the turn could report done with a read still outstanding.
+    let call = 0
+    const openrouter = fakeOpenRouter({ kind: 'ok', content: '', toolCalls: [] })
+    openrouter.toolCompletion = vi.fn(async () => {
+      call += 1
+      return call === 1
+        ? {
+            kind: 'ok' as const,
+            content: '',
+            toolCalls: [
+              toolCall('c1', 'fs_read', '{"path":"src/App.tsx"}'),
+              toolCall('s1', 'web_search', '{"query":"vite 7"}'),
+            ],
+          }
+        : { kind: 'ok' as const, content: 'I looked it up.', toolCalls: [] }
+    })
+    const app = createApp(webDeps({ openrouter }))
+    const body = (await (await post(app, stepBody())).json()) as {
+      toolCalls: { id: string }[]
+      transcriptCalls: { id: string }[]
+      serverToolResults: { toolCallId: string }[]
+      done: boolean
+    }
+    // The read must reach the browser, and the turn must NOT be done.
+    expect(body.toolCalls.map(c => c.id)).toContain('c1')
+    expect(body.done).toBe(false)
+    // And every announced call must be answerable: either echoed for the client
+    // to run, or already answered by the server.
+    const answerable = new Set([
+      ...body.toolCalls.map(c => c.id),
+      ...body.serverToolResults.map(r => r.toolCallId),
+    ])
+    for (const c of body.transcriptCalls) expect(answerable.has(c.id)).toBe(true)
+  })
+
+  it('refuses every gated call after the first, rather than orphaning it', async () => {
+    // Only approval.call_id ever receives a result, so a second web_post would
+    // be announced and never answered.
+    const openrouter = fakeOpenRouter({
+      kind: 'ok',
+      content: '',
+      toolCalls: [
+        toolCall('p1', 'web_post', '{"url":"https://a.example","body":"{}"}'),
+        toolCall('p2', 'web_post', '{"url":"https://b.example","body":"{}"}'),
+      ],
+    })
+    const app = createApp(webDeps({ openrouter }))
+    const body = (await (await post(app, stepBody())).json()) as {
+      approval: { toolCallId: string } | null
+      transcriptCalls: { id: string }[]
+      serverToolResults: { toolCallId: string; content: string }[]
+    }
+    expect(body.approval?.toolCallId).toBe('p1')
+    const refused = body.serverToolResults.find(r => r.toolCallId === 'p2')
+    expect(refused?.content).toMatch(/only one request can be approved/)
+    expect(body.transcriptCalls.map(c => c.id)).toEqual(['p1', 'p2'])
+  })
+})

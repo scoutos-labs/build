@@ -491,7 +491,9 @@ export async function sendApprovedPost(requestId, callId) {
   }
   recordToolResult(requestId, callId, 'web_post', content)
   dispatchAgentServerStepRecorded(requestId, 'web_post', 'Sent the request')
-  void runStep(requestId, (turn.stepIndex ?? 0) + 1)
+  // The ACTOR decides when the next step runs: immediately if nothing else is
+  // pending, otherwise when the last client tool of this step finishes. Driving
+  // it from here too would put two requests in flight over one transcript.
 }
 
 /** The user said no. The model is still owed a result, or the turn stalls. */
@@ -506,7 +508,7 @@ export function declineApprovedPost(requestId, callId) {
     'The user declined to send this request. Do not try again unless they ask; carry on with the rest of the work.',
   )
   dispatchAgentServerStepRecorded(requestId, 'web_post', 'Did not send the request')
-  void runStep(requestId, (turn.stepIndex ?? 0) + 1)
+  // See sendApprovedPost: the actor drives the next step.
 }
 
 function recordToolResult(requestId, callId, name, content) {

@@ -517,6 +517,16 @@ export function createApp(deps: AppDeps) {
      */
     const inlineCalls: ProviderToolCall[] = []
     const inlineResults: { toolCallId: string; name: string; content: string }[] = []
+    /**
+     * Client calls the model emitted ALONGSIDE a server-run web tool.
+     *
+     * The inner loop overwrites `result` with the next completion, so without
+     * carrying these forward they were told "your result arrives next step" and
+     * then silently dropped — the turn could even report done with a read the
+     * model was still waiting on. Reachable as soon as web tools are offered,
+     * because the prompt tells the model to read before it writes.
+     */
+    const deferredCalls: ProviderToolCall[] = []
 
     for (let inner = 0; inner < INNER_CAP; inner++) {
       if (result.kind !== 'ok') break
@@ -534,6 +544,8 @@ export function createApp(deps: AppDeps) {
             content: 'Deferred: this runs in the browser and its result arrives next step.',
             tool_call_id: call.id,
           })
+          // Carried forward so the promise above is actually kept.
+          if (!deferredCalls.some(existing => existing.id === call.id)) deferredCalls.push(call)
           continue
         }
         const executed = await executeServerTool(call, deps)
@@ -580,8 +592,22 @@ export function createApp(deps: AppDeps) {
 
     // web_post never reaches the client as a runnable call: the browser cannot
     // execute it. It comes back as an approval request the chat renders.
-    const approval = toolCalls.find(call => GATED_TOOLS.has(call.function.name))
-    const clientCalls = toolCalls.filter(call => !GATED_TOOLS.has(call.function.name))
+    const allCalls = [...deferredCalls, ...toolCalls]
+    const gated = allCalls.filter(call => GATED_TOOLS.has(call.function.name))
+    const approval = gated[0]
+    // Only one request can be approved at a time, and only `approval.call_id`
+    // ever receives a result — so every additional gated call is refused right
+    // here. Left unanswered they would orphan the next step's transcript, which
+    // the provider rejects outright.
+    for (const extra of gated.slice(1)) {
+      inlineResults.push({
+        toolCallId: extra.id,
+        name: extra.function.name,
+        content:
+          'Not sent: only one request can be approved at a time. Ask again in a later step if it is still needed.',
+      })
+    }
+    const clientCalls = allCalls.filter(call => !GATED_TOOLS.has(call.function.name))
 
     return c.json({
       toolCalls: clientCalls,
@@ -589,7 +615,7 @@ export function createApp(deps: AppDeps) {
       // echoes THIS back as the assistant `tool_calls` on the next step:
       // answering a call the provider never saw requested is a 400, and it
       // would land after the POST had already gone out.
-      transcriptCalls: [...inlineCalls, ...toolCalls],
+      transcriptCalls: [...inlineCalls, ...allCalls],
       // Answers for the inline calls above, so the client can echo the pair and
       // the model keeps what it read.
       serverToolResults: inlineResults,

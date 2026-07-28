@@ -354,10 +354,22 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
     AgentRequestCanceled ->
       case state.lifecycle {
         Running(_, _) -> #(
-          State(..clear_turn(state), lifecycle: Idle, elapsed_seconds: 0),
+          State(
+            ..clear_turn(state),
+            lifecycle: Idle,
+            elapsed_seconds: 0,
+            snapshot: option.None,
+          ),
           [StopElapsedTimer, AbortAgent, KillExec],
         )
-        _ -> #(state, [])
+        // Idle is NOT a no-op. Project new/open/reset all dispatch this, and
+        // between turns the lifecycle is Idle — leaving the snapshot behind let
+        // the finished-turn card (and its Undo button) survive a project switch
+        // and restore the OLD project's files over the new one.
+        _ -> #(
+          State(..clear_turn(state), snapshot: option.None),
+          [],
+        )
       }
 
     AgentTimeoutReached(request_id) ->
@@ -545,7 +557,15 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
             True -> SendApprovedPost(request_id, approval.call_id)
             False -> DeclineApprovedPost(request_id, approval.call_id)
           }
-          #(cleared, [send])
+          // Only ONE thing may drive the next step. If client tools from this
+          // same step are still running, their completion drives it and this
+          // just records the decision; otherwise nothing else will, so drive it
+          // here. Both driving would send a transcript whose still-running call
+          // has no answering result — the exact orphan the provider rejects.
+          case state.pending_calls {
+            [] -> #(cleared, [send, CallAgentStep(request_id, state.step)])
+            _ -> #(cleared, [send])
+          }
         }
         _, _ -> #(state, [])
       }

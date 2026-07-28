@@ -40,7 +40,12 @@ export async function readProjectFile(path: string): Promise<string | undefined>
   }
 }
 
-const IGNORED_SYNC_DIRS = new Set(['node_modules', 'dist', '.git', '.cache', '.next', '.vite', 'coverage'])
+// `.build` is the workspace namespace (skills, personas). It lives in IndexedDB,
+// never in project.files — but `exec` can create a real `.build/` directory in
+// the container, and syncing it back would put a file at the same path the
+// workspace owns: one path, two contents, the editor showing the one fs_read
+// does not return. It would also ship to scoutos.live on the next publish.
+const IGNORED_SYNC_DIRS = new Set(['node_modules', 'dist', '.git', '.cache', '.next', '.vite', 'coverage', '.build'])
 const TEXT_FILE_PATTERN = /\.(css|html|js|jsx|json|md|mjs|cjs|ts|tsx|txt|yml|yaml)$/i
 const TEXT_FILE_NAMES = new Set(['package-lock.json', 'package.json', 'vite.config.ts', 'tsconfig.json', 'README.md'])
 

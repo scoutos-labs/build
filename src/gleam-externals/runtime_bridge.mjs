@@ -213,6 +213,8 @@ export function dispatchSettingsLoaded(settings) {
     settings.job ?? '',
   )))
 }
+export function dispatchPersonaLoaded(text) { sendMsg(Msg.Msg$Settings(Settings.Msg$PersonaLoaded(String(text ?? '')))) }
+export function dispatchPersonaSaved() { sendMsg(Msg.Msg$Settings(Settings.Msg$PersonaSaved())) }
 export function dispatchSettingsStatus(status) { sendMsg(Msg.Msg$Settings(Settings.Msg$ConnectionStatusChanged(status))) }
 
 export function dispatchPublishKeyStatusLoaded(saved) { sendMsg(Msg.Msg$Publish(Publish.Msg$KeyStatusLoaded(Boolean(saved)))) }

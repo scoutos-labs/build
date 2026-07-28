@@ -29,18 +29,18 @@
 
 import { GLOBAL_SCOPE, readWorkspaceFile } from './workspace-store'
 
+/**
+ * The framing and the cap live in the prompt builders — `src/agent.ts` and
+ * `server/src/prompt.ts` — not here, so that each side authors the trusted
+ * block itself rather than accepting a pre-framed one over the wire. Re-exported
+ * so callers still have a single import site for everything persona.
+ */
+export { MAX_PERSONA_CHARS, buildPersonaPrompt } from './agent'
+
 export const AGENTS_PREFIX = '.build/agents/'
 
 /** The single built-in agent. A named folder now so a second one is additive. */
 export const PERSONA_PATH = `${AGENTS_PREFIX}hyper/user.md`
-
-/**
- * Cap. A persona rides in *every* turn, so unlike a skill body — pulled only
- * when relevant — its cost is unconditional. Long past this the user is really
- * writing a skill, and the truncation notice says so rather than silently
- * dropping the tail.
- */
-export const MAX_PERSONA_CHARS = 4000
 
 export async function readPersona(scope = GLOBAL_SCOPE): Promise<string> {
   try {
@@ -50,26 +50,3 @@ export async function readPersona(scope = GLOBAL_SCOPE): Promise<string> {
   }
 }
 
-/**
- * The prompt block, or `''` when there is nothing to say.
- *
- * Empty in, empty out: a user who has never opened the persona editor pays no
- * context for the feature existing.
- */
-export function buildPersonaPrompt(source: string): string {
-  const text = source.trim()
-  if (!text) return ''
-
-  const truncated = text.length > MAX_PERSONA_CHARS
-  const body = truncated
-    ? `${text.slice(0, MAX_PERSONA_CHARS)}\n\n[...truncated — the rest was over the ${MAX_PERSONA_CHARS}-character limit. Move standing detail into a skill instead.]`
-    : text
-
-  return [
-    'The person you are building for wrote the following standing instructions.',
-    'They apply to every turn. Follow them as you would the rules above; where they',
-    'conflict with a specific request in this turn, the request wins.',
-    '',
-    body,
-  ].join('\n')
-}

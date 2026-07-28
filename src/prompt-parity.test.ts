@@ -3,7 +3,10 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   SHARED_RULES as CLIENT_SHARED_RULES,
+  MAX_PERSONA_CHARS,
+  buildPersonaPrompt,
   buildSystemPrompt,
+  buildToolModeMessages,
   buildToolModePrompt,
 } from './agent'
 import {
@@ -114,31 +117,102 @@ describe('client/server prompt parity', () => {
     expect(CLIENT_SHARED_RULES).toEqual(SERVER_SHARED_RULES)
   })
 
-  it('injects persona and skills in the same order on both sides', () => {
+  it('injects persona and skills in the same order on both sides', async () => {
+    // Behavioral, not textual. The first version of this test grepped the
+    // builder body for ".persona" before ".skillsManifest" — which a hoisted
+    // `const p = args.persona` defeats while leaving the runtime order wrong.
     // Ordering is the only thing telling the model which outranks which when a
-    // saved note contradicts a standing instruction. If the two modes disagree,
-    // the same account gets different precedence depending on how it signed in.
-    // Scoped to the builder body on purpose: both files also *declare* these
-    // fields in a type above, in the other order, so a whole-file scan measures
-    // the declaration rather than the injection.
-    const order = (source: string, file: string) => {
-      const body = source.slice(source.indexOf('export function buildToolModeMessages'))
-      expect(body, `${file}: builder not found`).not.toBe('')
-      const persona = body.indexOf('.persona')
-      const skills = body.indexOf('.skillsManifest')
-      expect(persona, `${file}: persona is never injected`).toBeGreaterThan(-1)
-      expect(skills, `${file}: skills manifest is never injected`).toBeGreaterThan(-1)
-      return persona < skills
+    // saved note contradicts a standing instruction, so it is worth pinning for
+    // real: same account, same precedence, whichever mode it signed in through.
+    const server = await import('../server/src/prompt')
+    const positions = (contents: string[]) => ({
+      persona: contents.findIndex(c => c.includes('PERSONA-BLOCK')),
+      skills: contents.findIndex(c => c.includes('SKILLS-BLOCK')),
+    })
+
+    const client = positions(
+      buildToolModeMessages({
+        files: [],
+        messages: [],
+        persona: 'PERSONA-BLOCK',
+        skillsManifest: 'SKILLS-BLOCK',
+      })
+        .filter(m => m.role === 'system')
+        .map(m => m.content),
+    )
+    const remote = positions(
+      server
+        .buildToolModeMessages({
+          turnId: 't',
+          stepIndex: 0,
+          tree: [],
+          fullFiles: [],
+          messages: [],
+          toolResults: [],
+          persona: 'PERSONA-BLOCK',
+          skillsManifest: 'SKILLS-BLOCK',
+        })
+        .filter(m => m.role === 'system')
+        .map(m => m.content),
+    )
+
+    for (const [where, got] of [['client', client], ['server', remote]] as const) {
+      expect(got.persona, `${where}: persona never reached the prompt`).toBeGreaterThan(-1)
+      expect(got.skills, `${where}: skills manifest never reached the prompt`).toBeGreaterThan(-1)
+      expect(got.persona, `${where}: persona must come before skills`).toBeLessThan(got.skills)
     }
-    expect(order(clientSource, 'src/agent.ts')).toBe(true)
-    expect(order(serverSource, 'server/src/prompt.ts')).toBe(true)
   })
 
-  it('keeps the persona trusted on the server too', () => {
-    // The client builds the persona block and the server merely forwards it, so
-    // the server must not re-wrap it in the skills-style untrusted framing.
-    const block = serverSource.slice(serverSource.indexOf('body.persona'))
-    expect(block.slice(0, 200)).not.toContain('untrusted')
+  it('frames the persona identically on both sides, and never as untrusted', async () => {
+    // Both builders author this block themselves — the client sends raw text and
+    // the server refuses to accept a pre-framed system message from a client it
+    // does not control. That makes the wording a third duplicated surface, so it
+    // gets the same treatment as SHARED_RULES.
+    //
+    // An earlier version of this test sliced source text from indexOf(...), and
+    // indexOf returns -1 when the injection is deleted — String.slice(-1) gave
+    // one character and the assertion passed vacuously. It also matched
+    // lowercase "untrusted" only, so a capitalized re-framing slipped through.
+    const server = await import('../server/src/prompt')
+    expect(buildPersonaPrompt('KEEP COPY LOWERCASE')).toBe(
+      server.buildPersonaPrompt('KEEP COPY LOWERCASE'),
+    )
+    expect(MAX_PERSONA_CHARS).toBe(server.MAX_PERSONA_CHARS)
+
+    const blocks = [
+      buildToolModeMessages({ files: [], messages: [], persona: 'PERSONA-BLOCK' }),
+      server.buildToolModeMessages({
+        turnId: 't',
+        stepIndex: 0,
+        tree: [],
+        fullFiles: [],
+        messages: [],
+        toolResults: [],
+        persona: 'PERSONA-BLOCK',
+      }),
+    ].map(messages => messages.find(m => m.content.includes('PERSONA-BLOCK')))
+
+    for (const block of blocks) {
+      expect(block, 'persona never reached the prompt').toBeDefined()
+      expect(block!.role).toBe('system')
+      expect(block!.content.toLowerCase()).not.toContain('untrusted')
+      expect(block!.content).toContain('Follow them')
+    }
+  })
+
+  it('caps the persona on BOTH sides, so a modified client cannot flood the prompt', async () => {
+    // The server is the declared source of truth for managed mode. If only the
+    // client capped, a hand-rolled request could post a megabyte of "standing
+    // instructions" as a trusted system message.
+    const server = await import('../server/src/prompt')
+    const huge = 'x'.repeat(MAX_PERSONA_CHARS * 3)
+    for (const [where, framed] of [
+      ['client', buildPersonaPrompt(huge)],
+      ['server', server.buildPersonaPrompt(huge)],
+    ] as const) {
+      expect(framed.length, `${where}: persona was not capped`).toBeLessThan(MAX_PERSONA_CHARS + 600)
+      expect(framed, `${where}: truncation was silent`).toContain('truncated')
+    }
   })
 
   it('extracts the JSON-mode Rules block unambiguously', () => {

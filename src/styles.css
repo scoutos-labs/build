@@ -204,6 +204,19 @@ button.miniIcon { width: 28px; height: 28px; flex: 0 0 auto; padding: 0; border-
 .modal { width: min(460px, 100%); display: grid; gap: 16px; padding: 20px; border: 1px solid var(--hyper-line); border-radius: 22px; background: #fff; color: var(--hyper-ink); box-shadow: color(srgb 0 0 0 / .14) 0 30px 100px; }
 .modalHeader { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; }
 .modalActions { display: flex; justify-content: flex-end; gap: 10px; }
+
+/* Standing instructions. Separated by a rule rather than a heading: it is a
+   different KIND of setting from the provider fields above it — those configure
+   Build, this one configures how Build works for you. */
+.personaSection { display: flex; flex-direction: column; gap: 6px; padding-top: 14px; border-top: 1px solid var(--line); }
+.personaSection > label { font-weight: 600; }
+.personaSection .fieldHint { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.personaInput { width: 100%; resize: vertical; min-height: 92px; padding: 9px 10px; font: inherit; font-size: 13px; line-height: 1.5; color: inherit; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.personaInput:focus-visible { outline: 2px solid var(--hyper-accent, #f59e0b); outline-offset: 1px; }
+.personaActions { display: flex; justify-content: flex-end; }
+/* "Saved" is the disabled resting state, so it must read as status, not as a
+   button the user failed to click. */
+.personaActions button:disabled { opacity: .55; cursor: default; }
 .publishPanel { display: grid; gap: 12px; }
 .publishPanel .status.error { color: #c2421f; }
 .subdomainRow { display: flex; align-items: center; gap: 8px; }

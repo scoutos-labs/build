@@ -464,3 +464,56 @@ export function upsertFile(files: ProjectFile[], path: string, content: string):
   if (existing) return files.map(file => file.path === normalized ? { path: normalized, content } : file)
   return [...files, { path: normalized, content }].sort((a, b) => a.path.localeCompare(b.path))
 }
+
+/**
+ * Backfill the pieces that make `npx tsc --noEmit` mean something.
+ *
+ * The starter now ships a tsconfig.json and React type declarations, but
+ * projects created before that do not — and for them the agent's verify step
+ * stays exactly as broken as it was: tsc prints its usage banner, exits 1, and
+ * the loop reports that it checked its work. New-projects-only would have left
+ * the entire existing user base on the broken path.
+ *
+ * Strictly additive, and silent when there is nothing to add — an untouched
+ * project must come back as the SAME array so callers can use identity to
+ * decide whether anything needs saving. `typescript` itself is deliberately not
+ * repinned: an existing project already installed whatever it resolved, and
+ * changing it would force a reinstall on open.
+ */
+export const VERIFY_TYPES = ['@types/react', '@types/react-dom'] as const
+
+export function ensureVerifiable(files: ProjectFile[]): ProjectFile[] {
+  // An empty project is about to be seeded from starterFiles; nothing to fix.
+  if (files.length === 0) return files
+  let next = files
+
+  if (!next.some(file => file.path === 'tsconfig.json')) {
+    const template = starterFiles.find(file => file.path === 'tsconfig.json')
+    if (template) next = upsertFile(next, 'tsconfig.json', template.content)
+  }
+
+  const pkg = next.find(file => file.path === 'package.json')
+  if (pkg) {
+    try {
+      const parsed = JSON.parse(pkg.content) as Record<string, unknown>
+      const starterPkg = JSON.parse(
+        starterFiles.find(file => file.path === 'package.json')!.content,
+      ) as { devDependencies: Record<string, string> }
+      const dev = { ...((parsed.devDependencies as Record<string, string>) ?? {}) }
+      const deps = (parsed.dependencies as Record<string, string>) ?? {}
+      const missing = VERIFY_TYPES.filter(name => !dev[name] && !deps[name])
+      if (missing.length > 0) {
+        for (const name of missing) dev[name] = starterPkg.devDependencies[name]!
+        next = upsertFile(
+          next,
+          'package.json',
+          JSON.stringify({ ...parsed, devDependencies: dev }, null, 2),
+        )
+      }
+    } catch {
+      // Unparseable package.json is the user's to fix; do not clobber it.
+    }
+  }
+
+  return next
+}

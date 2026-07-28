@@ -1,3 +1,4 @@
+import { clearToolLog } from './agent.mjs'
 import { dispatchChatCleared, dispatchChatMessagesReplaced, dispatchLandingIdea, dispatchProjectCreated, dispatchProjectListRefreshed, dispatchProjectLoaded, dispatchProjectReady, dispatchProjectsDialogClosed, dispatchProjectSaveStatus, dispatchWebContainerLog, dispatchWebContainerRemountRequested } from './runtime_bridge.mjs'
 
 let saveTimer = null
@@ -13,7 +14,7 @@ async function modules() {
   try {
     const projects = await import('../projects')
     const templates = await import('../templates')
-    return { ...projects, starterFiles: templates.starterFiles }
+    return { ...projects, starterFiles: templates.starterFiles, ensureVerifiable: templates.ensureVerifiable }
   } catch {
     return {
       starterFiles: fallbackStarterFiles,
@@ -36,6 +37,17 @@ async function modules() {
   }
 }
 
+/**
+ * The file the editor opens on for a project that has no saved selection.
+ *
+ * This was `starterFiles[2].path` in three places — "the third starter file",
+ * which meant src/main.tsx only by accident of ordering. Adding tsconfig.json
+ * ahead of it silently retargeted all three to index.html. Name what you mean.
+ */
+function defaultSelectedPath(m) {
+  return m.starterFiles.find(file => file.path === 'src/main.tsx')?.path ?? m.starterFiles[0].path
+}
+
 export async function loadInitialProject() {
   const m = await modules()
   try {
@@ -44,7 +56,8 @@ export async function loadInitialProject() {
     const id = await m.getCurrentProjectId()
     const project = id ? await m.getProject(id) : undefined
     if (project) {
-      dispatchProjectLoaded({ ...project, files: project.files.length ? project.files : m.starterFiles, selectedPath: project.selectedPath || m.starterFiles[2].path })
+      const files = project.files.length ? m.ensureVerifiable(project.files) : m.starterFiles
+      dispatchProjectLoaded({ ...project, files, selectedPath: project.selectedPath || defaultSelectedPath(m) })
       dispatchChatMessagesReplaced(project.messages)
     }
   } catch (error) {
@@ -97,7 +110,7 @@ export async function createProject(name, filesArg, messagesArg, selectedPath) {
   const m = await modules()
   const files = normalizeFiles(filesArg)
   const messages = normalizeMessages(messagesArg)
-  const created = await m.createProject({ name, files: files.length ? files : m.starterFiles, messages, selectedPath: selectedPath || m.starterFiles[2].path })
+  const created = await m.createProject({ name, files: files.length ? files : m.starterFiles, messages, selectedPath: selectedPath || defaultSelectedPath(m) })
   await m.setCurrentProjectId(created.id)
   dispatchProjectCreated(created)
   dispatchChatCleared()
@@ -110,10 +123,14 @@ export async function openProject(id) {
   const project = await m.getProject(id)
   if (!project) return
   await m.setCurrentProjectId(project.id)
-  dispatchProjectLoaded({ ...project, selectedPath: project.selectedPath || project.files[0]?.path || m.starterFiles[2].path })
+  // A failed command from the project being left has no business being readable
+  // in the one being opened.
+  clearToolLog()
+  const files = m.ensureVerifiable(project.files)
+  dispatchProjectLoaded({ ...project, files, selectedPath: project.selectedPath || files[0]?.path || defaultSelectedPath(m) })
   dispatchChatMessagesReplaced(project.messages)
   dispatchProjectsDialogClosed()
-  dispatchWebContainerRemountRequested(project.files)
+  dispatchWebContainerRemountRequested(files)
 }
 
 export async function deleteProject(id) {

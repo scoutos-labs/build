@@ -1077,3 +1077,46 @@ pub fn agent_approval_with_nothing_pending_drives_the_step_itself_test() {
   assert effects
     == [agent.DeclineApprovedPost("req", "p1"), agent.CallAgentStep("req", 1)]
 }
+
+// ── standing instructions (the persona editor) ──────────────────────────────
+
+pub fn persona_edit_marks_dirty_and_saves_test() {
+  let #(edited, effects) =
+    settings.update(settings.init(), settings.PersonaChanged("use plain css"))
+
+  assert edited.persona == "use plain css"
+  assert edited.persona_dirty
+  assert effects == []
+
+  // Its own save, not a piggyback on SaveSettings: the managed panel has no
+  // Save button at all.
+  let #(_, save_effects) =
+    settings.update(edited, settings.PersonaSaveRequested)
+  assert save_effects == [settings.PersistPersona("use plain css")]
+
+  let #(saved, _) = settings.update(edited, settings.PersonaSaved)
+  assert !saved.persona_dirty
+}
+
+pub fn persona_load_never_clobbers_an_in_progress_edit_test() {
+  // The load effect is async. If it lands after the user has started typing,
+  // taking it would silently discard what they wrote.
+  let #(editing, _) =
+    settings.update(settings.init(), settings.PersonaChanged("my new text"))
+  let #(after_load, _) =
+    settings.update(editing, settings.PersonaLoaded("what was on disk"))
+
+  assert after_load.persona == "my new text"
+}
+
+pub fn persona_loads_when_the_panel_opens_test() {
+  let #(_, opened) =
+    settings.update(settings.init(), settings.SettingsOpened)
+  assert opened == [settings.LoadPersona]
+
+  // Toggling CLOSED must not refetch — that would clobber an unsaved edit via
+  // the load path the test above guards.
+  let #(_, toggled_closed) =
+    settings.update(settings.init(), settings.SettingsToggled)
+  assert toggled_closed == []
+}

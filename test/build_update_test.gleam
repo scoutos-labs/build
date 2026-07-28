@@ -28,6 +28,10 @@ pub fn init_app_loads_project_test() {
   assert effects
     == [
       effect.Settings(settings.LoadSettings),
+      // The settings panel starts open, so no SettingsOpened is ever sent on a
+      // fresh load — without this the persona box comes back empty and reads as
+      // "your standing instructions are gone".
+      effect.Settings(settings.LoadPersona),
       effect.Project(project.LoadInitialProject),
     ]
 }

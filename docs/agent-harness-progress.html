@@ -241,5 +241,60 @@ ring-buffers failed tool results (failures only, reason truncated to 300 chars, 
 live suite prints them. That is what turned an unexplained <code>exit 1</code> into the tsconfig
 finding above.</p>
 
+<h2>Review round on PR #38 — one blocker, and two guards that did not guard</h2>
+<p>A judge pass against the branch confirmed the write ban held (24 adversarial paths: no-slash,
+trailing slash, whitespace, <code>..</code> re-entry, double slash, backslash, leading <code>/</code>,
+leading <code>./</code>, sibling-prefix escape, and the batch form hiding the path among legitimate
+files — all refused, and the batch stayed all-or-nothing). It also found real problems.</p>
+<table>
+<tr><th>Finding</th><th>Resolution</th></tr>
+<tr><td><strong>Blocker: nothing could author a persona.</strong> The agent was banned from writing
+<code>.build/agents/</code> and no other writer existed — no editor, no settings surface. In
+production <code>readPersona()</code> always returned <code>''</code>. The whole slice was prompt
+plumbing for a file with no author.</td>
+<td>Built the editor: a Standing-instructions field in the settings panel, in <em>both</em> the BYOK
+and managed panels, with its own save (the managed panel has no Save button). It is deliberately the
+only writer, which is precisely what makes the trusted framing legitimate.</td></tr>
+<tr><td><strong>Two new guard tests passed vacuously.</strong> <code>indexOf</code> returns
+<code>-1</code> when the injection is deleted, and <code>String.slice(-1)</code> then yields one
+character — so the "stays trusted" test passed with the injection removed. It also matched lowercase
+<code>untrusted</code> only, so a capitalized re-framing slipped through. The ordering test could be
+defeated by hoisting <code>const p = body.persona</code> above the pushes.</td>
+<td>Both rewritten to call the two builders and inspect real output. Mutation-tested: deletion,
+capitalized re-framing, and hoist-and-reorder now each fail.</td></tr>
+<tr><td><strong>The server did not own the block it treats as trusted.</strong> The client sent a
+pre-framed system message; the server validated only <code>typeof === 'string'</code>. A modified
+client could post its own trusted framing, or megabytes of it.</td>
+<td>The client now sends RAW text. Both prompt builders author and cap the block themselves — a third
+duplicated surface, guarded like SHARED_RULES, including a test that the cap applies on both sides.</td></tr>
+<tr><td><strong>The tsconfig fix reached new projects only.</strong> Every project created before it
+kept the broken verify loop.</td>
+<td><code>ensureVerifiable()</code> backfills tsconfig.json and the React types on project load —
+additive, never repinning <code>typescript</code> (that would force a reinstall on open), and
+returning the same array when nothing is missing so an untouched project is not re-saved.</td></tr>
+<tr><td><strong>The Ollama JSON path bypassed every write guard</strong>, applying model-supplied
+paths straight to the project actor. It could not reach the workspace store, but it could put a file
+at the literal persona path into <code>project.files</code>, which publish ships verbatim.</td>
+<td>Routed through the same path policy, with refusals surfaced rather than silent. <code>.build</code>
+added to <code>IGNORED_SYNC_DIRS</code> so a container-side <code>.build/</code> cannot sync back into
+one path with two contents.</td></tr>
+<tr><td>The persona ban was case-sensitive while <code>DENIED_EXACT</code> twenty lines above carries
+a comment about that exact asymmetry having been an oversight once.</td>
+<td>Made case-insensitive. Match the strict half, not the lenient one.</td></tr>
+<tr><td>The failed-tool log survived project switches, so one project's failure text was readable
+while working in another.</td><td>Cleared on project open.</td></tr>
+</table>
+<p><strong>Found while fixing, and missed by the review:</strong> three call sites read
+<code>starterFiles[2].path</code> — "the third starter file", which meant <code>src/main.tsx</code>
+only by accident of ordering. Inserting <code>tsconfig.json</code> silently retargeted all three to
+<code>index.html</code>, changing which file the editor opens on. Replaced with a lookup by name.</p>
+<p>The editor was then verified in a real browser against nine conditions — visible on first run,
+enables on edit, disables after save, the agent reads exactly what was typed, it reaches the prompt
+framed as guidance, the agent still cannot overwrite it, it survives reload, and clearing the box
+removes the file rather than leaving an empty one. The reload check <strong>failed first time</strong>
+and found a real bug: the panel starts open, so no <code>SettingsOpened</code> message is ever sent on
+a fresh load and the load effect never fired — standing instructions would have looked lost on every
+reload.</p>
+
 </body>
 </html>

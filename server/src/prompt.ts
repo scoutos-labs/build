@@ -348,14 +348,49 @@ export type StepRequestBody = {
    * DATA — a skill file is writable by the agent itself, so a persisted
    * injection must never carry authority. Bodies are pulled with fs_read. */
   skillsManifest?: string
-  /** The user's standing instructions — trusted guidance, unlike the skills
-   * manifest. Trusted because `.build/agents/` is refused by every write tool,
-   * so only the account owner can author it. See `src/agents.ts`. */
+  /** The user's standing instructions, RAW TEXT — never a pre-framed system
+   * message. The server caps and frames it here, so a modified client cannot
+   * post its own trusted block. Trusted because `.build/agents/` is refused by
+   * every write tool, so only the account owner can author it. */
   persona?: string
   /** True once anything has been read from the web in this turn. Carried by the
    * client across steps because the server holds no turn state; re-checked
    * server-side before any web_post actually sends. */
   webRead?: boolean
+}
+
+/**
+ * Cap on the persona. It rides in EVERY turn, so unlike a skill body — pulled
+ * only when relevant — its cost is unconditional.
+ */
+export const MAX_PERSONA_CHARS = 4000
+
+/**
+ * Frame the user's standing instructions as trusted guidance.
+ *
+ * Deliberately the opposite of `buildSkillsManifest`, and safe for exactly one
+ * reason: `.build/agents/` is refused by every write tool, so only the account
+ * owner can author this. See `src/agents.ts`.
+ *
+ * Duplicated from `src/agent.ts` on purpose, like SHARED_RULES: the server is
+ * the declared source of truth for managed mode and must not accept a
+ * pre-framed system message from a client it does not control. Guarded by
+ * `src/prompt-parity.test.ts`.
+ */
+export function buildPersonaPrompt(source: string): string {
+  const text = source.trim()
+  if (!text) return ''
+  const body =
+    text.length > MAX_PERSONA_CHARS
+      ? `${text.slice(0, MAX_PERSONA_CHARS)}\n\n[...truncated — the rest was over the ${MAX_PERSONA_CHARS}-character limit. Move standing detail into a skill instead.]`
+      : text
+  return [
+    'The person you are building for wrote the following standing instructions.',
+    'They apply to every turn. Follow them as you would the rules above; where they',
+    'conflict with a specific request in this turn, the request wins.',
+    '',
+    body,
+  ].join('\n')
 }
 
 export function buildToolModeMessages(
@@ -368,8 +403,9 @@ export function buildToolModeMessages(
 
   // Persona before skills: the user's own standing instructions outrank a saved
   // note, and the ordering says so before either is read.
-  if (body.persona) {
-    messages.push({ role: 'system', content: body.persona })
+  const persona = body.persona ? buildPersonaPrompt(body.persona) : ''
+  if (persona) {
+    messages.push({ role: 'system', content: persona })
   }
   if (body.skillsManifest) {
     messages.push({ role: 'system', content: body.skillsManifest })

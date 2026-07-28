@@ -140,8 +140,20 @@ export function normalizePath(raw: unknown): PathVerdict {
  */
 export const AGENT_OWNED_PREFIX = '.build/agents/'
 
+/**
+ * Case-insensitive, matching `DENIED_EXACT` / `DENIED_PATTERNS` above. Nothing
+ * reads `.build/Agents/...` today, so a case-varied write lands in a key no one
+ * looks at — but the comment twenty lines up exists because that exact asymmetry
+ * was an oversight once, and a case-insensitive store or a second reader turns
+ * it into a bypass. Match the strict half, not the lenient one.
+ */
+export function isAgentOwnedPath(path: string): boolean {
+  return isAgentOwned(path)
+}
+
 function isAgentOwned(path: string): boolean {
-  return path === AGENT_OWNED_PREFIX.slice(0, -1) || path.startsWith(AGENT_OWNED_PREFIX)
+  const lower = path.toLowerCase()
+  return lower === AGENT_OWNED_PREFIX.slice(0, -1) || lower.startsWith(AGENT_OWNED_PREFIX)
 }
 
 export type ProjectFile = { path: string; content: string }

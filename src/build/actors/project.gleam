@@ -50,6 +50,8 @@ pub type Msg {
   SaveStatusChanged(status: String)
   FilesUpdated(files: List(templates.ProjectFile), status: String)
   FileApplied(path: String, content: String)
+  /// Remove a file from the project and the container.
+  FileRemoved(path: String)
   FileEdited(path: String, content: String)
   SelectedPathChanged(path: String)
   ResetToStarter
@@ -81,6 +83,7 @@ pub type Effect {
   RefreshProjectList
   PersistCurrentProjectId(id: Option(String))
   WriteFileToContainer(path: String, content: String)
+  DeleteFileFromContainer(path: String)
   DebouncedWriteFileToContainer(delay: Int, path: String, content: String)
   RemountProject(files: List(templates.ProjectFile))
   ScheduleSave(
@@ -185,6 +188,28 @@ pub fn update(state: State, msg: Msg) -> #(State, List(Effect)) {
       ),
       [WriteFileToContainer(path, content)],
     )
+    FileRemoved(path) -> {
+      let remaining = templates.remove_file(state.files, path)
+      // Deleting the open file would leave the editor pointing at nothing, so
+      // selection moves to whatever is left rather than going blank.
+      let selected = case state.selected_path == path {
+        False -> state.selected_path
+        True ->
+          case list.first(remaining) {
+            Ok(file) -> file.path
+            Error(_) -> ""
+          }
+      }
+      #(
+        State(
+          ..state,
+          files: remaining,
+          selected_path: selected,
+          save_status: "Unsaved changes",
+        ),
+        [DeleteFileFromContainer(path)],
+      )
+    }
     FileEdited(path, content) -> #(
       State(
         ..state,

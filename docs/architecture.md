@@ -99,21 +99,79 @@ Smoke: `scripts/smoke-layout-modes.mjs`.
 
 ## Agent protocol
 
-The model must return JSON `{"reply": string, "patches": [{path, content}]}`
-with full replacement file contents (client-side additionally supports an
-`envVars` object). Context selection sends the whole project under a
-160,000-char budget; over budget, files the request plausibly touches stay
-full and the rest are stubbed to their first lines. Requests time out
-app-side after 5 minutes.
+Rewritten 2026-07-27. The agent is a **bounded tool-calling loop**, not a
+single-shot JSON producer. The old `{"reply", "patches"}` envelope is gone —
+`agent.Patch`, `AgentRequestSucceeded`, `apply_patches`, and
+`InstallIfNeeded(patches)` were all removed with it.
 
-The onboarding interview lives natively in Build's chat panel
-(`src/build/actors/interview.gleam` — also the single source of truth for the
-plan-summary format). Its Q&A render as virtual bubbles derived from
-interview state, never persisted; only the final plan message
-(`BuildFromPlan`) enters chat history. The generated starter app is a calm
-placeholder page. The legacy `BUILD_APP_FROM_PLAN` postMessage route stays
-(guarded, one line in `main-gleam.ts`) because saved projects created before
-this change still carry the old iframe wizard in their files.
+### The loop
+
+A *turn* is one user request and may take several steps. The Gleam actor
+(`src/build/actors/agent.gleam`) owns it: step counter, activity trail, the union
+of touched paths, and `pkg_dirty`. The provider transcript deliberately does
+**not** live in Gleam — opaque `tool_calls` arrays and raw tool bodies stay in
+`src/gleam-externals/agent.mjs`, keyed by request id, so file contents and
+fetched page bodies never enter the app model.
+
+```text
+callAgent          opens the turn, takes step 0
+  → POST /api/agent/step   { turnId, stepIndex, stepToken, tree, fullFiles,
+                             messages, toolCalls, toolResults, webRead }
+      server: assemble → OpenRouter with tools
+        ↳ web_search / web_fetch  → run INLINE, loop again (inner cap 4)
+        ↳ fs_* / exec             → return to the client
+        ↳ web_post                → return as an approval request
+        ↳ final text              → done
+  → client executes fs_*/exec against the WebContainer
+  → CallAgentStep … until done, the step budget, or the turn deadline
+```
+
+The server is **stateless**: no transcript is persisted, which is what keeps
+Build's local-first promise. The client carries the transcript and the `webRead`
+taint flag; the server re-checks the taint before anything sends.
+
+### Tools
+
+| Tool | Runs | Gated |
+| --- | --- | --- |
+| `fs_list` / `fs_read` / `fs_write` / `fs_batch_write` | client | no |
+| `exec` | client — `wc.spawn()` | no |
+| `web_search` / `web_fetch` | server, inline (managed only) | no |
+| `web_post` | server, on approval (managed only) | **yes** |
+
+`exec` being `wc.spawn()` against the same container the preview runs in is the
+harness's whole advantage: the agent can run `npx tsc --noEmit`, read real
+diagnostics, fix them, and re-check before handing back.
+
+### Load-bearing invariants
+
+- **One write path.** Every agent write goes through `project.FileApplied`, which
+  updates `state.files` *and* emits `WriteFileToContainer`. `project.files` is the
+  source of truth; the container FS is a replica that `isSyncableTextFile`
+  filters. A direct `wc.fs.writeFile` desyncs the editor, ZIP export, publish,
+  autosave, and the next turn's context — silently.
+- **One install trigger.** `InstallDependencies`, driven by `pkg_dirty`, cleared
+  only on a *successful* install.
+- **One bubble and one build-log entry per turn**, not per step — the Build Story
+  is a narrative, and a twelve-step turn is still one thing the founder asked for.
+- **The agent's file snapshot** (`globalThis.__buildProjectFiles`) is seeded on
+  boot/remount, on project load, and upserted on every write. It must not depend
+  on autosave, which is gated on the container being hydrated.
+- **Trust the sandbox.** `fs_*` and `exec` run unattended; only `web_post` gates,
+  because it is the one tool that reaches out of the WebContainer.
+- **Tainted turn.** Any web read withdraws `web_post` for the rest of that turn.
+
+### Guarded duplications
+
+Four surfaces exist twice and are pinned by `src/prompt-parity.test.ts`: the
+system prompt, the starter template, the tool specs
+(`src/agent-tools.ts` ↔ `server/src/agent-tools.ts`), and the job→model map
+(`settings.gleam` ↔ `server/src/models.ts`). Web tools are asserted present
+server-side and absent client-side.
+
+BYOK stays on the single-shot JSON protocol (Ollama has no tool mode at all), but
+its response is adapted into the same synthetic `fs_batch_write`, so it goes
+through identical machinery.
 
 ## Persistence
 
@@ -127,7 +185,11 @@ server-side (see `docs/scoutos-live-prd.md`).
 ## Validation
 
 ```bash
-npm test          # gleam test + vitest (root)
-npm run build     # gleam build + tsc -b + vite build
+npm test                              # gleam test + vitest (root)
+npm run build                         # gleam build + tsc -b + vite build
 cd server && npm test
+cd server && npm run typecheck        # NOT covered by the above
+node scripts/smoke-layout-modes.mjs   # needs a dev server on :5199
+node scripts/smoke-interview.mjs
+node scripts/smoke-agent-harness.mjs  # drives a real multi-step agent turn
 ```

@@ -61,7 +61,7 @@ pub fn elapsed_tick_counts_seconds_since_submit_test() {
   let #(running, _) =
     agent.update(
       agent.init(),
-      agent.AgentRequestStarted(ids.new_request_id(), started_at),
+      agent.AgentRequestStarted(ids.new_request_id(), started_at, []),
     )
   let #(ticked, _) =
     agent.update(running, agent.AgentElapsedTick(started_at + 2500))
@@ -76,20 +76,26 @@ pub fn canceled_request_late_response_is_discarded_test() {
   let #(running_a, _) =
     agent.update(
       agent.init(),
-      agent.AgentRequestStarted(request_a, ids.now_ms()),
+      agent.AgentRequestStarted(request_a, ids.now_ms(), []),
     )
   let #(canceled, cancel_effects) =
     agent.update(running_a, agent.AgentRequestCanceled)
-  assert cancel_effects == [agent.StopElapsedTimer, agent.AbortAgent]
+  // KillExec joined this list with the tool harness: under the loop a cancel
+  // can land while a command is running, and a wedged process that outlives the
+  // turn quietly degrades the container.
+  assert cancel_effects
+    == [agent.StopElapsedTimer, agent.AbortAgent, agent.KillExec]
 
   let #(running_b, _) =
-    agent.update(canceled, agent.AgentRequestStarted(request_b, ids.now_ms()))
+    agent.update(canceled, agent.AgentRequestStarted(request_b, ids.now_ms(), []))
 
   // A's late response arrives after B started: ignored, B keeps running.
+  // Under the harness this matters more than it did: a late step response that
+  // matched would drive tool execution into the wrong turn's project.
   let #(after_late_a, late_effects) =
     agent.update(
       running_b,
-      agent.AgentRequestSucceeded(request_a, "stale reply", []),
+      agent.AgentStepReturned(request_a, [], "stale reply"),
     )
   assert after_late_a == running_b
   assert late_effects == []
@@ -99,8 +105,9 @@ pub fn canceled_request_late_response_is_discarded_test() {
   let #(after_b, b_effects) =
     agent.update(
       after_late_a,
-      agent.AgentRequestSucceeded(request_b, "fresh reply", []),
+      agent.AgentStepReturned(request_b, [], "fresh reply"),
     )
   assert !agent.is_running(after_b)
-  assert b_effects == [agent.StopElapsedTimer, agent.InstallIfNeeded([])]
+  assert after_b.final_reply == "fresh reply"
+  assert b_effects == [agent.StopElapsedTimer]
 }

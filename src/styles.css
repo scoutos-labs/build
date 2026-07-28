@@ -129,6 +129,43 @@ input:focus, textarea:focus, select:focus { border-color: transparent; box-shado
 .boltPulse { width: 16px; height: 16px; flex: 0 0 auto; animation: boltThrob 1.15s ease-in-out infinite; }
 .boltPulse.boltLarge { width: 52px; height: 52px; }
 @keyframes boltThrob { 50% { opacity: .45; transform: scale(.9); } }
+/* The activity trail's resting state: what the turn did, in one quiet line.
+   Same geometry as .thinking — the trail is that pill having learned to speak —
+   but no amber, because nothing is working any more. */
+.trail { display: grid; gap: 6px; }
+.trailSummary { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: left; background: #fff; color: var(--hyper-charcoal); border: 1px solid var(--hyper-line); border-radius: 12px; padding: 9px 11px; font-size: .84rem; font-weight: 400; box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
+.trailSummary:where(:hover:not(:disabled)) { background: var(--hyper-base); color: var(--hyper-ink); }
+.trailChevron { font-family: var(--hyper-mono); font-size: .68rem; color: var(--hyper-slate); }
+/* Receipts. Deliberately no timestamps, no step numbers, no status glyphs — a
+   step budget is not progress and must never be drawn as one. */
+.trailSteps { list-style: none; margin: 0; padding: 0 0 0 11px; display: grid; gap: 4px; border-left: 1px solid var(--hyper-line); }
+/* Charcoal, not slate: slate (#5B7FA6) reads blue at this size and would
+   compete with Show/Hide, the row's only interactive affordance. Receipts
+   should be quiet grey; the one blue-grey thing is the control. */
+.trailStep { font-size: .8rem; color: var(--hyper-charcoal); opacity: .78; line-height: 1.45; }
+/* A failed step is ink on white, like .previewErrorCard — never red. */
+.trailStepProblem { color: var(--hyper-ink); }
+/* The approval card: the one moment the agent stops and asks. Ink on white with
+   the amber rule — the same "needs your attention" language as the preview-error
+   card, never a red alarm. */
+.approvalCard { display: grid; gap: 8px; padding: 10px 12px; background: #fff; border: 1px solid var(--hyper-line); border-left: 3px solid var(--hyper-amber); border-radius: 12px; font-size: .84rem; color: var(--hyper-ink); box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
+.approvalTarget { font-family: var(--hyper-mono); font-size: .72rem; color: var(--hyper-slate); word-break: break-all; margin: 0; }
+/* The EXACT body, scrollable rather than clipped — the user must be able to
+   read everything that would leave the sandbox. */
+.approvalCard pre { margin: 0; padding: 8px 10px; max-height: 120px; overflow: auto; font-family: var(--hyper-mono); font-size: .72rem; line-height: 1.45; white-space: pre-wrap; word-break: break-word; background: var(--hyper-soft); border-radius: 8px; }
+.approvalCard .actions { margin: 0; }
+.approvalBlocked { color: var(--hyper-charcoal); margin: 0 0 8px; }
+/* Undo sits under the summary, not beside it: it is a rare, deliberate action,
+   and putting it next to Show would make the row read as a toolbar. */
+.trailUndo { display: flex; justify-content: flex-end; }
+/* The job picker sits with Send, not in settings: choosing how hard to think is
+   part of composing a request. Quiet by default — it is a choice, not a control
+   panel. */
+.jobPicker { margin-left: auto; display: inline-flex; align-items: center; }
+.jobPicker select { font-family: inherit; font-size: .78rem; color: var(--hyper-charcoal); background: #fff; border: 1px solid var(--hyper-line); border-radius: 999px; padding: 5px 9px; cursor: pointer; }
+.jobPicker select:hover:not(:disabled) { color: var(--hyper-ink); border-color: var(--hyper-slate); }
+.jobPicker select:disabled { opacity: .55; cursor: default; }
+.srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .budgetExhausted { color: #8a4b00; background: #fff7ed; border: 1px solid #f5c98a; border-radius: 12px; padding: 9px 11px; font-size: .84rem; box-shadow: color(srgb 0 0 0 / .04) 0 1px 2px; }
 /* Preview-error card: quiet ink-on-white with the amber rule — the bolt's
    "needs work" cousin, not a red alarm. */

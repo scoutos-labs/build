@@ -39,6 +39,9 @@ export type Db = {
   setDisabled(clerkUserId: string, disabled: boolean): Promise<void>
   deleteUser(clerkUserId: string): Promise<void>
   updateTier(clerkUserId: string, tier: string, model: string): Promise<void>
+  /** Model choice only, leaving tier alone — the user picking a job in the
+   * composer must never look like a plan change. */
+  updateModel(clerkUserId: string, model: string): Promise<void>
   /** User-supplied provider keys (e.g. ScoutOS), encrypted at rest. Write-only:
    * stored ciphertext is decrypted only inside the publish handler. */
   upsertCredential(clerkUserId: string, provider: string, keyEnc: Buffer): Promise<void>
@@ -165,6 +168,13 @@ export function createDb(queryable: Queryable): Db {
       await queryable.query('update users set tier = $2, model = $3 where clerk_user_id = $1', [
         clerkUserId,
         tier,
+        model,
+      ])
+    },
+
+    async updateModel(clerkUserId, model) {
+      await queryable.query('update users set model = $2 where clerk_user_id = $1', [
+        clerkUserId,
         model,
       ])
     },

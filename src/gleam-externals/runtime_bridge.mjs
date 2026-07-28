@@ -51,7 +51,18 @@ export function dispatchProjectListRefreshed(projects = []) {
   sendMsg(Msg.Msg$Project(Project.Msg$ProjectListRefreshed(toList(projects.map(p => Project.SavedProject$SavedProject(p.id, p.name, p.updatedAt ?? p.updated_at ?? ''))))))
 }
 
+/** Seed the agent's file snapshot whenever a whole file set arrives.
+ *
+ * Without this the snapshot is empty until the first autosave, so an agent turn
+ * on a freshly-opened project would see no files at all. Sourced from the same
+ * payload the model is about to receive, so the two cannot disagree. */
+async function seedProjectFiles(files) {
+  const { publishProjectFiles } = await import('./projects.mjs')
+  publishProjectFiles(toGleamFiles(files ?? []))
+}
+
 export function dispatchProjectLoaded(project) {
+  void seedProjectFiles(project?.files ?? [])
   sendMsg(Msg.Msg$Project(Project.Msg$ProjectLoaded(
     project?.id ? Option.Option$Some(project.id) : Option.Option$None(),
     project?.name ?? 'Untitled Project',
@@ -63,6 +74,7 @@ export function dispatchProjectLoaded(project) {
 }
 
 export function dispatchProjectCreated(project) {
+  void seedProjectFiles(project.files ?? [])
   sendMsg(Msg.Msg$Project(Project.Msg$ProjectCreated(
     project.id,
     project.name,
@@ -73,7 +85,7 @@ export function dispatchProjectCreated(project) {
 
 export function dispatchProjectReady() { sendMsg(Msg.Msg$Project(Project.Msg$ProjectReady())) }
 export function dispatchProjectSaveStatus(status) { sendMsg(Msg.Msg$Project(Project.Msg$SaveStatusChanged(status))) }
-export function dispatchProjectFilesUpdated(files, status = '') { sendMsg(Msg.Msg$Project(Project.Msg$FilesUpdated(toGleamFiles(files), status))) }
+export function dispatchProjectFilesUpdated(files, status = '') { void seedProjectFiles(files); sendMsg(Msg.Msg$Project(Project.Msg$FilesUpdated(toGleamFiles(files), status))) }
 export function dispatchProjectsDialogClosed() { sendMsg(Msg.Msg$Project(Project.Msg$ProjectsDialogClosed())) }
 
 export function dispatchChatMessagesReplaced(messages) { sendMsg(Msg.Msg$Chat(Chat.Msg$MessagesReplaced(toGleamMessages(messages)))) }
@@ -102,11 +114,89 @@ export function dispatchPreviewElementSelected(element) {
   ))))
 }
 
-export function dispatchAgentSucceeded(requestId, reply, patches) { sendMsg(Msg.Msg$Agent(Agent.Msg$AgentRequestSucceeded(requestId, reply, toList((patches ?? []).map(p => Agent.Patch$Patch(p.path, p.content)))))) }
 export function dispatchAgentFailed(requestId, message) { sendMsg(Msg.Msg$Agent(Agent.Msg$AgentRequestFailed(requestId, message))) }
 export function dispatchAgentBudgetExhausted(requestId, resetAt) { sendMsg(Msg.Msg$Agent(Agent.Msg$AgentBudgetExhausted(requestId, String(resetAt ?? '')))) }
 export function dispatchAccountLoaded(plan, budget) { sendMsg(Msg.Msg$Settings(Settings.Msg$AccountLoaded(String(plan ?? ''), String(budget ?? '')))) }
 export function dispatchAgentTick(now) { sendMsg(Msg.Msg$Agent(Agent.Msg$AgentElapsedTick(now))) }
+
+// ── Agent harness ────────────────────────────────────────────────────────────
+
+// The ONLY legal way for an agent tool to write a project file.
+//
+// project.files is the source of truth; the WebContainer FS is a replica that
+// feeds nothing else. FileApplied updates state.files AND emits
+// WriteFileToContainer, so both stay in step. Writing straight to wc.fs would
+// leave the editor, the ZIP export, publish, autosave, and the next turn's
+// prompt context all reading stale bytes.
+export function dispatchProjectFileApplied(path, content) {
+  sendMsg(Msg.Msg$Project(Project.Msg$FileApplied(String(path), String(content))))
+}
+
+/** The only legal way for an agent tool to remove a project file — same reason
+ * as dispatchProjectFileApplied. */
+export function dispatchProjectFileRemoved(path) {
+  sendMsg(Msg.Msg$Project(Project.Msg$FileRemoved(String(path))))
+}
+
+function toGleamToolCalls(calls = []) {
+  return toList(calls.map(call => Agent.ToolCall$ToolCall(
+    String(call.id ?? ''),
+    String(call.name ?? ''),
+    String(call.argsJson ?? '{}'),
+  )))
+}
+
+export function dispatchAgentStepReturned(requestId, toolCalls = [], assistantContent = '') {
+  sendMsg(Msg.Msg$Agent(Agent.Msg$AgentStepReturned(
+    String(requestId),
+    toGleamToolCalls(toolCalls),
+    String(assistantContent ?? ''),
+  )))
+}
+
+export function dispatchAgentToolStarted(requestId, callId, summary) {
+  sendMsg(Msg.Msg$Agent(Agent.Msg$AgentToolStarted(String(requestId), String(callId), String(summary ?? ''))))
+}
+
+export function dispatchAgentToolFinished(requestId, callId, ok, summary, paths = [], installed = false) {
+  sendMsg(Msg.Msg$Agent(Agent.Msg$AgentToolFinished(
+    String(requestId),
+    String(callId),
+    ok ? Agent.ToolStatus$ToolDone() : Agent.ToolStatus$ToolFailed(),
+    String(summary ?? ''),
+    toList((paths ?? []).map(String)),
+    Boolean(installed),
+  )))
+}
+
+export function dispatchAgentServerStepRecorded(requestId, name, summary) {
+  sendMsg(Msg.Msg$Agent(Agent.Msg$AgentServerStepRecorded(
+    String(requestId),
+    String(name ?? ''),
+    String(summary ?? ''),
+  )))
+}
+
+export function dispatchAgentApprovalRequested(requestId, approval) {
+  sendMsg(Msg.Msg$Agent(Agent.Msg$AgentApprovalRequested(
+    String(requestId),
+    Agent.Approval$Approval(
+      String(approval?.toolCallId ?? ''),
+      String(approval?.url ?? ''),
+      String(approval?.method ?? 'POST'),
+      String(approval?.body ?? ''),
+      String(approval?.blocked ?? ''),
+    ),
+  )))
+}
+
+export function dispatchAgentStepBudgetReached(requestId) {
+  sendMsg(Msg.Msg$Agent(Agent.Msg$AgentStepBudgetReached(String(requestId))))
+}
+
+export function dispatchAgentTimeoutReached(requestId) {
+  sendMsg(Msg.Msg$Agent(Agent.Msg$AgentTimeoutReached(String(requestId))))
+}
 export function dispatchLandingIdea(idea) { sendMsg(Msg.Msg$LandingIdeaArrived(String(idea ?? ''))) }
 export function dispatchBuildFromPlan(planSummary) {
   const requestId = `plan-${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -120,6 +210,7 @@ export function dispatchSettingsLoaded(settings) {
     settings.apiKey ?? settings.api_key ?? '',
     settings.ollamaUrl ?? settings.ollama_url ?? 'http://localhost:11434',
     settings.model ?? '',
+    settings.job ?? '',
   )))
 }
 export function dispatchSettingsStatus(status) { sendMsg(Msg.Msg$Settings(Settings.Msg$ConnectionStatusChanged(status))) }

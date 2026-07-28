@@ -21,6 +21,16 @@ export async function writeProjectFile(path: string, content: string) {
   await wc.fs.writeFile(path, content)
 }
 
+export async function deleteProjectFile(path: string) {
+  const wc = await bootWebContainer()
+  try {
+    await wc.fs.rm(path)
+  } catch {
+    // Already gone (or never written to the container) — the project actor is
+    // the source of truth and has dropped it either way.
+  }
+}
+
 export async function readProjectFile(path: string): Promise<string | undefined> {
   const wc = await bootWebContainer()
   try {
@@ -61,6 +71,28 @@ export async function readProjectFilesFromWebContainer(): Promise<ProjectFile[]>
 function isSyncableTextFile(path: string) {
   const name = path.split('/').at(-1) ?? path
   return TEXT_FILE_NAMES.has(name) || TEXT_FILE_PATTERN.test(path)
+}
+
+/**
+ * Spawn a one-shot command for the agent.
+ *
+ * Deliberately separate from `startShell`: the agent never writes to the user's
+ * `jsh` stdin, and its commands must be individually killable and individually
+ * timed. Argv form (not a shell string) is enforced by the caller — see
+ * `validateExec` in `src/agent-tools.ts`.
+ */
+export async function spawnCommand(command: string, args: string[]) {
+  const wc = await bootWebContainer()
+  const proc = await wc.spawn(command, args)
+  return {
+    exit: proc.exit,
+    onOutput(handler: (chunk: string) => void) {
+      proc.output.pipeTo(new WritableStream({ write: chunk => handler(String(chunk)) }))
+    },
+    kill() {
+      proc.kill()
+    },
+  }
 }
 
 export async function runInstall(onLog: (line: string) => void) {

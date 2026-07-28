@@ -6,6 +6,9 @@ export function loadSettings() {
     apiKey: globalThis.localStorage?.getItem('openrouter-key') ?? '',
     ollamaUrl: globalThis.localStorage?.getItem('ollama-url') ?? 'http://localhost:11434',
     model: globalThis.localStorage?.getItem('agent-model') ?? '',
+    // Without this the picker reset to the default on every reload, despite
+    // persistJob having faithfully written the choice.
+    job: globalThis.localStorage?.getItem('build.job') ?? '',
   }
   setTimeout(() => dispatchSettingsLoaded(settings), 0)
 }

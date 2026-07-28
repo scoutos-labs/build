@@ -19,6 +19,53 @@ export type ChatResult =
   | { kind: 'budget_exhausted' }
   | { kind: 'error'; status: number; message: string }
 
+/** A tool call as the provider reports it. `arguments` is a JSON *string* in the
+ * OpenAI/OpenRouter wire format — parsed by the caller, not here, so a malformed
+ * blob stays recoverable. */
+export type ProviderToolCall = {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
+}
+
+/**
+ * Result of a tool-enabled completion.
+ *
+ * Distinct from ChatResult for one load-bearing reason: a pure tool-call
+ * response has `content: null`, which `chatCompletion` treats as a 502 error.
+ * That is correct for the single-shot JSON protocol (no content = nothing to
+ * parse) and exactly wrong for a tool loop, so the two paths do not share a
+ * result type.
+ */
+export type ToolChatResult =
+  | { kind: 'ok'; content: string; toolCalls: ProviderToolCall[] }
+  | { kind: 'budget_exhausted' }
+  | { kind: 'error'; status: number; message: string }
+
+/** An OpenAI-format tool definition. Opaque here — the harness owns the schemas. */
+export type ToolSpec = {
+  type: 'function'
+  function: { name: string; description: string; parameters: Record<string, unknown> }
+}
+
+/** Keep only well-formed calls: a call with no id cannot be answered, because
+ * the follow-up `tool` message must reference it. Providers occasionally emit
+ * partial entries when a generation is truncated. */
+export function normalizeToolCalls(raw: unknown, maxCalls: number): ProviderToolCall[] {
+  if (!Array.isArray(raw)) return []
+  const out: ProviderToolCall[] = []
+  for (const entry of raw) {
+    const call = entry as Record<string, any> | null
+    const id = typeof call?.id === 'string' ? call.id : ''
+    const name = typeof call?.function?.name === 'string' ? call.function.name : ''
+    if (!id || !name) continue
+    const args = typeof call?.function?.arguments === 'string' ? call.function.arguments : '{}'
+    out.push({ id, type: 'function', function: { name, arguments: args } })
+    if (out.length >= maxCalls) break
+  }
+  return out
+}
+
 export type OpenRouterClient = {
   createKey(args: { name: string; limitUsd: number }): Promise<ProvisionedKey>
   getKey(hash: string): Promise<KeyInfo>
@@ -31,6 +78,22 @@ export type OpenRouterClient = {
     responseFormatJson?: boolean
     signal?: AbortSignal
   }): Promise<ChatResult>
+  /**
+   * Tool-enabled completion for the agent harness.
+   *
+   * Never sends `response_format` — providers reject it alongside `tools`, and
+   * JSON-mode is meaningless when the model is expected to answer with tool
+   * calls. Returns content and tool calls together, because a model may narrate
+   * and call a tool in the same message.
+   */
+  toolCompletion(args: {
+    apiKey: string
+    model: string
+    messages: ModelMessage[]
+    tools: ToolSpec[]
+    maxCalls: number
+    signal?: AbortSignal
+  }): Promise<ToolChatResult>
 }
 
 export function createOpenRouterClient(opts: {
@@ -136,6 +199,42 @@ export function createOpenRouterClient(opts: {
       const content = data.choices?.[0]?.message?.content
       if (!content) return { kind: 'error', status: 502, message: 'OpenRouter response missing content' }
       return { kind: 'ok', content }
+    },
+
+    async toolCompletion({ apiKey, model, messages, tools, maxCalls, signal }) {
+      const response = await fetchImpl(`${BASE_URL}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        // No response_format: providers reject it alongside tools.
+        body: JSON.stringify({ model, messages, tools, tool_choice: 'auto' }),
+        signal,
+      })
+
+      if (response.status === 402) return { kind: 'budget_exhausted' }
+      if (!response.ok) {
+        const text = await response.text().catch(() => '')
+        return { kind: 'error', status: response.status, message: text || response.statusText }
+      }
+
+      const data = (await response.json()) as {
+        choices?: { message?: { content?: string | null; tool_calls?: unknown } }[]
+      }
+      const message = data.choices?.[0]?.message
+      if (!message) return { kind: 'error', status: 502, message: 'OpenRouter response missing message' }
+
+      const toolCalls = normalizeToolCalls(message.tool_calls, maxCalls)
+      const content = typeof message.content === 'string' ? message.content : ''
+      // A pure tool-call response has content: null and that is the *expected*
+      // shape here — only a message with neither content nor a usable call is an
+      // error. (chatCompletion treats missing content as a 502, which is right
+      // for the JSON protocol and wrong for this one.)
+      if (!content && toolCalls.length === 0) {
+        return { kind: 'error', status: 502, message: 'OpenRouter response had no content and no tool calls' }
+      }
+      return { kind: 'ok', content, toolCalls }
     },
   }
 }

@@ -36,3 +36,30 @@ export async function fetchAccountInfo() {
     dispatchAccountLoaded('', 'Could not load account info')
   }
 }
+
+/**
+ * Record the chosen job.
+ *
+ * Always stored locally so the picker survives a reload. In managed mode the
+ * server is told too — it re-validates the id against the live tool-capable
+ * catalog and refuses anything that cannot call tools, which is the guard that
+ * stops a silently broken harness three turns later.
+ */
+export async function persistJob(job, model) {
+  try { globalThis.localStorage?.setItem('build.job', job) } catch { /* private mode */ }
+  const managed = globalThis.__buildManagedAuth
+  if (!managed) return
+  try {
+    const token = await managed.getToken()
+    await fetch('/api/me/model', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ model }),
+    })
+  } catch { /* the local choice still stands; the next turn uses the stored model */ }
+}
+
+/** The job chosen last session, if any. */
+export function loadJob() {
+  try { return globalThis.localStorage?.getItem('build.job') ?? '' } catch { return '' }
+}

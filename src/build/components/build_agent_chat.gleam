@@ -1,4 +1,6 @@
+import build/actors/agent
 import build/actors/chat
+import build/actors/settings
 import build/actors/interview
 import build/components/build_bolt
 import build/msg
@@ -23,6 +25,8 @@ pub fn view(
   budget_reset_at: String,
   interview_state: interview.State,
   preview_error: Option(String),
+  agent_state: agent.State,
+  settings_state: settings.State,
 ) -> Element(msg.Msg) {
   let interviewing = interview.is_active(interview_state)
   fragment([
@@ -113,14 +117,8 @@ pub fn view(
       ],
       prompt,
     ),
-    case running {
-      True ->
-        html.div([attribute.class("thinking")], [
-          build_bolt.glyph("boltPulse"),
-          html.text("hyper is thinking…"),
-        ])
-      False -> html.text("")
-    },
+    approval_card(agent_state),
+    trail_view(agent_state, running),
     case budget_exhausted {
       True ->
         html.div([attribute.class("budgetExhausted")], [
@@ -153,8 +151,132 @@ pub fn view(
           )
         False -> html.text("")
       },
+      // Model choice belongs where the work is chosen, not buried in settings:
+      // picking how hard to think is part of composing a request.
+      job_picker(settings_state, busy),
     ]),
   ])
+}
+
+/// The one gated moment in the harness.
+///
+/// `fs_*` and `exec` run unattended because they cannot escape the
+/// WebContainer. `web_post` reaches out of it and changes something in the
+/// world, so it stops and shows the user the whole request — method, host, and
+/// the exact body. A card that summarized would be a card that hid something.
+fn approval_card(state: agent.State) -> Element(msg.Msg) {
+  case state.pending_approval {
+    option.None -> html.text("")
+    option.Some(approval) ->
+      html.div([attribute.class("approvalCard")], [
+        html.strong([], [
+          html.text("hyper wants to send data to " <> host_of(approval.url)),
+        ]),
+        html.p([attribute.class("approvalTarget")], [
+          html.text(approval.method <> " " <> approval.url),
+        ]),
+        html.pre([], [html.text(approval.body)]),
+        case approval.blocked {
+          "" ->
+            html.div([attribute.class("actions")], [
+              button(
+                [
+                  attribute.class("compact"),
+                  event.on_click(msg.Agent(agent.AgentApprovalResolved(
+                    approval_request_id(state),
+                    True,
+                  ))),
+                ],
+                "Send it",
+              ),
+              button(
+                [
+                  attribute.class("ghost compact"),
+                  event.on_click(msg.Agent(agent.AgentApprovalResolved(
+                    approval_request_id(state),
+                    False,
+                  ))),
+                ],
+                "Don't send",
+              ),
+            ])
+          reason ->
+            html.div([], [
+              html.p([attribute.class("approvalBlocked")], [html.text(reason)]),
+              html.div([attribute.class("actions")], [
+                button(
+                  [
+                    attribute.class("ghost compact"),
+                    event.on_click(msg.Agent(agent.AgentApprovalResolved(
+                      approval_request_id(state),
+                      False,
+                    ))),
+                  ],
+                  "OK",
+                ),
+              ]),
+            ])
+        },
+      ])
+  }
+}
+
+fn approval_request_id(state: agent.State) -> String {
+  case state.lifecycle {
+    agent.Running(request_id, _) -> request_id
+    _ -> ""
+  }
+}
+
+/// Host only in the headline — the full URL is on its own line below, so the
+/// question reads as a sentence rather than a URL.
+fn host_of(url: String) -> String {
+  case string.split(url, "//") {
+    [_, rest, ..] ->
+      case string.split(rest, "/") {
+        [host, ..] -> host
+        [] -> url
+      }
+    _ -> url
+  }
+}
+
+/// The job picker.
+///
+/// Never shows a model id. A founder cannot evaluate "claude-sonnet-4.6 vs
+/// gpt-5.5", but they can tell you whether this is a small tweak or a hard
+/// problem — and the tradeoff they actually feel is their monthly budget, which
+/// is what the option text talks about.
+///
+/// Hidden for Ollama: it has no tool mode and no catalog, so a job picker there
+/// would promise a choice that does not exist. Shown for BYOK-OpenRouter, which
+/// runs the same tool loop as managed mode against the user's own key.
+fn job_picker(state: settings.State, busy: Bool) -> Element(msg.Msg) {
+  case state.provider {
+    settings.Ollama -> html.text("")
+    settings.OpenRouter ->
+      html.label([attribute.class("jobPicker")], [
+        html.span([attribute.class("srOnly")], [html.text("How much thinking")]),
+        html.select(
+          [
+            attribute.disabled(busy),
+            attribute.title(settings.job_blurb(state.job)),
+            event.on_input(fn(value) {
+              msg.Settings(settings.JobChanged(settings.job_from_string(value)))
+            }),
+          ],
+          list.map(settings.all_jobs(), fn(job) {
+            html.option(
+              [
+                attribute.value(settings.job_to_string(job)),
+                attribute.selected(job == state.job),
+              ],
+              settings.job_label(job),
+            )
+          }),
+        ),
+      ])
+  }
 }
 
 // --- the onboarding interview, rendered as a conversation ---
@@ -328,4 +450,139 @@ fn message_view(
 
 fn button(attrs, label: String) {
   html.button([attribute.type_("button"), ..attrs], [html.text(label)])
+}
+
+// --- the activity trail ---
+//
+// Deliberately NOT a growing list of tool calls. While the agent works this is a
+// single line that *changes*: bolt, a present-tense verb, and the file it is on.
+// A twelve-row log would push the composer off a laptop screen and would read as
+// CI output to a founder whose prompt explicitly forbids jargon and file paths.
+//
+// When the turn ends the line becomes one quiet summary — "3 steps · 1 file ·
+// checked it builds" — that expands on click. The steps are receipts; the
+// summary is the product.
+//
+// Amber appears on exactly one element at a time: the bolt on the active step.
+// Finished rows are slate. That is the brand's working-state signature and it
+// stops meaning anything if more than one thing wears it.
+
+fn trail_view(state: agent.State, running: Bool) -> Element(msg.Msg) {
+  // While an approval is up, the agent is not thinking — it is waiting on the
+  // user, and the card right above says what for.
+  case state.pending_approval {
+    option.Some(_) ->
+      html.div([attribute.class("thinking")], [
+        build_bolt.glyph("boltPulse"),
+        html.text("waiting for you"),
+      ])
+    option.None -> trail_working_view(state, running)
+  }
+}
+
+fn trail_working_view(state: agent.State, running: Bool) -> Element(msg.Msg) {
+  case running, state.trail {
+    // Working, but no tool has been picked up yet.
+    True, [] ->
+      html.div([attribute.class("thinking")], [
+        build_bolt.glyph("boltPulse"),
+        html.text("hyper is thinking…"),
+      ])
+
+    // Working: one mutating line showing the step in flight.
+    True, trail ->
+      html.div([attribute.class("thinking")], [
+        build_bolt.glyph("boltPulse"),
+        html.text(active_summary(trail)),
+      ])
+
+    // Idle with nothing to show.
+    False, [] -> html.text("")
+
+    // Finished: the collapsed summary, expandable.
+    False, trail ->
+      html.div([attribute.class("trail")], [
+        html.button(
+          [
+            attribute.class("trailSummary"),
+            attribute.attribute("aria-expanded", case state.trail_expanded {
+              True -> "true"
+              False -> "false"
+            }),
+            event.on_click(msg.Agent(agent.AgentTrailToggled)),
+          ],
+          [
+            html.span([attribute.class("trailCount")], [
+              html.text(agent.turn_summary(state)),
+            ]),
+            html.span([attribute.class("trailChevron")], [
+              html.text(case state.trail_expanded {
+                True -> "Hide"
+                False -> "Show"
+              }),
+            ]),
+          ],
+        ),
+        // The counterweight to unattended writing. Offered only when the turn
+        // actually changed files, and only for the most recent one — the
+        // realistic regret is always "that last one made it worse".
+        case agent.can_undo(state) {
+          True ->
+            html.div([attribute.class("trailUndo")], [
+              button(
+                [
+                  attribute.class("ghost compact"),
+                  event.on_click(msg.Agent(agent.AgentUndoRequested)),
+                ],
+                "Undo this build",
+              ),
+            ])
+          False -> html.text("")
+        },
+        case state.trail_expanded {
+          True ->
+            html.ol(
+              [attribute.class("trailSteps")],
+              list.map(trail, trail_row),
+            )
+          False -> html.text("")
+        },
+      ])
+  }
+}
+
+/// The line shown while working: the step currently in flight, or the most
+/// recent finished one while the next request is in the air.
+fn active_summary(trail: List(agent.TrailStep)) -> String {
+  let running_step =
+    list.find(trail, fn(step) { step.status == agent.ToolRunning })
+  case running_step {
+    Ok(step) ->
+      case step.summary {
+        "" -> "hyper is working…"
+        text -> text
+      }
+    Error(_) ->
+      case list.last(trail) {
+        Ok(step) if step.summary != "" -> step.summary
+        _ -> "hyper is working…"
+      }
+  }
+}
+
+fn trail_row(step: agent.TrailStep) -> Element(msg.Msg) {
+  html.li(
+    [
+      attribute.class(case step.status {
+        agent.ToolFailed -> "trailStep trailStepProblem"
+        _ -> "trailStep"
+      }),
+    ],
+    [
+      html.text(case step.summary {
+        "" -> "Working…"
+        text -> text
+      }),
+    ],
+  )
 }

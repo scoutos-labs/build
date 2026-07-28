@@ -5,7 +5,37 @@
  * Accepts a custom `fetchFn` for test injection.
  */
 
-import type { LLMClient, LLMCallParams, LLMResult, ModelMessage } from './llm-port'
+import type {
+  LLMClient,
+  LLMCallParams,
+  LLMResult,
+  LLMStepParams,
+  LLMStepResult,
+  ModelMessage,
+  ToolCall,
+} from './llm-port'
+
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
+
+/**
+ * Keep only well-formed calls: a call with no id cannot be answered, because the
+ * follow-up `tool` message must reference it. Providers emit partial entries when
+ * a generation is truncated.
+ */
+export function normalizeToolCalls(raw: unknown, maxCalls: number): ToolCall[] {
+  if (!Array.isArray(raw)) return []
+  const out: ToolCall[] = []
+  for (const entry of raw) {
+    const call = entry as Record<string, any> | null
+    const id = typeof call?.id === 'string' ? call.id : ''
+    const name = typeof call?.function?.name === 'string' ? call.function.name : ''
+    if (!id || !name) continue
+    const args = typeof call?.function?.arguments === 'string' ? call.function.arguments : '{}'
+    out.push({ id, type: 'function', function: { name, arguments: args } })
+    if (out.length >= maxCalls) break
+  }
+  return out
+}
 
 /** Extract a JSON object from potentially prose-wrapped text. */
 function findJsonObject(text: string): string {
@@ -47,7 +77,11 @@ export class FetchLLMClient implements LLMClient {
   private readonly fetchFn: typeof fetch
 
   constructor(fetchFn?: typeof fetch) {
-    this.fetchFn = fetchFn ?? globalThis.fetch
+    // Bound to globalThis: stored as a bare reference and invoked as
+    // `this.fetchFn(...)`, the browser sees `this` as the client instance and
+    // throws "Illegal invocation". Injected test doubles are plain functions and
+    // are unaffected, which is why unit tests never caught it.
+    this.fetchFn = fetchFn ?? globalThis.fetch.bind(globalThis)
   }
 
   async call(params: LLMCallParams): Promise<LLMResult> {
@@ -95,6 +129,51 @@ export class FetchLLMClient implements LLMClient {
     } catch {
       return this.retryWithRepair(params, content)
     }
+  }
+
+  /**
+   * One tool-enabled step. OpenRouter only (see `LLMStepParams.provider`).
+   *
+   * Sends no `response_format`: providers reject it alongside `tools`, and JSON
+   * mode is meaningless when the answer is expected to be tool calls.
+   */
+  async step(params: LLMStepParams): Promise<LLMStepResult> {
+    if (!params.apiKey) throw new Error('OpenRouter API key is required')
+
+    const response = await this.fetchFn(OPENROUTER_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${params.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: params.model,
+        messages: params.messages,
+        tools: params.tools,
+        tool_choice: 'auto',
+      }),
+      signal: params.signal,
+    })
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '')
+      throw new Error(`OpenRouter error ${response.status}: ${text || response.statusText}`)
+    }
+
+    const json = (await response.json()) as {
+      choices?: { message?: { content?: string | null; tool_calls?: unknown } }[]
+    }
+    const message = json.choices?.[0]?.message
+    if (!message) throw new Error('OpenRouter response missing message')
+
+    const toolCalls = normalizeToolCalls(message.tool_calls, params.maxCalls)
+    const content = typeof message.content === 'string' ? message.content : ''
+    // A pure tool-call response has content: null — the expected shape here.
+    // Only a message with neither content nor a usable call is unusable.
+    if (!content && toolCalls.length === 0) {
+      throw new Error('OpenRouter response had no content and no tool calls')
+    }
+    return { content, toolCalls }
   }
 
   private async extractContent(response: Response, provider: string): Promise<string | null> {

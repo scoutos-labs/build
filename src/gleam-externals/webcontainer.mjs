@@ -13,6 +13,9 @@ let lastFiles = fallbackStarterFiles
 // and avoids the preview reload storm that caused the switch flicker.
 let lastInstalledPackageJson = null
 const scheduledFileWrites = new Map()
+// path → the content a debounced write will send, so a flush can perform it
+// early rather than dropping it.
+const scheduledPayloads = new Map()
 // Chat is usable before the container is ready, so agent patches can arrive
 // mid-boot. bootContainer mounts a files snapshot taken at dispatch time; a
 // write landing between WebContainer.boot() resolving and that mount would be
@@ -35,6 +38,9 @@ async function modules() {
       readProjectFilesFromWebContainer: async () => lastFiles,
       writeProjectFile: async (path, content) => {
         lastFiles = lastFiles.map(file => file.path === path ? { path, content } : file)
+      },
+      deleteProjectFile: async path => {
+        lastFiles = lastFiles.filter(file => file.path !== path)
       },
     }
   }
@@ -153,10 +159,50 @@ export async function startDevServer() {
   await m.startDevServer(line => dispatchWebContainerLog(line), url => dispatchPreviewUrlChanged(url))
 }
 
-function appendRuntimeLog(line) {
+// Exported for the agent's exec tool, which streams command output into the
+// same terminal the user already reads (with an `[agent] ` prefix, matching the
+// existing `[dev]` / `[preview error]` convention).
+export function appendRuntimeLog(line) {
   globalThis.__buildLastRuntimeLog = line
   document.querySelector('build-terminal')?.write?.(line)
   dispatchWebContainerLog(line)
+}
+
+/**
+ * Spawn a one-shot agent command.
+ *
+ * Awaits `bootGate` first: a spawn racing the initial mount would run against a
+ * half-populated filesystem, so `tsc` would report errors about files that are
+ * about to exist.
+ */
+export async function spawnAgentCommand(command, args) {
+  const m = await modules()
+  await bootGate
+  if (!m.spawnCommand) {
+    throw new Error('Commands are not available outside the browser WebContainer.')
+  }
+  return m.spawnCommand(command, args)
+}
+
+/**
+ * Settle anything queued toward the container.
+ *
+ * `project.FileApplied` writes through immediately, so this awaits the boot gate
+ * and drains debounced editor writes — enough that a command started right after
+ * a write sees it on disk.
+ */
+export async function flushContainerWrites() {
+  await bootGate
+  // Debounced editor writes are *performed* now, not discarded — dropping them
+  // would silently lose the user's in-flight keystrokes.
+  const pending = [...scheduledPayloads.entries()]
+  for (const [path, content] of pending) {
+    const timer = scheduledFileWrites.get(path)
+    if (timer) clearTimeout(timer)
+    scheduledFileWrites.delete(path)
+    scheduledPayloads.delete(path)
+    await writeFileToContainer(path, content)
+  }
 }
 
 export async function runNpmInstall() {
@@ -183,6 +229,14 @@ export async function readFilesFromContainer() {
   else dispatchProjectSaveStatus('No files found to sync')
 }
 
+export async function deleteFileFromContainer(path) {
+  const m = await modules()
+  await bootGate
+  // The agent's snapshot was already updated synchronously by the interpreter —
+  // doing it here would be too late, since this awaits the boot gate.
+  if (m.deleteProjectFile) await m.deleteProjectFile(path)
+}
+
 export async function writeFileToContainer(path, content) {
   const m = await modules()
   await bootGate
@@ -192,8 +246,12 @@ export async function writeFileToContainer(path, content) {
 export function scheduleWriteFileToContainer(delay, path, content) {
   const previous = scheduledFileWrites.get(path)
   if (previous) clearTimeout(previous)
+  // The payload is tracked alongside the timer so flushContainerWrites() can
+  // perform a pending write early instead of discarding it.
+  scheduledPayloads.set(path, content)
   const timer = setTimeout(() => {
     scheduledFileWrites.delete(path)
+    scheduledPayloads.delete(path)
     void writeFileToContainer(path, content)
   }, delay)
   scheduledFileWrites.set(path, timer)
@@ -207,4 +265,14 @@ export async function startShell(onOutput, terminal) {
 globalThis.__buildGleamStartShell = startShell
 
 export function remountProject() { void mountAndInstall() }
-export function setLastFiles(files) { lastFiles = files?.length ? files : fallbackStarterFiles }
+
+export function setLastFiles(files) {
+  lastFiles = files?.length ? files : fallbackStarterFiles
+  // Seed the agent's file snapshot. Boot and remount are the only paths that
+  // carry the authoritative file set on a first run — with no saved project
+  // nothing else dispatches files, so without this the agent's first turn would
+  // see an empty project and `fs_list` would return nothing.
+  void import('./projects.mjs')
+    .then(m => m.publishProjectFileList(lastFiles))
+    .catch(() => {})
+}

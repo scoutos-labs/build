@@ -15,7 +15,12 @@ pub fn interpret(effect: project.Effect) -> Nil {
       selected_path,
       current_project_id,
       silent,
-    ) ->
+    ) -> {
+      // Keep the agent's file snapshot in step with the model. Every path that
+      // changes a file funnels through a save, so publishing here means
+      // `fs_read`/`fs_list` always see what `project.files` holds — never the
+      // container's lossy replica.
+      publish_project_files(files)
       save_current_project(
         name,
         files,
@@ -25,6 +30,7 @@ pub fn interpret(effect: project.Effect) -> Nil {
         option.unwrap(current_project_id, ""),
         silent,
       )
+    }
     project.CreateProject(name, files, messages, selected_path) ->
       create_project(name, files, messages, selected_path)
     project.OpenProject(id) -> open_project(id)
@@ -32,8 +38,22 @@ pub fn interpret(effect: project.Effect) -> Nil {
     project.RefreshProjectList -> refresh_project_list()
     project.PersistCurrentProjectId(id) ->
       persist_current_project_id(option.unwrap(id, ""))
-    project.WriteFileToContainer(path, content) ->
+    project.WriteFileToContainer(path, content) -> {
+      // Keep the agent's snapshot current on EVERY applied file, not only when
+      // an autosave happens to run. Autosave is gated on the container being
+      // hydrated, so relying on it alone left `fs_list` and `fs_read` reading an
+      // empty project — the agent was blind to the very files it had written.
+      publish_project_file(path, content)
       write_file_to_container(path, content)
+    }
+    project.DeleteFileFromContainer(path) -> {
+      // Symmetric with the write path above: update the snapshot SYNCHRONOUSLY
+      // here, not inside the container call. That call awaits `bootGate`, so a
+      // delete during boot would leave the file in the agent's snapshot
+      // indefinitely — fs_list would keep offering a file that is gone.
+      unpublish_project_file(path)
+      delete_file_from_container(path)
+    }
     project.DebouncedWriteFileToContainer(delay, path, content) ->
       schedule_write_file_to_container(delay, path, content)
     project.RemountProject(_) -> remount_project()
@@ -45,7 +65,8 @@ pub fn interpret(effect: project.Effect) -> Nil {
       build_log,
       selected_path,
       current_project_id,
-    ) ->
+    ) -> {
+      publish_project_files(files)
       schedule_save(
         delay,
         name,
@@ -55,8 +76,27 @@ pub fn interpret(effect: project.Effect) -> Nil {
         selected_path,
         option.unwrap(current_project_id, ""),
       )
+    }
   }
 }
+
+/// Publish the current file set for the agent's tool executors.
+///
+/// `project.files` is the source of truth and the container FS is a lossy
+/// replica, so `fs_read`/`fs_list` must read the model, not the disk.
+@external(javascript, "../../gleam-externals/webcontainer.mjs", "deleteFileFromContainer")
+fn delete_file_from_container(path: String) -> Nil
+
+@external(javascript, "../../gleam-externals/projects.mjs", "unpublishProjectFile")
+fn unpublish_project_file(path: String) -> Nil
+
+@external(javascript, "../../gleam-externals/projects.mjs", "publishProjectFiles")
+fn publish_project_files(files: List(templates.ProjectFile)) -> Nil
+
+/// Upsert a single file into the snapshot, for the write path that fires
+/// regardless of autosave.
+@external(javascript, "../../gleam-externals/projects.mjs", "publishProjectFile")
+fn publish_project_file(path: String, content: String) -> Nil
 
 @external(javascript, "../../gleam-externals/projects.mjs", "loadInitialProject")
 fn load_initial_project() -> Nil

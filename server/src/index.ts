@@ -6,9 +6,11 @@ import { createApp, type AuthResult, type ClerkWebhookEvent } from './app.js'
 import { createDb, migrate } from './db.js'
 import { createKeyCrypto } from './key-crypto.js'
 import { createOpenRouterClient } from './openrouter.js'
-import { createRateLimiter } from './rate-limit.js'
+import { createAgentRateLimiters, createRateLimiter } from './rate-limit.js'
 import { createScoutLiveClient } from './scoutlive.js'
 import { normalizeTier } from './tiers.js'
+import { createModelCatalog } from './models.js'
+import { createStepTokens } from './step-token.js'
 
 function requireEnv(name: string): string {
   const value = process.env[name]
@@ -73,6 +75,11 @@ const app = createApp({
   scoutlive: createScoutLiveClient(),
   keyCrypto: createKeyCrypto(keyEncryptionSecret),
   rateLimiter: createRateLimiter(10, 60_000),
+  models: createModelCatalog({ log: message => console.log(`[build-api] ${message}`) }),
+  // Domain-separated from credential encryption via HKDF inside createStepTokens,
+  // so no new Render env var is needed.
+  stepTokens: createStepTokens(keyEncryptionSecret),
+  agentLimiters: createAgentRateLimiters(),
   verifyToken,
   verifyWebhook,
   log: message => console.log(`[build-api] ${message}`),

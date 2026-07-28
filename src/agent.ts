@@ -2,7 +2,7 @@ import { designGuidancePrompt } from './design-guidance'
 import { buildSelectedElementPrompt, type SelectedPreviewElement } from './preview-inspector'
 import type { ProjectFile } from './templates'
 import { FetchLLMClient } from './llm-client'
-import type { LLMCallParams, ModelMessage as PortMessage } from './llm-port'
+import type { ModelMessage as PortMessage, ToolCall } from './llm-port'
 
 // `paths`: files the turn touched (assistant turns with patches); rides the
 // saved message so the chat's narration chips survive reloads.
@@ -193,7 +193,7 @@ function projectContext(files: ContextFile[]) {
 }
 
 export async function call_agent(args: AgentArgs & { fetchFn?: typeof fetch }): Promise<AgentResult> {
-  const fetchFn = args.fetchFn ?? globalThis.fetch
+  const fetchFn = args.fetchFn ?? globalThis.fetch.bind(globalThis)
   const messages: ModelMessage[] = []
   messages.push({ role: 'system', content: JSON_SYSTEM_PROMPT })
   if (args.files.length > 0) {
@@ -240,3 +240,129 @@ export async function runAgent(args: AgentArgs & { fetchFn?: typeof fetch }): Pr
   return call_agent(args)
 }
 
+// ── Tool mode ────────────────────────────────────────────────────────────────
+//
+// The BYOK mirror of server/src/prompt.ts's tool-mode prompt.
+// `src/prompt-parity.test.ts` compares the two verbatim.
+//
+// BYOK has no web tools — no SSRF guard, no server-held search key, no
+// authenticated caller — so WEB_TOOL_RULES is deliberately absent here rather
+// than conditional. A model told about a tool it will not be offered calls it
+// and stalls.
+
+export const TOOL_MODE_HEADER =
+  'You are an app-building agent working inside a live browser development environment (a StackBlitz WebContainer). You have tools that read and write the project files and run commands in it. Use them to do the work, then tell the user what you did in plain language.'
+
+export const TOOL_MODE_WORKFLOW = `How to work:
+- DO THE WORK IN THIS TURN. If the user asked for a change, make it before you reply. Reading files is preparation, not an answer — never finish a turn having only looked around. Finish without changing anything only when the user asked a question rather than for a change.
+- Read before you write, but read once. Use fs_list to see what exists and fs_read for the files you will actually change. You already have everything you have read this turn; re-reading the same file wastes a step you may need later.
+- Write whole files. fs_write and fs_batch_write replace a file completely; send the full content, never a fragment or a diff.
+- Group related changes into ONE fs_batch_write so a refactor cannot land half-applied.
+- Check your work before you finish. After changing code, run \`npx tsc --noEmit\` (and \`npm run build\` for anything substantial) with exec, read the real errors, fix them, and check again. Do not hand back work you have not verified.
+- exec runs exactly these and nothing else: \`npm install <package>\`, \`npm run build\`, \`npx tsc --noEmit\`, \`npx vite build\`, and \`node <file>\`. Anything else is refused and costs you a step, so do not guess at other commands.
+- The dev server is already running and reloads automatically. Never start it.
+- The starter page is a placeholder, not the user's app. Replace it with what they asked for rather than describing it back to them.
+- Your final message is plain conversational text shown as-is in a chat bubble. No markdown, no asterisks, no backticks, no bullet lists, no headings — they render as literal characters. Two or three short sentences saying what changed, in the user's terms, not the codebase's. Do not name files unless the user asked about them, and never paste code.`
+
+export const TOOL_MODE_RULES_HEADER = 'Rules:'
+
+/** Shared with server/src/prompt.ts — the parity test compares this verbatim. */
+export const SHARED_RULES = [
+  'Prefer Vite + React + TypeScript.',
+  'Use Tailwind CSS for styling and shadcn/ui for components.',
+  'Tailwind, PostCSS, and the cn() helper in src/lib/utils.ts are preconfigured; do not modify tailwind.config.js or postcss.config.js, and only change package.json to add a genuinely new dependency.',
+  'For persistence, use the db client in src/db.ts; it calls the hyper-zepto data port that zepto-bridge.js serves at /api/db (mounted by vite.config.ts in dev and server.js in production). Never import hyper-zepto in browser code.',
+  'Preserve vite.config.ts, zepto-bridge.js, and server.js (they host the database API and the production server) unless the user explicitly asks to change the backend.',
+  'Do not use native Node modules, server-only packages, Docker, or external databases.',
+  'Vite: pin to ^7.x. Vite 8+ uses rolldown WASM that crashes in WebContainers.',
+  'Dependency versions must be peer-compatible. If adding packages, check their peer dep requirements.',
+  'Keep changes small, coherent, and runnable.',
+  "Preserve src/build-inspector.ts and the './build-inspector' import unless the user explicitly asks to remove Build preview selection.",
+  'Apply the bundled design guidance unless the user asks for a different brand or visual direction.',
+  'Maintain BRAIN.md, the project\'s plain-language wiki: keep "## What & Why" describing the user\'s goals (change it only when the user changes their goals), keep "## How it works" a current plain-language summary of the app, record brand choices under "## Brand", and append dated entries under "## Decisions" when you make significant design or engineering choices.',
+  'Keep BRAIN.md under 6,000 characters: prune superseded decisions and never paste code into it.',
+  'Your user is usually a non-technical founder: write the reply in plain language, with no jargon and no file paths unless they ask.',
+  'After a substantive change, end the reply with one short "Next:" sentence naming the most valuable next step for this app; when the user seems stuck, offer two or three concrete options instead of open-ended questions.',
+  "On the first build, propose a brand that fits the user's stated style: an app name, a 3-5 color palette in hex, a one-line tone of voice, and a described (not generated) logo direction; record them under \"## Brand\" in BRAIN.md and apply the palette in the app.",
+  'When the user asks for branding help later, update the "## Brand" section and the code together; never contradict the recorded brand silently.',
+]
+
+export function buildToolModePrompt(): string {
+  return [
+    TOOL_MODE_HEADER,
+    '',
+    TOOL_MODE_WORKFLOW,
+    '',
+    TOOL_MODE_RULES_HEADER,
+    ...SHARED_RULES.map(rule => `- ${rule}`),
+    '',
+    'Design guidance:',
+    designGuidancePrompt(),
+  ].join('\n')
+}
+
+/**
+ * A file listing rather than file contents.
+ *
+ * The change that makes multi-step turns affordable: with `fs_read` available,
+ * step 0 ships a tree plus the few files that are always relevant, and the model
+ * pulls what it needs.
+ */
+export function buildFileTree(files: { path: string; bytes: number }[]): string {
+  return [...files]
+    .sort((a, b) => a.path.localeCompare(b.path))
+    .map(file => `${file.path} (${file.bytes} bytes)`)
+    .join('\n')
+}
+
+/** Files worth shipping unasked on every step. */
+const TOOL_MODE_ALWAYS_FULL = ['package.json', 'BRAIN.md', 'src/db.ts']
+
+export type ToolModeStepArgs = {
+  files: ProjectFile[]
+  messages: ChatMessage[]
+  userPrompt?: string
+  selectedElement?: SelectedPreviewElement
+  elementComment?: string
+  /** Assistant tool_calls from the previous step, and their results. Providers
+   * reject a `tool` message with no matching call, so the pair travels together. */
+  toolCalls?: ToolCall[]
+  toolResults?: { toolCallId: string; content: string }[]
+}
+
+export function buildToolModeMessages(args: ToolModeStepArgs): PortMessage[] {
+  const messages: PortMessage[] = [{ role: 'system', content: buildToolModePrompt() }]
+
+  if (args.files.length > 0) {
+    const tree = args.files.map(file => ({ path: file.path, bytes: file.content.length }))
+    messages.push({
+      role: 'system',
+      content: `The project contains these files. Use fs_read to see any of them:\n\n${buildFileTree(tree)}`,
+    })
+    for (const file of args.files) {
+      if (!TOOL_MODE_ALWAYS_FULL.includes(file.path)) continue
+      const guarded = guardBrainFile(file)
+      messages.push({ role: 'system', content: `--- ${guarded.path}\n${guarded.content}` })
+    }
+  }
+  if (args.selectedElement && args.elementComment) {
+    messages.push({
+      role: 'system',
+      content: buildSelectedElementPrompt({
+        element: args.selectedElement,
+        comment: args.elementComment,
+      }),
+    })
+  }
+  for (const message of args.messages) {
+    messages.push({ role: message.role as 'user' | 'assistant', content: message.content })
+  }
+  if (args.userPrompt) messages.push({ role: 'user', content: args.userPrompt })
+  if (args.toolCalls?.length) {
+    messages.push({ role: 'assistant', content: '', tool_calls: args.toolCalls })
+  }
+  for (const result of args.toolResults ?? []) {
+    messages.push({ role: 'tool', content: result.content, tool_call_id: result.toolCallId })
+  }
+  return messages
+}

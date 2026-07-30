@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PRD — One schema owner for build-db</title>
+<style>
+  :root { --ink:#12161c; --dim:#5b6673; --line:#e2e6eb; --bg:#fbfcfd; --amber:#b45309; --pass:#0f766e; --fail:#b91c1c; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#e7ebf0; --dim:#94a1b1; --line:#252c36; --bg:#0f1319; --amber:#f0a33a; --pass:#4dd4c0; --fail:#f87171; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
+  main { max-width:60rem; margin:0 auto; padding:3rem 1.5rem 6rem; }
+  h1 { font-size:1.9rem; letter-spacing:-.02em; margin:0 0 .3rem; }
+  h2 { font-size:1.15rem; margin:2.6rem 0 .8rem; padding-bottom:.4rem; border-bottom:1px solid var(--line); }
+  h3 { font-size:1rem; margin:1.8rem 0 .5rem; }
+  .sub { color:var(--dim); margin:0 0 2rem; }
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.88em; background:color-mix(in srgb, var(--ink) 7%, transparent); padding:.1em .35em; border-radius:3px; }
+  pre { background:color-mix(in srgb, var(--ink) 6%, transparent); padding:.9rem 1rem; border-radius:6px; overflow-x:auto; border:1px solid var(--line); }
+  pre code { background:none; padding:0; }
+  table { border-collapse:collapse; width:100%; margin:.8rem 0; }
+  th,td { text-align:left; padding:.5rem .7rem; border-bottom:1px solid var(--line); vertical-align:top; font-size:.92em; }
+  th { color:var(--dim); font-weight:600; font-size:.8em; text-transform:uppercase; letter-spacing:.05em; }
+  .wrap { overflow-x:auto; }
+  ul { padding-left:1.2rem; } li { margin:.3rem 0; }
+  .step { border:1px solid var(--line); border-radius:8px; padding:1rem 1.2rem; margin:1rem 0; background:color-mix(in srgb, var(--ink) 2%, transparent); }
+  .step h3 { margin-top:0; }
+  .note { border-left:3px solid var(--amber); padding:.6rem 0 .6rem 1rem; margin:1rem 0; color:var(--dim); }
+  .note strong { color:var(--ink); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>One schema owner for <code>build-db</code></h1>
+<p class="sub">Task slug <code>build-db-schema-owner</code> · branch <code>enable-managed-auth</code> · 2026-07-30 · follow-up to finding F1 of <a href="managed-auth-local-smoke-progress.html">the managed-auth smoke test</a></p>
+
+<h2>Definition</h2>
+<p><strong>In this project, "schema owner" means exactly one module declares
+<code>build-db</code>'s version number and creates every object store in a single
+<code>onupgradeneeded</code> handler; every other module obtains its handle from that owner and
+never calls <code>indexedDB.open</code> itself.</strong></p>
+<p><code>src/projects.ts</code> already claims this role in its own comment
+(<code>projects.ts:30</code>): <em>"This module owns the schema: <code>build-db</code> must be opened
+at ONE version, and two modules opening it at different versions throws on whichever is second."</em>
+<code>src/workspace-store.ts:40</code> already complies, via <code>export const openWorkspaceDb = openBuildDb</code>.
+This task makes the one non-complying module comply.</p>
+
+<h2>The defect</h2>
+<table>
+  <tr><th>Module</th><th>Opens</th><th>At version</th><th>Creates</th></tr>
+  <tr><td><code>src/projects.ts:33</code></td><td><code>build-db</code></td><td><strong>2</strong></td><td><code>projects</code>, <code>meta</code>, <code>workspace</code></td></tr>
+  <tr><td><code>src/workspace-store.ts:40</code></td><td>— (delegates)</td><td>—</td><td>—</td></tr>
+  <tr><td><code>src/env-store.ts:9</code></td><td><code>build-db</code></td><td><strong>1</strong></td><td><code>env-store</code></td></tr>
+</table>
+<p>Measured in a real browser during the smoke test: once <code>projects.ts</code> has upgraded the
+database to 2, <code>env-store</code>'s open at 1 fails with
+<code>VersionError: The requested version (1) is less than the existing version (2)</code>.</p>
+
+<div class="note">
+<p><strong>Scope correction, recorded honestly.</strong> The smoke-test writeup described this as
+breaking the env-vars feature. It does not, today: <code>env-store.ts</code> has <strong>no
+consumers</strong> — a repo-wide search finds the string <code>env-store</code> only in the module
+itself and its own test. It is a latent defect in an unused module. That lowers the urgency but not
+the correctness argument: the module ships, and it is wrong the moment anyone wires it up.</p>
+</div>
+
+<h2>Why the obvious fix is wrong</h2>
+<p>Changing <code>env-store.ts</code>'s <code>DB_VERSION</code> from 1 to 2 looks like a one-character
+fix and is a trap. Databases already at version 2 would open without firing
+<code>onupgradeneeded</code> at all, so the <code>env-store</code> object store would never be
+created — trading a loud <code>VersionError</code> for a quieter
+<code>NotFoundError</code> on first use. The store has to be created by the owner's upgrade handler,
+which means the version must actually advance to <strong>3</strong>.</p>
+
+<h2>Goals</h2>
+<ul>
+  <li>One module opens <code>build-db</code>; everyone else delegates.</li>
+  <li>Every existing database — v1 with <code>{meta, projects}</code>, v2 with
+  <code>{meta, projects, workspace}</code>, or an env-store-first v1 — converges on the same v3 shape
+  with <strong>no data loss</strong>.</li>
+  <li>A test that fails against today's code, in real IndexedDB semantics rather than a stub.</li>
+  <li>Make the version bump safe to deploy while a tab running the old code is still open.</li>
+</ul>
+
+<h2>Non-goals</h2>
+<ul>
+  <li><strong>Deleting <code>env-store.ts</code>.</strong> Defensible — the migration plan's Phase 0
+  deleted dead trees on exactly this reasoning — but the user asked to fix, not to remove. Flagged as
+  an open decision below rather than taken unilaterally.</li>
+  <li>Building any env-vars UI or wiring the module to a consumer.</li>
+  <li>Touching the F3 provisioning-idempotency finding, which needs a product decision.</li>
+  <li>Changing what any store holds, or migrating record shapes.</li>
+</ul>
+
+<h2>Constraints</h2>
+<table>
+  <tr><th>Constraint</th><th>Consequence</th></tr>
+  <tr><td><strong>Real user data</strong></td><td><code>build-db</code> holds the user's actual projects. A migration that drops a store destroys work. Every <code>createObjectStore</code> stays guarded by a <code>contains()</code> check, and the upgrade is verified against the user's live database, not just a synthetic one.</td></tr>
+  <tr><td><strong>Duplicate module instances</strong></td><td>The Gleam build mirrors <code>src/</code> into <code>build/dev/javascript/build/</code>, and <code>main-gleam.ts</code> imports from both paths. Two copies of <code>projects.ts</code> can each hold a memoized connection. Same version in both, so they coexist — but it means an upgrade can find another connection already open.</td></tr>
+  <tr><td><strong>Version bumps can block</strong></td><td>An open connection at v2 blocks a v3 upgrade indefinitely. Today <code>openBuildDb</code> has neither an <code>onblocked</code> nor an <code>onversionchange</code> handler, so a second tab on the old code would hang the new one silently — with no error, forever.</td></tr>
+  <tr><td><strong>No subagents</strong></td><td>Session policy disallows spawning them; planner and judge roles are performed inline against the same rubric.</td></tr>
+</table>
+
+<h2>Open decision (not a blocker)</h2>
+<p>Since <code>env-store.ts</code> is unused, the alternative to fixing it is deleting it (~78 lines
+plus its test). <strong>Recommendation: fix now, decide deletion separately.</strong> The fix is small
+and makes the schema rule uniformly true, which is worth having regardless; deletion is a product call
+about whether per-project env vars are still wanted. Proceeding with the fix under that assumption.</p>
+
+<h2>Plan</h2>
+
+<div class="step">
+<h3>Step 1 — <code>projects.ts</code> becomes the sole schema owner at v3</h3>
+<p>Bump <code>DB_VERSION</code> to 3, create the <code>env-store</code> object store in the same
+guarded upgrade handler, and add the missing <code>onblocked</code> / <code>onversionchange</code>
+handling that a version bump makes necessary.</p>
+<strong>Acceptance criteria</strong>
+<ul>
+  <li>AC1.1 <code>DB_VERSION === 3</code> and the upgrade handler creates all four stores, each guarded by <code>objectStoreNames.contains()</code>.</li>
+  <li>AC1.2 <code>onblocked</code> rejects with a message naming the cause, instead of hanging forever.</li>
+  <li>AC1.3 <code>onversionchange</code> closes the connection so another tab's upgrade is never blocked by this one.</li>
+  <li>AC1.4 The store-name constant is exported so <code>env-store.ts</code> cannot drift from the owner's spelling.</li>
+</ul>
+<p><strong>Evidence:</strong> diff; unit tests in step 3.</p>
+</div>
+
+<div class="step">
+<h3>Step 2 — <code>env-store.ts</code> delegates</h3>
+<p>Delete its <code>DB_NAME</code>/<code>DB_VERSION</code>/<code>openDb</code> and import
+<code>openBuildDb</code>, mirroring <code>workspace-store.ts</code> exactly — same shape, same
+explanatory comment style.</p>
+<strong>Acceptance criteria</strong>
+<ul>
+  <li>AC2.1 <code>env-store.ts</code> contains no <code>indexedDB.open</code> call and declares no version.</li>
+  <li>AC2.2 A repo-wide search shows exactly <strong>one</strong> <code>indexedDB.open</code> for <code>build-db</code> in <code>src/</code>.</li>
+  <li>AC2.3 The module's public API is unchanged — <code>getEnvVars</code>, <code>setEnvVars</code>, <code>upsertEnvVar</code>, <code>deleteEnvVar</code>, <code>envToDotEnv</code> keep their signatures.</li>
+</ul>
+<p><strong>Evidence:</strong> diff; <code>grep -rn "indexedDB.open" src/</code>.</p>
+</div>
+
+<div class="step">
+<h3>Step 3 — a test that would have caught it</h3>
+<p>The existing <code>env-store.test.ts</code> replaces <code>indexedDB</code> with a hand-rolled stub
+whose <code>open()</code> ignores the version argument entirely — which is precisely why this bug
+survived. Move it to real <code>fake-indexeddb</code> semantics, the pattern
+<code>projects.test.ts</code> already uses.</p>
+<strong>Acceptance criteria</strong>
+<ul>
+  <li>AC3.1 A test opens the DB through <code>projects.ts</code> first, then reads/writes through <code>env-store.ts</code>, and passes.</li>
+  <li>AC3.2 The reverse order also passes (env-store first, then projects).</li>
+  <li>AC3.3 <strong>The new test fails against the pre-fix code</strong> — verified by stashing the fix, not assumed.</li>
+  <li>AC3.4 A test proves an existing v2 database upgrades to v3 with its records intact.</li>
+  <li>AC3.5 The existing env-store behavioral tests (<code>envToDotEnv</code> escaping etc.) still pass.</li>
+</ul>
+<p><strong>Evidence:</strong> <code>npx vitest run src/env-store.test.ts src/projects.test.ts</code>; a recorded pre-fix failure.</p>
+</div>
+
+<div class="step">
+<h3>Step 4 — validate, including against the user's real database</h3>
+<strong>Acceptance criteria</strong>
+<ul>
+  <li>AC4.1 <code>npm test</code> (gleam + vitest) and <code>server</code> vitest all green, with no test count regression (baseline 799).</li>
+  <li>AC4.2 In the live browser, <code>build-db</code> reports <code>version: 3</code> with all four stores present.</li>
+  <li>AC4.3 <strong>The user's existing projects survive</strong> — project count and current-project id unchanged across the upgrade, compared before and after.</li>
+  <li>AC4.4 An <code>env-store</code> read/write round-trips in the real browser without a <code>VersionError</code>.</li>
+  <li>AC4.5 No new console errors on load.</li>
+</ul>
+<p><strong>Evidence:</strong> suite output; before/after DB snapshot from the live page.</p>
+</div>
+
+<h2>Validation commands</h2>
+<div class="wrap">
+<pre><code>npx vitest run src/env-store.test.ts src/projects.test.ts
+npm test              # 197 gleam + 293 vitest
+cd server &amp;&amp; npm test  # 309
+grep -rn "indexedDB.open" src/    # expect exactly one hit</code></pre>
+</div>
+
+<h2>Definition of done</h2>
+<p>One <code>indexedDB.open</code> for <code>build-db</code> in the codebase; both module orders work
+under real IndexedDB semantics; the new test demonstrably fails without the fix; the user's live
+database is at v3 with all four stores and <strong>every project still present</strong>; all suites
+green.</p>
+
+<h2>Judge rubric</h2>
+<table>
+  <tr><th>Area</th><th>Judgment</th></tr>
+  <tr><td>Correctness</td><td>Do all three starting states (v1 two-store, v1 env-first, v2) converge on v3 without loss?</td></tr>
+  <tr><td>Data safety</td><td>Is every <code>createObjectStore</code> guarded? Was the real database verified, not just a synthetic one?</td></tr>
+  <tr><td>Test quality</td><td>Does the test fail on the old code? Does it use real IDB semantics rather than a stub that ignores versions?</td></tr>
+  <tr><td>Simplicity</td><td>Does <code>env-store.ts</code> now read like <code>workspace-store.ts</code>, or has a second pattern been invented?</td></tr>
+  <tr><td>Taste</td><td>Do the comments explain <em>why</em> the rule exists rather than restating the code? Is the delegation as quiet as <code>workspace-store.ts</code>'s?</td></tr>
+  <tr><td>Maintainability</td><td>Would the next contributor adding a store know where to put it?</td></tr>
+</table>
+<p>Taste threshold: below 4 triggers a repair loop. Originality is not scored — the correct answer
+here is deliberately to copy the pattern the repo already established, not to invent one.</p>
+
+<h2>Risks</h2>
+<table>
+  <tr><th>Risk</th><th>Handling</th></tr>
+  <tr><td>Upgrade drops a store and destroys projects</td><td>Guarded creates only; no deletes. Verified against the live DB with a before/after project count (AC4.3).</td></tr>
+  <tr><td>Old tab blocks the upgrade forever</td><td>Explicitly addressed in Step 1 (AC1.2, AC1.3) rather than left latent.</td></tr>
+  <tr><td>Version bump ships to users mid-session</td><td><code>onversionchange</code> closes stale connections so the next load upgrades cleanly.</td></tr>
+  <tr><td>Fixing dead code is wasted effort</td><td>Acknowledged in the open decision above; the fix is small and the schema rule becomes uniformly true.</td></tr>
+</table>
+
+</main>
+</body>
+</html>

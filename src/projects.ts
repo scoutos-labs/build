@@ -24,16 +24,23 @@ export type SavedProject = {
 const DB_NAME = 'build-db'
 /**
  * Bumped to 2 for the `workspace` store (skills, agent personas — see
- * `src/workspace-store.ts`). `onupgradeneeded` only creates what is missing, so
- * an existing database upgrades in place with no migration and no data loss.
+ * `src/workspace-store.ts`), then to 3 for `env-store`, which
+ * `src/env-store.ts` used to create by opening this same database at its own
+ * version 1 — throwing `VersionError` once anything had upgraded it past that.
+ * Advancing the version is what actually creates the store: databases already
+ * at 2 never fire `onupgradeneeded` again unless the number moves.
+ * `onupgradeneeded` only creates what is missing, so an existing database
+ * upgrades in place with no migration and no data loss.
  *
  * This module owns the schema: `build-db` must be opened at ONE version, and
  * two modules opening it at different versions throws on whichever is second.
  */
-const DB_VERSION = 2
+const DB_VERSION = 3
 const PROJECTS_STORE = 'projects'
 const META_STORE = 'meta'
 export const WORKSPACE_STORE = 'workspace'
+/** Exported so `src/env-store.ts` cannot drift from the owner's spelling. */
+export const ENV_STORE = 'env-store'
 const CURRENT_PROJECT_ID_KEY = 'current-project-id'
 
 type MetaRecord = { key: string; value: string | null }
@@ -44,14 +51,28 @@ export function openBuildDb(): Promise<IDBDatabase> {
   dbPromise ??= new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION)
 
+    // Guarded creates only, never deletes: this database holds the user's
+    // projects, and an upgrade that dropped a store would destroy their work.
     request.onupgradeneeded = () => {
       const db = request.result
       if (!db.objectStoreNames.contains(PROJECTS_STORE)) db.createObjectStore(PROJECTS_STORE, { keyPath: 'id' })
       if (!db.objectStoreNames.contains(META_STORE)) db.createObjectStore(META_STORE, { keyPath: 'key' })
       if (!db.objectStoreNames.contains(WORKSPACE_STORE)) db.createObjectStore(WORKSPACE_STORE, { keyPath: 'id' })
+      if (!db.objectStoreNames.contains(ENV_STORE)) db.createObjectStore(ENV_STORE, { keyPath: 'projectId' })
     }
 
-    request.onsuccess = () => resolve(request.result)
+    // A connection still open at an older version blocks the upgrade — silently
+    // and forever, without this. Surfacing it beats an app that just never boots.
+    request.onblocked = () =>
+      reject(new Error('build-db upgrade is blocked by another open tab — close it and reload'))
+
+    request.onsuccess = () => {
+      const db = request.result
+      // The mirror image: when another tab upgrades, step aside instead of
+      // being the connection that blocks it.
+      db.onversionchange = () => db.close()
+      resolve(db)
+    }
     request.onerror = () => reject(request.error ?? new Error('Failed to open IndexedDB'))
   })
   return dbPromise

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Progress — One schema owner for build-db</title>
+<style>
+  :root { --ink:#12161c; --dim:#5b6673; --line:#e2e6eb; --bg:#fbfcfd; --amber:#b45309; --pass:#0f766e; --fail:#b91c1c; --wait:#6b7280; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#e7ebf0; --dim:#94a1b1; --line:#252c36; --bg:#0f1319; --amber:#f0a33a; --pass:#4dd4c0; --fail:#f87171; --wait:#8b95a3; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
+  main { max-width:60rem; margin:0 auto; padding:3rem 1.5rem 6rem; }
+  h1 { font-size:1.9rem; letter-spacing:-.02em; margin:0 0 .3rem; }
+  h2 { font-size:1.15rem; margin:2.6rem 0 .8rem; padding-bottom:.4rem; border-bottom:1px solid var(--line); }
+  h3 { font-size:1rem; margin:1.6rem 0 .5rem; }
+  .sub { color:var(--dim); margin:0 0 2rem; }
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.88em; background:color-mix(in srgb, var(--ink) 7%, transparent); padding:.1em .35em; border-radius:3px; }
+  pre { background:color-mix(in srgb, var(--ink) 6%, transparent); padding:.9rem 1rem; border-radius:6px; overflow-x:auto; border:1px solid var(--line); }
+  pre code { background:none; padding:0; }
+  table { border-collapse:collapse; width:100%; margin:.8rem 0; }
+  th,td { text-align:left; padding:.5rem .7rem; border-bottom:1px solid var(--line); vertical-align:top; font-size:.92em; }
+  th { color:var(--dim); font-weight:600; font-size:.8em; text-transform:uppercase; letter-spacing:.05em; }
+  .wrap { overflow-x:auto; }
+  .s { display:inline-block; font-size:.72rem; font-weight:600; text-transform:uppercase; letter-spacing:.06em; padding:.15em .6em; border-radius:99px; border:1px solid currentColor; }
+  .s-pass { color:var(--pass); } .s-fail { color:var(--fail); } .s-wait { color:var(--wait); }
+  .status-line { font-size:1.05rem; padding:.9rem 1.1rem; border:1px solid var(--line); border-left:3px solid var(--pass); border-radius:6px; background:color-mix(in srgb, var(--ink) 3%, transparent); }
+  ul { padding-left:1.2rem; } li { margin:.25rem 0; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Progress — one schema owner for <code>build-db</code></h1>
+<p class="sub">Task slug <code>build-db-schema-owner</code> · branch <code>enable-managed-auth</code> · PRD: <a href="build-db-schema-owner-prd.html">build-db-schema-owner-prd.html</a></p>
+
+<p class="status-line"><strong>Status: <span class="s s-pass">complete</span></strong> — all four steps
+pass. <code>build-db</code> now has exactly one <code>indexedDB.open</code>; every historical database
+shape converges on v3 with data intact, verified both in tests and against the user's real database.</p>
+
+<h2>Step checklist</h2>
+<table>
+  <tr><th>Step</th><th>Status</th><th>Criteria</th></tr>
+  <tr><td>1 — <code>projects.ts</code> sole owner at v3</td><td><span class="s s-pass">pass</span></td><td>4/4</td></tr>
+  <tr><td>2 — <code>env-store.ts</code> delegates</td><td><span class="s s-pass">pass</span></td><td>3/3</td></tr>
+  <tr><td>3 — test that would have caught it</td><td><span class="s s-pass">pass</span></td><td>5/5</td></tr>
+  <tr><td>4 — validate, incl. the real database</td><td><span class="s s-pass">pass</span></td><td>5/5</td></tr>
+</table>
+
+<h2>Step 1 — evidence</h2>
+<table>
+  <tr><th>AC</th><th>Verdict</th><th>Evidence</th></tr>
+  <tr><td>1.1 v3, four guarded creates</td><td><span class="s s-pass">pass</span></td><td><code>DB_VERSION = 3</code>; all four <code>createObjectStore</code> calls guarded by <code>contains()</code>; no deletes anywhere in the handler</td></tr>
+  <tr><td>1.2 <code>onblocked</code></td><td><span class="s s-pass">pass</span></td><td>Rejects with "build-db upgrade is blocked by another open tab — close it and reload" instead of hanging</td></tr>
+  <tr><td>1.3 <code>onversionchange</code></td><td><span class="s s-pass">pass</span></td><td>Connection closes itself when another tab upgrades</td></tr>
+  <tr><td>1.4 exported store name</td><td><span class="s s-pass">pass</span></td><td><code>export const ENV_STORE = 'env-store'</code>, consumed by <code>env-store.ts</code></td></tr>
+</table>
+<p>1.2 and 1.3 were not in the original brief — they became necessary <em>because</em> of the version
+bump. Without them, a user with a second tab on the old code gets a page that silently never boots.
+The pre-fix test run made this concrete rather than theoretical: the "env-store touches the database
+first" case failed by <strong>timing out at 5001&nbsp;ms</strong>, not by assertion — a real deadlock.</p>
+
+<h2>Step 2 — evidence</h2>
+<table>
+  <tr><th>AC</th><th>Verdict</th><th>Evidence</th></tr>
+  <tr><td>2.1 no open, no version</td><td><span class="s s-pass">pass</span></td><td><code>env-store.ts</code> is now <code>const openDb = openBuildDb</code> with the same explanatory comment style as <code>workspace-store.ts</code></td></tr>
+  <tr><td>2.2 exactly one owner</td><td><span class="s s-pass">pass</span></td><td><code>grep -rn "indexedDB.open" src/</code> → a single hit, <code>src/projects.ts:52</code></td></tr>
+  <tr><td>2.3 API unchanged</td><td><span class="s s-pass">pass</span></td><td>All five exports keep their signatures; <code>tsc -b</code> exits 0</td></tr>
+</table>
+
+<h2>Step 3 — evidence</h2>
+<table>
+  <tr><th>AC</th><th>Verdict</th><th>Evidence</th></tr>
+  <tr><td>3.1 projects-first ordering</td><td><span class="s s-pass">pass</span></td><td>"works when projects.ts opens the database first"</td></tr>
+  <tr><td>3.2 env-store-first ordering</td><td><span class="s s-pass">pass</span></td><td>"works when env-store touches the database first"</td></tr>
+  <tr><td>3.3 fails pre-fix</td><td><span class="s s-pass">pass</span></td><td><strong>5 of 12 failed</strong> against stashed pre-fix sources; restored and re-verified afterwards</td></tr>
+  <tr><td>3.4 v2 upgrade keeps data</td><td><span class="s s-pass">pass</span></td><td>Seeded v2 DB with a project + <code>current-project-id</code>; both survive to v3</td></tr>
+  <tr><td>3.5 existing behaviour intact</td><td><span class="s s-pass">pass</span></td><td>The three <code>envToDotEnv</code> tests carried over unchanged</td></tr>
+</table>
+<p>The old test file is worth recording as its own finding: it carried ~50 lines of fake-DB scaffolding
+(<code>fakeDB</code>, <code>testStore</code>, <code>openTestDb</code>) that <strong>no test used</strong>,
+and its stubbed <code>indexedDB.open()</code> ignored the version argument entirely. The four storage
+functions had <em>zero</em> coverage while appearing to be tested. That is why a version conflict could
+ship. The replacement runs on <code>fake-indexeddb</code> — the pattern <code>projects.test.ts</code>
+already used — so version semantics are real.</p>
+<p>Coverage went from 3 tests (one pure function) to <strong>14</strong>, adding storage round-trips,
+per-project isolation, both module orderings, and three migration paths.</p>
+
+<h2>Step 4 — evidence</h2>
+<table>
+  <tr><th>AC</th><th>Verdict</th><th>Evidence</th></tr>
+  <tr><td>4.1 suites green</td><td><span class="s s-pass">pass</span></td><td>197 gleam + 304 vitest + 309 server = <strong>810</strong> (baseline was 799; +11 net). <code>tsc -b</code> exits 0.</td></tr>
+  <tr><td>4.2 real DB at v3</td><td><span class="s s-pass">pass</span></td><td>Live browser: <code>version: 3</code>, stores <code>['env-store','meta','projects','workspace']</code></td></tr>
+  <tr><td>4.3 <strong>no data loss</strong></td><td><span class="s s-pass">pass</span></td><td>See the before/after table below</td></tr>
+  <tr><td>4.4 env-store works live</td><td><span class="s s-pass">pass</span></td><td>Round-tripped a probe record on the upgraded database, then deleted it — <code>env-store</code> left with 0 rows, exactly as found</td></tr>
+  <tr><td>4.5 no console errors</td><td><span class="s s-pass">pass</span></td><td>102 messages reviewed: Vite connects, Clerk's expected dev-keys warning, React DevTools notice, our own debug lines. No <code>VersionError</code>, no <code>blocked</code>, no errors.</td></tr>
+</table>
+
+<h3>The user's real database, before and after</h3>
+<div class="wrap">
+<table>
+  <tr><th></th><th>Before (v2)</th><th>After (v3)</th></tr>
+  <tr><td>version</td><td>2</td><td><strong>3</strong></td></tr>
+  <tr><td>stores</td><td><code>meta, projects, workspace</code></td><td><code>env-store, meta, projects, workspace</code></td></tr>
+  <tr><td>projects</td><td>3</td><td>3 <span class="s s-pass">same ids</span></td></tr>
+  <tr><td>files per project</td><td>—</td><td>6 / 13 / 6 <span class="s s-pass">intact</span></td></tr>
+  <tr><td>messages per project</td><td>—</td><td>0 / 2 / 4 <span class="s s-pass">intact</span></td></tr>
+  <tr><td><code>current-project-id</code></td><td><code>303e3d3e…</code></td><td><code>303e3d3e…</code> <span class="s s-pass">unchanged</span></td></tr>
+  <tr><td>workspace records</td><td>1</td><td>1 <span class="s s-pass">unchanged</span></td></tr>
+</table>
+</div>
+<p>Verified by importing the app's own modules (<code>/src/projects.ts</code>,
+<code>/src/env-store.ts</code>) into the live page through Vite's dev transform, so the upgrade ran
+through production code paths against real data — not a re-implementation of the migration.</p>
+
+<h2>Migration paths covered</h2>
+<table>
+  <tr><th>Starting shape</th><th>Where proven</th></tr>
+  <tr><td>v1 <code>{meta, projects}</code> — pre-workspace, the oldest shape in the wild</td><td>test: "upgrades a v1 {meta, projects} database straight to v3"</td></tr>
+  <tr><td>v1 <code>{env-store}</code> — what the old env-store-first path would have created</td><td>test: "upgrades a v1 database that only has env-store"</td></tr>
+  <tr><td>v2 <code>{meta, projects, workspace}</code></td><td>test + <strong>the user's real database</strong></td></tr>
+  <tr><td>no database at all</td><td>test: "opens every store at one version"</td></tr>
+</table>
+
+<h2>Inline judge review</h2>
+<p class="sub">No subagents this session (policy), so the LLM-as-judge pass was performed inline against the PRD rubric.</p>
+<table>
+  <tr><th>Area</th><th>Verdict</th><th>Note</th></tr>
+  <tr><td>Correctness</td><td><span class="s s-pass">pass</span></td><td>All four starting shapes converge on v3. Initially only two were covered; the gap was found during this review and closed with two more tests rather than claimed.</td></tr>
+  <tr><td>Data safety</td><td><span class="s s-pass">pass</span></td><td>Guarded creates only, no deletes. Verified against real data with files and messages counted, not just row counts.</td></tr>
+  <tr><td>Test quality</td><td><span class="s s-pass">pass</span></td><td>Fails on the old code (5/12). Real IDB semantics. The deadlock surfaced as a timeout, which is what motivated <code>onblocked</code>.</td></tr>
+  <tr><td>Simplicity</td><td><span class="s s-pass">pass</span></td><td><code>env-store.ts</code> lost 14 lines and gained a one-line delegation identical in shape to <code>workspace-store.ts</code>. No new pattern invented.</td></tr>
+  <tr><td>Security/privacy</td><td><span class="s s-pass">pass</span></td><td>No credentials touched. The probe record written during live verification was removed.</td></tr>
+  <tr><td>Taste</td><td><strong>4</strong>/5</td><td>The fix is deliberately unoriginal — it makes the third module obey a rule the codebase had already written down and enforced once. Comments explain <em>why</em> the version had to move to 3 rather than restating the code. Not a 5 only because the underlying module is still unused.</td></tr>
+  <tr><td>Maintainability</td><td><span class="s s-pass">pass</span></td><td>One upgrade handler, one version constant, exported store names. Where a fifth store goes is now unambiguous.</td></tr>
+</table>
+<p>Originality deliberately not scored — per the PRD, copying the established pattern <em>is</em> the
+right answer here.</p>
+
+<h2>Files changed</h2>
+<ul>
+  <li><code>src/projects.ts</code> — v3, <code>env-store</code> creation, exported <code>ENV_STORE</code>, <code>onblocked</code> + <code>onversionchange</code></li>
+  <li><code>src/env-store.ts</code> — delegates to <code>openBuildDb</code>; own open/version removed</li>
+  <li><code>src/env-store.test.ts</code> — rewritten on <code>fake-indexeddb</code>; 3 tests → 14</li>
+  <li><code>docs/build-db-schema-owner-{prd,progress}.html</code> — these artifacts</li>
+</ul>
+
+<h2>Residual risks and follow-ups</h2>
+<ul>
+  <li><strong><code>env-store.ts</code> is still unused.</strong> It is now correct, but nothing imports it. Deleting it remains a live option, and is a product call about whether per-project env vars are still wanted.</li>
+  <li><strong>The version bump reaches existing users on next deploy.</strong> Safe by construction (guarded creates) and now safe under a stale tab (<code>onblocked</code>/<code>onversionchange</code>), but it is a schema change and worth a deliberate deploy rather than a drive-by.</li>
+  <li><strong>Only one real database was exercised</strong> — the user's, at v2. The v1 shapes are covered by tests, not by a real profile.</li>
+  <li><strong>F3 (non-idempotent provisioning) is untouched</strong> and still needs a product decision. See the smoke-test progress doc.</li>
+</ul>
+
+<h2>Handoff log</h2>
+<div class="wrap">
+<pre><code>2026-07-30  begin        build-db-schema-owner  step 0  F1 follow-up; baseline 799 tests green
+2026-07-30  scope-fix    build-db-schema-owner  step 0  env-store.ts has NO consumers — latent, not
+                                                        live; smoke-test writeup overstated impact
+2026-07-30  plan-approved build-db-schema-owner step 0  inline plan review; v3 (not v2) required, or
+                                                        the store is never created
+2026-07-30  step-1-done  build-db-schema-owner  step 1  v3 + guarded creates + blocked/versionchange
+2026-07-30  step-2-done  build-db-schema-owner  step 2  one indexedDB.open in src/
+2026-07-30  step-3-done  build-db-schema-owner  step 3  14 tests; 5 fail pre-fix (one by deadlock)
+2026-07-30  step-4-done  build-db-schema-owner  step 4  real DB v2->v3, 3 projects intact, 810 green
+2026-07-30  complete     build-db-schema-owner  --      all 4 steps pass; env-store deletion still open</code></pre>
+</div>
+
+</main>
+</body>
+</html>

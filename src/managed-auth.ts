@@ -57,9 +57,27 @@ export async function getSessionToken(): Promise<string | null> {
   return clerk.session ? clerk.session.getToken() : null
 }
 
+/**
+ * True while a deliberate sign-out is in flight, so the gate's listener below
+ * does not reload the page out from under it. Clerk clears `user` locally the
+ * moment signOut() is called, long before the revoke request reaches Clerk —
+ * reloading on that event aborts the request in flight, and the session comes
+ * back alive from the still-valid cookie.
+ */
+let signingOut = false
+
 export async function signOut(): Promise<void> {
   if (!clerkInstance) return
-  await clerkInstance.signOut()
+  signingOut = true
+  try {
+    // Must be awaited: this is the call that actually revokes the session
+    // server-side. Reloading before it settles leaves the session active.
+    await clerkInstance.signOut()
+  } finally {
+    signingOut = false
+  }
+  // Re-run the boot gate now that the session is genuinely gone.
+  window.location.reload()
 }
 
 /**
@@ -112,8 +130,11 @@ export async function ensureSignedIn(): Promise<void> {
   }
   shell.remove()
 
+  // A session that ends elsewhere (expiry, revoked in another tab) returns the
+  // visitor to the gate. A deliberate sign-out is excluded: signOut() owns the
+  // reload, and only after the revoke request has actually settled.
   // @ts-ignore — listener callback type may vary by Clerk version
   clerk.addListener(({ user }) => {
-    if (!user) window.location.reload()
+    if (!user && !signingOut) window.location.reload()
   })
 }

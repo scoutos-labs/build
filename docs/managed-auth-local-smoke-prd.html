@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PRD — Managed auth local smoke test</title>
+<style>
+  :root { --ink:#12161c; --dim:#5b6673; --line:#e2e6eb; --bg:#fbfcfd; --amber:#b45309; --pass:#0f766e; --fail:#b91c1c; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#e7ebf0; --dim:#94a1b1; --line:#252c36; --bg:#0f1319; --amber:#f0a33a; --pass:#4dd4c0; --fail:#f87171; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
+  main { max-width: 60rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+  h1 { font-size: 1.9rem; letter-spacing:-.02em; margin:0 0 .3rem; }
+  h2 { font-size: 1.15rem; letter-spacing:-.01em; margin:2.6rem 0 .8rem; padding-bottom:.4rem; border-bottom:1px solid var(--line); }
+  h3 { font-size: 1rem; margin:1.8rem 0 .5rem; }
+  .sub { color:var(--dim); margin:0 0 2rem; }
+  code { font-family: ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.88em; background:color-mix(in srgb, var(--ink) 7%, transparent); padding:.1em .35em; border-radius:3px; }
+  pre { background:color-mix(in srgb, var(--ink) 6%, transparent); padding:.9rem 1rem; border-radius:6px; overflow-x:auto; border:1px solid var(--line); }
+  pre code { background:none; padding:0; }
+  table { border-collapse:collapse; width:100%; margin:.8rem 0; }
+  th,td { text-align:left; padding:.5rem .7rem; border-bottom:1px solid var(--line); vertical-align:top; font-size:.92em; }
+  th { color:var(--dim); font-weight:600; font-size:.8em; text-transform:uppercase; letter-spacing:.05em; }
+  .wrap { overflow-x:auto; }
+  ul { padding-left:1.2rem; }
+  li { margin:.3rem 0; }
+  .step { border:1px solid var(--line); border-radius:8px; padding:1rem 1.2rem; margin:1rem 0; background:color-mix(in srgb, var(--ink) 2%, transparent); }
+  .step h3 { margin-top:0; }
+  .chip { display:inline-block; font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; padding:.15em .55em; border-radius:99px; border:1px solid var(--line); color:var(--dim); }
+  .note { border-left:3px solid var(--amber); padding:.6rem 0 .6rem 1rem; margin:1rem 0; color:var(--dim); }
+  .note strong { color:var(--ink); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Managed auth — local smoke test</h1>
+<p class="sub">Task slug <code>managed-auth-local-smoke</code> · branch <code>enable-managed-auth</code> · 2026-07-30</p>
+
+<p>Production was flipped to managed auth in <code>f3f7f85</code>, but the paths that flip
+turns on have <em>never</em> run against real credentials. This is a bounded, evidence-gathering
+run: stand up both processes locally with a real Clerk dev instance and a real OpenRouter
+provisioning key, then drive the browser through the whole funnel and record what actually
+happens.</p>
+
+<h2>Definition: what "smoke test" means here</h2>
+<p><strong>In this project, a managed-auth smoke test is a single human-path traversal —
+signed-out browser → signed-in → provisioned key → generated app rendering in the preview —
+performed against real Clerk and real OpenRouter, with evidence captured at each boundary
+the flag controls.</strong></p>
+<p>It explicitly is <em>not</em>:</p>
+<ul>
+  <li>a load, security, or penetration test;</li>
+  <li>a substitute for the 796 unit tests (already green) — those cover logic in isolation, this covers the seams between processes and third parties;</li>
+  <li>a production verification — localhost with a Clerk <em>dev</em> instance differs from the deployed pairing (see Risks);</li>
+  <li>a code-change task. Code changes are only in scope as <em>repairs</em> for defects this run surfaces.</li>
+</ul>
+
+<h2>Why this run exists</h2>
+<p><code>docs/managed-openrouter-migration-plan.md</code> marks these as unvalidated, needing real
+credentials. This run targets exactly them:</p>
+<ul>
+  <li>Phase 2 spike: the <strong>OAuth redirect round-trip</strong> — it leaves the origin and comes back, which a placeholder key cannot exercise.</li>
+  <li>Phase 2 spike: the <strong>managed agent loop</strong> — <code>/api/agent/step</code>, <code>web_search</code>, <code>web_fetch</code>, <code>web_post</code> have only ever seen fixtures.</li>
+  <li>Phase 1: lazy provisioning, <code>402 budget_exhausted</code>, <code>/api/me</code> budget accuracy, <code>or_key_enc</code> not stored in plaintext.</li>
+  <li>Phase 3: the friction test — landing → signed up → first app rendering, never seeing a key field, provider dropdown, or model name.</li>
+</ul>
+
+<h2>Constraints</h2>
+<table>
+  <tr><th>Constraint</th><th>Consequence for this run</th></tr>
+  <tr><td>Both flag halves required</td><td><code>isManagedAuthEnabled()</code> (<code>src/managed-auth.ts:16</code>) needs <code>VITE_MANAGED_AUTH=true</code> <em>and</em> a non-empty publishable key. A blank key silently falls back to BYOK — the run would pass while testing the wrong path. Step 1 must prove managed mode is actually on before anything else counts.</td></tr>
+  <tr><td>COOP <code>same-origin</code></td><td>Severs <code>window.opener</code>, so popup OAuth can never report back. The gate forces <code>oauthFlow: 'redirect'</code> (<code>src/managed-auth.ts:98</code>). Any popup-based sign-in attempt is a defect, not a workaround.</td></tr>
+  <tr><td>COEP <code>require-corp</code></td><td>Required for WebContainers. Vite dev sets the same headers (<code>vite.config.ts</code>), so local is a faithful stand-in. Zero external-origin requests is the bar the bundled <code>no-rhc</code> approach claims to meet.</td></tr>
+  <tr><td>Real money</td><td>The provisioning key mints real budgeted keys and agent calls bill real spend. Keep prompts small; record spend observed.</td></tr>
+  <tr><td>No webhook reachability</td><td>Clerk cannot deliver a webhook to localhost. <code>CLERK_WEBHOOK_SIGNING_SECRET</code> is deliberately unset, so the run exercises the <strong>lazy-provisioning fallback</strong> instead. Webhook-delivered provisioning stays unvalidated by this run — a stated gap, not a pass.</td></tr>
+  <tr><td>Secrets</td><td>Credentials live only in <code>.env.local</code> and <code>server/.env</code> (both gitignored — verified via <code>git check-ignore</code>). No key, token, or JWT is copied into these artifacts, commits, or memory. Evidence records <em>shape and prefix</em> only (e.g. "starts with <code>sk-or-v1-</code>", "does not start with <code>sk-or-</code>").</td></tr>
+</table>
+
+<h2>Non-goals</h2>
+<ul>
+  <li>Deleting the BYOK path (migration plan defers this to post-Phase-5 cleanup).</li>
+  <li>Clerk Billing / tier upgrades (Phase 4) — the run uses whatever tier a fresh user gets.</li>
+  <li>Validating the Render deploy or the <code>/api/*</code> rewrite in production.</li>
+  <li>Fixing pre-existing defects unrelated to the managed path.</li>
+</ul>
+
+<h2>Plan</h2>
+
+<div class="step">
+<h3>Step 1 — Both processes up, managed mode provably on <span class="chip">gate</span></h3>
+<p>Fill the two env files, start <code>server</code> (:3000) and <code>vite</code> (:5173).</p>
+<strong>Acceptance criteria</strong>
+<ul>
+  <li>AC1.1 <code>GET localhost:3000/api/health</code> → <code>200 {"ok":true}</code>.</li>
+  <li>AC1.2 <code>GET localhost:5173/api/health</code> → <code>200</code> — proves the Vite proxy stands in for the Render rewrite.</li>
+  <li>AC1.3 Server boots without throwing on <code>requireEnv</code>; log shows the PGlite data dir.</li>
+  <li>AC1.4 Server logs the expected <code>CLERK_WEBHOOK_SIGNING_SECRET not set</code> warning (confirms lazy-provisioning mode, not a misconfiguration).</li>
+  <li>AC1.5 <strong>Managed mode is on:</strong> in the browser console, <code>import.meta.env</code> equivalents resolve such that the sign-in gate — not the app — renders. A rendered app at this point means BYOK fallback and is a hard fail.</li>
+</ul>
+<p><strong>Evidence:</strong> curl status lines; server stdout excerpt; screenshot of the first paint.</p>
+</div>
+
+<div class="step">
+<h3>Step 2 — Boot gate and isolation <span class="chip">spike</span></h3>
+<p>Load <code>localhost:5173</code> in Chrome, signed out.</p>
+<strong>Acceptance criteria</strong>
+<ul>
+  <li>AC2.1 Clerk sign-in component renders inside the branded landing shell (not the Account Portal on another origin).</li>
+  <li>AC2.2 <code>crossOriginIsolated === true</code> in the console.</li>
+  <li>AC2.3 Zero CORP/COEP errors in the console during load and sign-in.</li>
+  <li>AC2.4 Network log shows <strong>no requests to external origins</strong> other than Clerk's own API — specifically none to a CDN for clerk-js/ui chunks.</li>
+  <li>AC2.5 The Gleam app, WebContainer boot, and IndexedDB access have <em>not</em> started (no WebContainer logs, no IndexedDB databases created).</li>
+</ul>
+<p><strong>Evidence:</strong> console snapshot, filtered network request list, screenshot.</p>
+</div>
+
+<div class="step">
+<h3>Step 3 — Sign in with the managed Clerk account <span class="chip">never validated</span></h3>
+<p>Complete sign-up/sign-in. If Google is enabled on the dev instance, prefer the OAuth path since the redirect round-trip is the specific unknown.</p>
+<strong>Acceptance criteria</strong>
+<ul>
+  <li>AC3.1 Sign-in completes and the gate's listener resolves (<code>[managed-auth] gate event</code> with a non-null user).</li>
+  <li>AC3.2 The redirect round-trip returns to <code>localhost:5173</code> in the <em>same tab</em> (no popup, no orphaned window) and the session survives it.</li>
+  <li>AC3.3 <code>window.Clerk.session.getToken()</code> returns a JWT (recorded as "present, three-segment", never pasted).</li>
+  <li>AC3.4 The sign-in component unmounts, the shell is removed, and the Gleam app mounts.</li>
+</ul>
+<p><strong>Evidence:</strong> console debug lines, screenshots before/after, token shape assertion.</p>
+</div>
+
+<div class="step">
+<h3>Step 4 — Lazy provisioning and budget display <span class="chip">never validated</span></h3>
+<p>First authenticated call triggers inline provisioning (no webhook in dev).</p>
+<strong>Acceptance criteria</strong>
+<ul>
+  <li>AC4.1 <code>GET /api/me</code> → 200 with <code>plan</code>, <code>model</code>, <code>limit</code>, <code>limitRemaining</code>.</li>
+  <li>AC4.2 A <code>users</code> row exists in PGlite for the Clerk user id.</li>
+  <li>AC4.3 <code>or_key_enc</code> does <strong>not</strong> start with <code>sk-or-</code> (encrypted at rest).</li>
+  <li>AC4.4 The OpenRouter dashboard / management API shows a newly minted key with the tier <code>limit</code> and <code>limit_reset: "monthly"</code>.</li>
+  <li>AC4.5 The account panel in the UI shows plan and remaining budget matching <code>/api/me</code> — and shows <strong>no</strong> key field, provider dropdown, or raw model id.</li>
+</ul>
+<p><strong>Evidence:</strong> response body with values redacted to shape; PGlite query output; management API listing; screenshot of the account panel.</p>
+</div>
+
+<div class="step">
+<h3>Step 5 — Full agent round-trip <span class="chip">never validated</span></h3>
+<p>Submit a small prompt and let the agent loop run to a rendered app.</p>
+<strong>Acceptance criteria</strong>
+<ul>
+  <li>AC5.1 <code>/api/agent</code> and/or <code>/api/agent/step</code> return 200 with the expected shape; the loop terminates rather than spinning.</li>
+  <li>AC5.2 A generated app renders in the preview iframe.</li>
+  <li>AC5.3 A WebContainer boots (install/serve output visible in the terminal pane) — i.e. COEP isolation survived sign-in.</li>
+  <li>AC5.4 <strong>No browser request goes to <code>openrouter.ai</code></strong> — only <code>/api/*</code> and Clerk.</li>
+  <li>AC5.5 Spend is attributed to <em>that user's</em> provisioned key, not the provisioning key (compare usage before/after).</li>
+  <li>AC5.6 At no point in the funnel did a key field, provider dropdown, or model name appear (the friction test).</li>
+</ul>
+<p><strong>Evidence:</strong> network log, preview screenshot, terminal excerpt, OpenRouter usage delta.</p>
+</div>
+
+<div class="step">
+<h3>Step 6 — Session lifecycle <span class="chip">stretch</span></h3>
+<p>Only if Steps 1–5 pass; these are the migration plan's remaining Phase 2 criteria.</p>
+<strong>Acceptance criteria</strong>
+<ul>
+  <li>AC6.1 A request issued after the ~60s token lifetime still succeeds (fresh <code>getToken()</code> per request).</li>
+  <li>AC6.2 Sign-out returns to the sign-in screen (the gate's listener reloads the page).</li>
+  <li>AC6.3 A replayed post-sign-out token against <code>/api/me</code> → <code>401</code>.</li>
+</ul>
+<p><strong>Evidence:</strong> timestamped request pair, screenshot, curl status.</p>
+</div>
+
+<h2>Validation commands</h2>
+<div class="wrap">
+<pre><code>curl -s -o /dev/null -w '%{http_code}\n' localhost:3000/api/health
+curl -s -o /dev/null -w '%{http_code}\n' localhost:5173/api/health
+npm test              # 197 gleam + 290 vitest   (baseline: green)
+cd server &amp;&amp; npm test  # 309 server              (baseline: green)</code></pre>
+</div>
+
+<h2>Definition of done</h2>
+<p>Steps 1–5 each have every acceptance criterion marked <code>pass</code> with recorded evidence,
+<em>or</em> a criterion is marked <code>fail</code> with a diagnosed root cause and either a repair
+landed or an explicit escalation. Step 6 is best-effort. The final report states plainly which of
+the migration plan's unvalidated criteria this run closed and which remain open — with webhook-
+delivered provisioning and production-instance OAuth named as still-unvalidated regardless of
+outcome.</p>
+
+<h2>Judge rubric</h2>
+<table>
+  <tr><th>Area</th><th>Judgment</th></tr>
+  <tr><td>Correctness</td><td>Does each criterion's evidence actually support the verdict, or was a pass inferred from an adjacent observation?</td></tr>
+  <tr><td>Path authenticity</td><td>Was managed mode provably on throughout? Any BYOK-fallback contamination invalidates the run.</td></tr>
+  <tr><td>Security/privacy</td><td>No secret, JWT, or raw key in artifacts, commits, or memory. Evidence records shape only.</td></tr>
+  <tr><td>Honesty of reporting</td><td>Are gaps (webhook, production instance, tier/billing) stated as gaps rather than quietly folded into "passed"?</td></tr>
+  <tr><td>Repair quality</td><td>If defects were found and fixed, is each fix minimal, idiomatic, and covered by a test that would have caught it?</td></tr>
+  <tr><td>Validation</td><td>Were the unit suites re-run after any repair?</td></tr>
+</table>
+<p class="note"><strong>Taste/originality</strong> applies only to UI or copy changes made as repairs
+(a broken sign-in surface, a bad error state). Pure verification work is not scored on taste.
+Threshold if it applies: below 4 triggers a repair loop.</p>
+
+<h2>Risks</h2>
+<table>
+  <tr><th>Risk</th><th>Handling</th></tr>
+  <tr><td>Blank publishable key → silent BYOK fallback → false pass</td><td>AC1.5 makes this a gate before any other step counts.</td></tr>
+  <tr><td>Dev instance ≠ production instance</td><td>Google OAuth on dev uses Clerk's shared credentials; production needs your own. A dev pass does not clear production — stated in the report.</td></tr>
+  <tr><td>Real spend on a real key</td><td>Small prompts; spend delta recorded; the provisioned key's own <code>limit</code> caps blast radius by design.</td></tr>
+  <tr><td>Runaway agent loop</td><td>AC5.1 requires termination; abort and diagnose rather than letting it spin.</td></tr>
+  <tr><td>Local PGlite state leaking between attempts</td><td><code>server/.data</code> is gitignored; note when it is cleared, since a stale row changes whether provisioning is lazy or a no-op.</td></tr>
+</table>
+
+</main>
+</body>
+</html>

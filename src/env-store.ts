@@ -1,23 +1,12 @@
-const DB_NAME = 'build-db'
-const DB_VERSION = 1
-const ENV_STORE = 'env-store'
+import { ENV_STORE, openBuildDb } from './projects'
 
-let dbPromise: Promise<IDBDatabase> | undefined
-
-function openDb(): Promise<IDBDatabase> {
-  dbPromise ??= new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION)
-    request.onupgradeneeded = () => {
-      const db = request.result
-      if (!db.objectStoreNames.contains(ENV_STORE)) {
-        db.createObjectStore(ENV_STORE, { keyPath: 'projectId' })
-      }
-    }
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(new Error('Failed to open env store'))
-  })
-  return dbPromise
-}
+/**
+ * The store is created by `openBuildDb` in `src/projects.ts`, which owns the
+ * `build-db` schema and its version. Opening the same database at a second
+ * version from here would throw on whichever handle opened second — which is
+ * exactly what this module used to do.
+ */
+const openDb = openBuildDb
 
 function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {

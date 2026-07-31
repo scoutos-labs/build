@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Progress — CI diagnostics and the deploy gate</title>
+<style>
+  :root { --ink:#12161c; --dim:#5b6673; --line:#e2e6eb; --bg:#fbfcfd; --amber:#b45309; --pass:#0f766e; --fail:#b91c1c; --wait:#6b7280; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#e7ebf0; --dim:#94a1b1; --line:#252c36; --bg:#0f1319; --amber:#f0a33a; --pass:#4dd4c0; --fail:#f87171; --wait:#8b95a3; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
+  main { max-width:60rem; margin:0 auto; padding:3rem 1.5rem 6rem; }
+  h1 { font-size:1.9rem; letter-spacing:-.02em; margin:0 0 .3rem; }
+  h2 { font-size:1.15rem; margin:2.6rem 0 .8rem; padding-bottom:.4rem; border-bottom:1px solid var(--line); }
+  h3 { font-size:1rem; margin:1.6rem 0 .5rem; }
+  .sub { color:var(--dim); margin:0 0 2rem; }
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.88em; background:color-mix(in srgb, var(--ink) 7%, transparent); padding:.1em .35em; border-radius:3px; }
+  pre { background:color-mix(in srgb, var(--ink) 6%, transparent); padding:.9rem 1rem; border-radius:6px; overflow-x:auto; border:1px solid var(--line); }
+  pre code { background:none; padding:0; }
+  table { border-collapse:collapse; width:100%; margin:.8rem 0; }
+  th,td { text-align:left; padding:.5rem .7rem; border-bottom:1px solid var(--line); vertical-align:top; font-size:.92em; }
+  th { color:var(--dim); font-weight:600; font-size:.8em; text-transform:uppercase; letter-spacing:.05em; }
+  .wrap { overflow-x:auto; }
+  .s { display:inline-block; font-size:.72rem; font-weight:600; text-transform:uppercase; letter-spacing:.06em; padding:.15em .6em; border-radius:99px; border:1px solid currentColor; }
+  .s-pass { color:var(--pass); } .s-fail { color:var(--fail); } .s-wait { color:var(--wait); }
+  .status-line { font-size:1.05rem; padding:.9rem 1.1rem; border:1px solid var(--line); border-left:3px solid var(--pass); border-radius:6px; background:color-mix(in srgb, var(--ink) 3%, transparent); }
+  ul { padding-left:1.2rem; } li { margin:.25rem 0; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Progress — CI diagnostics and the deploy gate</h1>
+<p class="sub">Task slug <code>ci-deploy-gate</code> · branch <code>ci-diagnostics-and-deploy-gate</code> · PRD: <a href="ci-deploy-gate-prd.html">ci-deploy-gate-prd.html</a></p>
+
+<p class="status-line"><strong>Status: <span class="s s-pass">complete</span></strong> — both holes
+closed. The artifact fix was verified <em>empirically</em>, by deliberately failing CI once and
+inspecting what came back, rather than trusting the documentation.</p>
+
+<h2>Investigation that led here</h2>
+<table>
+  <tr><th>Question</th><th>Answer</th><th>How</th></tr>
+  <tr><td>Was the smoke failure a real regression?</td><td><span class="s s-pass">no</span></td><td>Ran the smoke locally against the exact merged tree <strong>three times: 37/37 each</strong>. CI died around check 20.</td></tr>
+  <tr><td>Is this job known-flaky?</td><td><span class="s s-fail">no — first occurrence</span></td><td>Every prior CI failure in the repo was a different job (<code>server</code>, module resolution, 2026-07-28). The smoke job had never failed.</td></tr>
+  <tr><td>What actually killed it?</td><td><span class="s s-wait">unproven</span></td><td>Chrome renderer crash (<code>page.waitForTimeout: Page crashed</code>). Plausible mechanism: video at <code>deviceScaleFactor: 2</code> (2880×1800 frames) plus an in-page WebContainer on a 2-core runner. <strong>Stated as a hypothesis, not a finding.</strong></td></tr>
+  <tr><td>Why can't we say more?</td><td><span class="s s-fail">the artifact was empty</span></td><td>247 bytes containing only <code>vite.log</code>. That is the defect this task fixes.</td></tr>
+</table>
+
+<h2>Root causes, verified against primary sources</h2>
+<table>
+  <tr><th></th><th>Cause</th><th>Citation</th></tr>
+  <tr>
+    <td>A</td>
+    <td><code>upload-artifact@v4</code> excludes hidden paths by default; <code>include-hidden-files</code> defaults to <code>false</code>. Hidden means any file beginning with <code>.</code> <em>or inside a directory beginning with</em> <code>.</code> — so all of <code>scripts/.smoke/</code>.</td>
+    <td>Action documentation: "By default, hidden files are ignored by this action to avoid unintentionally uploading sensitive information."</td>
+  </tr>
+  <tr>
+    <td>B</td>
+    <td>Render's blueprint defaults to deploy-on-commit; neither service declared a trigger.</td>
+    <td>Blueprint spec: <code>autoDeployTrigger</code> accepts <code>commit</code>, <code>checksPass</code> ("Trigger a deploy only if the linked branch's CI checks pass"), <code>off</code>. Supersedes the deprecated <code>autoDeploy</code> boolean.</td>
+  </tr>
+</table>
+<p>The theory predicted the observation exactly: <code>/tmp/vite.log</code> is not hidden and
+survived; everything under the dot-directory did not. That match is what moved this from guess to
+diagnosis.</p>
+
+<h2>Step checklist</h2>
+<table>
+  <tr><th>Step</th><th>Status</th><th>Criteria</th></tr>
+  <tr><td>1 — failure artifact carries its evidence</td><td><span class="s s-pass">pass</span></td><td>5/5</td></tr>
+  <tr><td>2 — gate the production deploy on CI</td><td><span class="s s-pass">pass</span></td><td>5/5 (one config-verified only — see AC2.5)</td></tr>
+  <tr><td>3 — validate and ship</td><td><span class="s s-pass">pass</span></td><td>4/4</td></tr>
+</table>
+
+<h2>Step 1 — evidence</h2>
+<table>
+  <tr><th>AC</th><th>Verdict</th><th>Evidence</th></tr>
+  <tr><td>1.1 flag set</td><td><span class="s s-pass">pass</span></td><td>Parsed the workflow: <code>include-hidden-files: True</code></td></tr>
+  <tr><td>1.2 path not broadened</td><td><span class="s s-pass">pass</span></td><td>Parsed value still <code>scripts/.smoke/**\n/tmp/vite.log</code> — scoped, not a bare <code>**</code></td></tr>
+  <tr><td>1.3 comment explains why</td><td><span class="s s-pass">pass</span></td><td>Names the dot-directory rule and the 247-byte artifact it caused</td></tr>
+  <tr><td>1.4 contents audited</td><td><span class="s s-pass">pass</span></td><td>Only <code>apiKey: 'sk-test'</code> and <code>apiKey: ''</code> appear in the smokes; CI runs <code>VITE_MANAGED_AUTH=false</code>, so no Clerk session and no real key can render. 46 files / ~10 MB.</td></tr>
+  <tr><td>1.5 valid YAML + green CI</td><td><span class="s s-pass">pass</span></td><td>Parses; CI green on the final branch state</td></tr>
+</table>
+
+<h3>Empirical proof, not just configuration</h3>
+<p>Asserting the flag is set is not the same as proving the artifact works — the entire lesson of the
+preceding session was that a thing can look correct and be wrong. So the fix was tested for real: a
+throwaway commit added a <code>TEMP force a failure</code> step immediately after the smoke scripts,
+so they would run to completion and <em>then</em> fail, triggering the <code>if: failure()</code>
+upload. The resulting artifact was downloaded and inspected, then the commit was dropped from the
+branch by reset and force-push, leaving a clean history.</p>
+<div class="wrap">
+<table>
+  <tr><th>Artifact</th><th>Before — run on <code>922717f</code></th><th>After — forced-failure run <code>30592790179</code></th></tr>
+  <tr><td>size</td><td>247 bytes</td><td><strong>8,934,307 bytes</strong> (~8.9 MB)</td></tr>
+  <tr><td>files</td><td>1 — <code>tmp/vite.log</code></td><td><strong>30</strong></td></tr>
+  <tr><td>screenshots</td><td><strong>0</strong></td><td><strong>26</strong></td></tr>
+  <tr><td>videos</td><td><strong>0</strong></td><td><strong>3</strong> (<code>.webm</code>, one per smoke script)</td></tr>
+  <tr><td>coverage</td><td>none</td><td>all three smokes: <code>agent-harness/</code>, <code>interview/</code>, <code>layout-modes/</code></td></tr>
+</table>
+</div>
+<p>A screenshot from the recovered artifact was opened and inspected. It shows the app mid-turn
+("Working… / Listed 13 files") with <strong>no credential anywhere on screen</strong> — confirming the
+security audit against rendered output, not merely against the source that generates it. It is also
+exactly the class of evidence that was missing for <code>922717f</code>: had this been captured then,
+the frame at crash time would have been available.</p>
+
+<h2>Step 2 — evidence</h2>
+<table>
+  <tr><th>AC</th><th>Verdict</th><th>Evidence</th></tr>
+  <tr><td>2.1 both services gated</td><td><span class="s s-pass">pass</span></td><td>Parsed: <code>build → checksPass</code>, <code>hyper-build-api → checksPass</code></td></tr>
+  <tr><td>2.2 spec-valid, not deprecated</td><td><span class="s s-pass">pass</span></td><td><code>autoDeploy</code> absent from both services; value is one of the three the spec allows</td></tr>
+  <tr><td>2.3 escape hatch documented</td><td><span class="s s-pass">pass</span></td><td>Comment names manual deploy from the Render dashboard, so a red main cannot strand a hotfix</td></tr>
+  <tr><td>2.4 valid YAML</td><td><span class="s s-pass">pass</span></td><td><code>render.yaml -&gt; parses OK</code></td></tr>
+  <tr><td>2.5 limits stated</td><td><span class="s s-pass">pass</span></td><td><strong>Verified as configuration, not as observed behaviour.</strong> Taking effect requires a Render blueprint sync; that cannot be confirmed from this repo. Dashboard check required — see follow-ups.</td></tr>
+</table>
+
+<h2>Step 3 — evidence</h2>
+<table>
+  <tr><th>AC</th><th>Verdict</th><th>Evidence</th></tr>
+  <tr><td>3.1 both parse</td><td><span class="s s-pass">pass</span></td><td>Python <code>yaml.safe_load</code> on both files</td></tr>
+  <tr><td>3.2 suite unaffected</td><td><span class="s s-pass">pass</span></td><td>197 gleam + 304 vitest, unchanged</td></tr>
+  <tr><td>3.3 CI green on PR</td><td><span class="s s-pass">pass</span></td><td>Final branch state, after the temp commit was dropped</td></tr>
+  <tr><td>3.4 no app source touched</td><td><span class="s s-pass">pass</span></td><td><code>git diff --name-only</code> matches nothing under <code>src/</code> or <code>server/</code> — 2 config files, +22 lines</td></tr>
+</table>
+
+<h2>Inline judge review</h2>
+<p class="sub">No subagents (session policy); judge role performed inline against the PRD rubric.</p>
+<table>
+  <tr><th>Area</th><th>Verdict</th><th>Note</th></tr>
+  <tr><td>Correctness</td><td><span class="s s-pass">pass</span></td><td>Both causes verified against primary docs, then A verified empirically. The predicted-vs-observed match (non-hidden file survived, hidden tree did not) is what makes the diagnosis more than plausible.</td></tr>
+  <tr><td>Security</td><td><span class="s s-pass">pass</span></td><td>Audited before enabling, per the action's own warning. Path stays scoped; only fake credentials exist in the smokes.</td></tr>
+  <tr><td>Restraint</td><td><span class="s s-pass">pass</span></td><td>The renderer crash was deliberately left alone. Tuning it would have been guessing, and could mask recurrence.</td></tr>
+  <tr><td>Operability</td><td><span class="s s-pass">pass</span></td><td>Escape hatch documented in the file a reader hits when the gate blocks them.</td></tr>
+  <tr><td>Taste</td><td><strong>4</strong>/5</td><td>Comments match the repo's narrative CI voice ("The merge gate. Until now there was none") and explain rationale over mechanics. Not a 5 because the change is inherently two config lines — there is little room for craft beyond saying why.</td></tr>
+  <tr><td>Honesty</td><td><span class="s s-pass">pass</span></td><td>The Render half is labelled config-verified rather than reported as working; the crash cause is labelled a hypothesis.</td></tr>
+</table>
+
+<h2>Files changed</h2>
+<ul>
+  <li><code>.github/workflows/check.yml</code> — <code>include-hidden-files: true</code> + rationale</li>
+  <li><code>render.yaml</code> — <code>autoDeployTrigger: checksPass</code> on both services + escape hatch</li>
+  <li><code>docs/ci-deploy-gate-{prd,progress}.html</code> — these artifacts</li>
+</ul>
+
+<h2>Residual risks and follow-ups</h2>
+<ul>
+  <li><strong>Render blueprint sync is unconfirmed.</strong> Worth checking in the dashboard that both services show "deploy on CI pass" after this merges. Until then the gate is declared, not proven.</li>
+  <li><strong>The renderer crash is still unexplained</strong>, and may recur. That is the accepted outcome — the next occurrence now arrives with screenshots and video attached.</li>
+  <li><strong><code>checksPass</code> makes CI a dependency of shipping.</strong> A stuck or misconfigured workflow now blocks deploys. The manual-deploy hatch is the mitigation.</li>
+  <li><strong>Unrelated, still open:</strong> F3 from the smoke test — provisioning is not idempotent across an empty <code>users</code> table, leaving orphaned OpenRouter keys. Needs a product decision.</li>
+</ul>
+
+<h2>Handoff log</h2>
+<div class="wrap">
+<pre><code>2026-07-30  begin         ci-deploy-gate  step 0  investigate why CI didn't complete on 922717f
+2026-07-30  finding       ci-deploy-gate  step 0  not a regression: 37/37 locally x3; smoke job had
+                                                   never failed before in this repo
+2026-07-30  root-cause    ci-deploy-gate  step 0  A: upload-artifact skips dot-dirs by default
+                                                   B: render defaults to deploy-on-commit
+2026-07-30  plan-approved ci-deploy-gate  step 0  inline plan review; crash-chasing ruled a non-goal
+2026-07-30  step-1-done   ci-deploy-gate  step 1  include-hidden-files: true; contents audited
+2026-07-30  step-2-done   ci-deploy-gate  step 2  autoDeployTrigger: checksPass on both services
+2026-07-30  step-3-done   ci-deploy-gate  step 3  yaml parses; 501 tests unaffected; config-only diff
+</code></pre>
+</div>
+
+</main>
+</body>
+</html>

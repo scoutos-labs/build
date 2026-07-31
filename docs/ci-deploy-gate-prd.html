@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PRD — CI diagnostics and the deploy gate</title>
+<style>
+  :root { --ink:#12161c; --dim:#5b6673; --line:#e2e6eb; --bg:#fbfcfd; --amber:#b45309; --pass:#0f766e; --fail:#b91c1c; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#e7ebf0; --dim:#94a1b1; --line:#252c36; --bg:#0f1319; --amber:#f0a33a; --pass:#4dd4c0; --fail:#f87171; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
+  main { max-width:60rem; margin:0 auto; padding:3rem 1.5rem 6rem; }
+  h1 { font-size:1.9rem; letter-spacing:-.02em; margin:0 0 .3rem; }
+  h2 { font-size:1.15rem; margin:2.6rem 0 .8rem; padding-bottom:.4rem; border-bottom:1px solid var(--line); }
+  h3 { font-size:1rem; margin:1.8rem 0 .5rem; }
+  .sub { color:var(--dim); margin:0 0 2rem; }
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.88em; background:color-mix(in srgb, var(--ink) 7%, transparent); padding:.1em .35em; border-radius:3px; }
+  pre { background:color-mix(in srgb, var(--ink) 6%, transparent); padding:.9rem 1rem; border-radius:6px; overflow-x:auto; border:1px solid var(--line); }
+  pre code { background:none; padding:0; }
+  table { border-collapse:collapse; width:100%; margin:.8rem 0; }
+  th,td { text-align:left; padding:.5rem .7rem; border-bottom:1px solid var(--line); vertical-align:top; font-size:.92em; }
+  th { color:var(--dim); font-weight:600; font-size:.8em; text-transform:uppercase; letter-spacing:.05em; }
+  .wrap { overflow-x:auto; }
+  ul { padding-left:1.2rem; } li { margin:.3rem 0; }
+  .step { border:1px solid var(--line); border-radius:8px; padding:1rem 1.2rem; margin:1rem 0; background:color-mix(in srgb, var(--ink) 2%, transparent); }
+  .step h3 { margin-top:0; }
+  .note { border-left:3px solid var(--amber); padding:.6rem 0 .6rem 1rem; margin:1rem 0; color:var(--dim); }
+  .note strong { color:var(--ink); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>CI diagnostics and the deploy gate</h1>
+<p class="sub">Task slug <code>ci-deploy-gate</code> · branch <code>ci-diagnostics-and-deploy-gate</code> · 2026-07-30 · follow-up to the smoke failure on merge commit <code>922717f</code></p>
+
+<h2>Definition</h2>
+<p><strong>In this repo, "the merge gate" means CI that can both <em>block a bad change</em> and
+<em>explain a failure after the fact</em>.</strong> The gate added in <code>3b3ecab</code> delivers
+the first half only. This task closes the two holes that the <code>922717f</code> smoke failure
+exposed — one in each half.</p>
+
+<h2>What happened, and what it revealed</h2>
+<p>The merge of PR #39 turned <code>main</code> red: the <code>smoke (real browser)</code> job died
+with <code>page.waitForTimeout: Page crashed</code> after every assertion had already passed. A
+re-run went green, and the same tree passes locally 37/37 across three consecutive runs — so the
+crash is environment-specific to the runner, not a code regression.</p>
+<p>Two structural problems surfaced, neither of which is the crash itself:</p>
+<table>
+  <tr><th>#</th><th>Hole</th><th>Consequence</th></tr>
+  <tr>
+    <td>A</td>
+    <td>The failure artifact silently discards every screenshot and the video.</td>
+    <td>A smoke failure is <strong>undiagnosable</strong>. The artifact from <code>922717f</code> was 247 bytes containing only <code>vite.log</code>.</td>
+  </tr>
+  <tr>
+    <td>B</td>
+    <td>Render auto-deploys <code>main</code> on commit, independent of CI.</td>
+    <td>This deploy went to <strong>production while the gate was red</strong>. The gate protects the PR path but nothing downstream of the merge.</td>
+  </tr>
+</table>
+
+<h2>Root causes (verified, not assumed)</h2>
+
+<h3>A — <code>actions/upload-artifact@v4</code> excludes hidden paths by default</h3>
+<p>From the action's own documentation: <em>"By default, hidden files are ignored by this action to
+avoid unintentionally uploading sensitive information,"</em> where hidden means <em>"any file
+beginning with <code>.</code> or files within directories beginning with <code>.</code>."</em> The
+<code>include-hidden-files</code> input defaults to <code>false</code>.</p>
+<p>The workflow uploads <code>scripts/.smoke/**</code> — a dot-directory, therefore entirely
+filtered out — alongside <code>/tmp/vite.log</code>, which is not hidden. That predicts exactly the
+artifact we received: <code>vite.log</code> and nothing else. The screenshots demonstrably existed;
+the job log printed each path as it was written.</p>
+
+<h3>B — Render's blueprint defaults to deploy-on-commit</h3>
+<p>Neither service in <code>render.yaml</code> sets a deploy trigger, so both take the default
+(deploy on every commit to the linked branch). Render's blueprint spec supports
+<code>autoDeployTrigger</code> with three values — <code>commit</code>, <code>checksPass</code>
+("Trigger a deploy only if the linked branch's CI checks pass"), and <code>off</code>. The field
+supersedes the deprecated <code>autoDeploy</code> boolean.</p>
+
+<h2>Goals</h2>
+<ul>
+  <li>A failing smoke job uploads its screenshots and video, so the next failure is diagnosable.</li>
+  <li>Production does not deploy from a red <code>main</code>.</li>
+  <li>Both changes are declarative in files already in the repo — no new dashboard-only state, no new secrets.</li>
+</ul>
+
+<h2>Non-goals</h2>
+<ul>
+  <li><strong>Chasing the renderer crash.</strong> Its cause is unproven and not reproducible locally. Tuning <code>deviceScaleFactor</code> or disabling video would be guessing, and could mask the crash rather than fix it. The correct sequence is to fix the evidence pipeline first and let the next occurrence speak.</li>
+  <li>Retry/rerun logic for flaky jobs — that hides signal, and one occurrence is not a pattern.</li>
+  <li>Changing what the smoke scripts assert.</li>
+</ul>
+
+<h2>Constraints</h2>
+<table>
+  <tr><th>Constraint</th><th>Consequence</th></tr>
+  <tr>
+    <td><strong>Enabling hidden-file upload has a security warning attached</strong></td>
+    <td>The action advises validating contents first. Audited: the smokes inject only <code>apiKey: 'sk-test'</code> and <code>apiKey: ''</code>, and CI runs with <code>VITE_MANAGED_AUTH=false</code>, so no Clerk session and no real key ever renders. 46 files / ~10 MB, 7-day retention. The path stays scoped to <code>scripts/.smoke/**</code> — it does not broaden to a bare <code>**</code>.</td>
+  </tr>
+  <tr>
+    <td><strong><code>checksPass</code> makes CI a hard dependency of deploying</strong></td>
+    <td>A red or stuck <code>main</code> now blocks production deploys, including hotfixes. That is the intent, but it needs a documented escape hatch (manual deploy from the Render dashboard) or it becomes a footgun during an incident.</td>
+  </tr>
+  <tr>
+    <td><strong>Checks must actually report on <code>main</code></strong></td>
+    <td><code>check.yml</code> runs <code>on: push: branches: [main]</code>, so every commit to main produces checks. If that ever changed, <code>checksPass</code> could stall deploys indefinitely.</td>
+  </tr>
+  <tr>
+    <td><strong>Blueprint changes need a sync</strong></td>
+    <td><code>render.yaml</code> edits take effect when Render syncs the blueprint. The setting cannot be verified from this repo alone — dashboard confirmation is required and is called out as such rather than claimed.</td>
+  </tr>
+  <tr><td><strong>No subagents</strong></td><td>Session policy; planner and judge roles performed inline against the same rubric.</td></tr>
+</table>
+
+<h2>Plan</h2>
+
+<div class="step">
+<h3>Step 1 — make the failure artifact carry its evidence</h3>
+<p>Add <code>include-hidden-files: true</code> to the smoke job's upload step, with a comment naming
+why it is needed (otherwise the next person deletes it as noise).</p>
+<strong>Acceptance criteria</strong>
+<ul>
+  <li>AC1.1 The upload step sets <code>include-hidden-files: true</code>.</li>
+  <li>AC1.2 The <code>path:</code> list is unchanged — still scoped to <code>scripts/.smoke/**</code> and <code>/tmp/vite.log</code>, not broadened.</li>
+  <li>AC1.3 A comment explains the hidden-directory rule, so the line survives future edits.</li>
+  <li>AC1.4 Contents audited for secrets, with the finding recorded (done: fake keys only).</li>
+  <li>AC1.5 The workflow remains valid YAML and CI runs green on the PR.</li>
+</ul>
+<p><strong>Evidence:</strong> diff; YAML parse; a green CI run on the PR.</p>
+</div>
+
+<div class="step">
+<h3>Step 2 — gate the production deploy on CI</h3>
+<p>Set <code>autoDeployTrigger: checksPass</code> on both services in <code>render.yaml</code>, with a
+comment recording why and how to override during an incident.</p>
+<strong>Acceptance criteria</strong>
+<ul>
+  <li>AC2.1 Both <code>build</code> and <code>hyper-build-api</code> declare <code>autoDeployTrigger: checksPass</code>.</li>
+  <li>AC2.2 The value is one of the three the spec allows; the deprecated <code>autoDeploy</code> boolean is not used.</li>
+  <li>AC2.3 A comment documents the escape hatch — a manual deploy from the Render dashboard — so a red <code>main</code> cannot strand a hotfix.</li>
+  <li>AC2.4 <code>render.yaml</code> remains valid YAML.</li>
+  <li>AC2.5 The limits of verification are stated honestly: taking effect requires a Render blueprint sync, which cannot be confirmed from the repo.</li>
+</ul>
+<p><strong>Evidence:</strong> diff; YAML parse; spec citation.</p>
+</div>
+
+<div class="step">
+<h3>Step 3 — validate and ship</h3>
+<strong>Acceptance criteria</strong>
+<ul>
+  <li>AC3.1 Both files parse as YAML.</li>
+  <li>AC3.2 The full suite is unaffected — 810 tests still green (this task touches no application code).</li>
+  <li>AC3.3 CI passes on the PR, including the smoke job.</li>
+  <li>AC3.4 No application source file is modified by this task.</li>
+</ul>
+<p><strong>Evidence:</strong> parse output; suite output; PR check results; <code>git diff --stat</code>.</p>
+</div>
+
+<h2>Validation commands</h2>
+<div class="wrap">
+<pre><code>node -e "require('yaml')" 2&gt;/dev/null || python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/check.yml')); yaml.safe_load(open('render.yaml')); print('both parse')"
+npm test               # unaffected; 197 gleam + 304 vitest
+git diff --stat        # expect only .github/workflows/check.yml, render.yaml, docs/
+</code></pre>
+</div>
+
+<h2>Definition of done</h2>
+<p>The smoke job's failure artifact would contain the screenshots and video; both Render services
+declare <code>checksPass</code>; both files parse; CI is green on the PR; no application code
+touched. The report states plainly that the Render side is verified <em>as configuration</em>, not
+as observed behaviour, and names the dashboard check needed to close that gap.</p>
+
+<h2>Judge rubric</h2>
+<table>
+  <tr><th>Area</th><th>Judgment</th></tr>
+  <tr><td>Correctness</td><td>Do the two changes actually address the diagnosed causes, each verified against primary documentation rather than assumed?</td></tr>
+  <tr><td>Security</td><td>Was the hidden-file upload audited before enabling, per the action's own warning? Is the path still scoped?</td></tr>
+  <tr><td>Restraint</td><td>Does the change resist "fixing" the unproven crash?</td></tr>
+  <tr><td>Operability</td><td>Does the deploy gate come with an escape hatch, or does it strand hotfixes during an incident?</td></tr>
+  <tr><td>Taste</td><td>Do the comments explain <em>why</em> in this repo's established voice — the existing <code>render.yaml</code> and <code>check.yml</code> comments are unusually narrative and explain rationale, not mechanics.</td></tr>
+  <tr><td>Honesty</td><td>Is the unverifiable part (blueprint sync) labelled as such rather than reported as done?</td></tr>
+</table>
+<p>Taste threshold: below 4 triggers a repair loop. This repo's CI and blueprint comments carry real
+authorial voice ("The merge gate." / "Until now there was none"), so a bland comment here would be a
+regression in fit.</p>
+
+<h2>Risks</h2>
+<table>
+  <tr><th>Risk</th><th>Handling</th></tr>
+  <tr><td>Hidden-file upload leaks a secret</td><td>Audited before enabling; only fake keys present; path stays scoped; 7-day retention.</td></tr>
+  <tr><td><code>checksPass</code> strands a hotfix behind red CI</td><td>Documented escape hatch in the comment (manual deploy). Accepted trade: a red gate blocking a deploy is the feature.</td></tr>
+  <tr><td>Blueprint sync does not apply the field</td><td>Explicitly flagged for dashboard confirmation; not claimed as verified.</td></tr>
+  <tr><td>The renderer crash recurs</td><td>Expected and acceptable — the point of Step 1 is that the next one arrives with evidence attached.</td></tr>
+</table>
+
+</main>
+</body>
+</html>

@@ -2,6 +2,14 @@ services:
   - type: web
     name: build
     runtime: static
+    # Deploy only from a green main. The merge gate added in 3b3ecab guards the
+    # PR path, but nothing guarded what happens after the merge: PR #39 shipped
+    # to production while main's smoke job was still red. Auto-deploy defaults
+    # to every commit, so CI and the deploy were racing rather than ordered.
+    #
+    # ESCAPE HATCH: a red or stuck main now blocks deploys, hotfixes included.
+    # Deploy manually from the Render dashboard when you need to go around it.
+    autoDeployTrigger: checksPass
     envVars:
       - key: GLEAM_VERSION
         value: 1.16.0
@@ -62,6 +70,10 @@ services:
   - type: web
     name: hyper-build-api
     runtime: node
+    # Same gate as the static site — see the comment there. It matters more
+    # here: this service holds the users table and the provisioned keys, so a
+    # bad deploy costs more than a bad page.
+    autoDeployTrigger: checksPass
     # Disks require a paid instance; previews stay off for this service (PR
     # previews of the frontend point at this production API, which is inert
     # until VITE_MANAGED_AUTH is on).

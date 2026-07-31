@@ -137,6 +137,16 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: smoke-output
+          # scripts/.smoke is a dot-directory, and this action skips anything
+          # under one unless told otherwise. Without this the artifact uploaded
+          # vite.log and silently dropped every screenshot and the video — 247
+          # bytes claiming to explain a failure. That is how the renderer crash
+          # on 922717f ended up undiagnosable.
+          #
+          # Safe to enable here because the path stays scoped to scripts/.smoke:
+          # the smokes run with VITE_MANAGED_AUTH=false and inject only
+          # apiKey: 'sk-test', so no real credential is ever on screen.
+          include-hidden-files: true
           path: |
             scripts/.smoke/**
             /tmp/vite.log
